@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Regras fiscais — Catálogo Online</title>
+<!-- `theme-boot` ANTES do CSS: ele fixa o tema (claro/escuro) no <html> antes
+     da primeira pintura. Depois da folha, a tela pisca no tema errado por um
+     quadro — foi o que o D1 do test-tema-global pegou. -->
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/app-modern.css">
+<link rel="stylesheet" href="/css/sidebar.css">
+<style>
+.campo { display: flex; flex-direction: column; gap: 5px; }
+.campo label { font-size: .84em; font-weight: 600; color: var(--text-2); }
+.campo select {
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--bg-0); color: var(--text-1); font-family: inherit;
+  /* 16px: abaixo disto o iOS dá zoom ao focar, e a tela salta. */
+  font-size: 16px; min-height: 44px; width: 100%;
+}
+.campo .dica { font-size: .78em; color: var(--text-3); }
+
+/* O que a natureza escolhida DECIDE. Lido do servidor a cada troca, nunca
+   guardado aqui: é a natureza que manda, e esta linha só mostra o que ela diz. */
+.efeitos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.efeito { display: inline-flex; align-items: center; gap: 6px; font-size: .82em;
+  padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--bg-1); color: var(--text-2); }
+.efeito b { font-weight: 600; }
+.efeito.sim { border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--text-1); }
+.efeitos-vazio { font-size: .82em; color: var(--text-3); margin-top: 10px; }
+
+.nota { border-left: 3px solid var(--border); padding: 2px 0 2px 12px;
+  margin: 12px 0 0; font-size: .85em; color: var(--text-2); line-height: 1.5; }
+.nota strong { color: var(--text-1); }
+
+@media (max-width: 640px) {
+  /* Os botões do cabeçalho herdam 40px do `.btn` global. No celular o alvo
+     mínimo é 44px, e subir aqui não mexe no resto do ERP. */
+  .page-header .btn { min-height: 44px; }
+  .page-header .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Regras fiscais</h1>
+      <small>A natureza de operação com que os pedidos do catálogo entram no ERP</small>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn btn-secondary" onclick="location.href='/catalogo/catalogo-online.html'">
+        ← Catálogo Online</button>
+      <button type="button" class="btn btn-primary" id="btSalvar" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="card">
+    <h3 class="card-title">Pedidos do catálogo</h3>
+    <div class="campo">
+      <label for="natPedido">Natureza de operação</label>
+      <select id="natPedido" onchange="pintarEfeitos()">
+        <option value="">Selecione uma natureza</option>
+      </select>
+      <span class="dica">Esta natureza determina as regras fiscais, financeiras e de
+        estoque dos pedidos recebidos pelo catálogo.</span>
+    </div>
+    <div id="efeitosPedido" class="efeitos"></div>
+    <p class="nota">Enquanto nenhuma natureza estiver escolhida, o catálogo
+      <strong>não aceita pedidos</strong>. O visitante recebe um aviso pedindo que
+      entre em contato com a loja.</p>
+  </div>
+
+  <div class="card">
+    <h3 class="card-title">Configuração de NFC-e</h3>
+    <div class="campo">
+      <label for="natNfce">Natureza para NFC-e</label>
+      <select id="natNfce" onchange="pintarEfeitos()">
+        <option value="">Selecione uma natureza</option>
+      </select>
+      <span class="dica">Somente naturezas que emitem documento fiscal aparecem aqui.</span>
+    </div>
+    <div id="efeitosNfce" class="efeitos"></div>
+    <p class="nota">A emissão de NFC-e pelo catálogo <strong>será habilitada em uma
+      próxima etapa</strong>. O que se guarda aqui é a escolha; nada é emitido, e o
+      PDV continua com a natureza dele, configurada em PDV · Configurações.</p>
+  </div>
+
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('loja');</script>
+<script>
+/**
+ * Regras fiscais do Catálogo Online.
+ *
+ * A tela guarda DUAS REFERÊNCIAS e nada mais. `emiteNFe`, `geraFinanceiro`,
+ * `movimentaEstoque`, CFOP e impostos continuam morando na natureza escolhida —
+ * aqui eles só são LIDOS, para a tela poder dizer em português o que a escolha
+ * faz. Copiá-los criaria uma segunda verdade que envelheceria no dia em que
+ * alguém editasse a natureza.
+ *
+ * O select é fechado de propósito: as opções vêm de `GET /api/loja/config`, que
+ * as lê de `tipos_operacao`. Não há campo livre, e o servidor revalida o id de
+ * qualquer forma — a lista da tela é conveniência, não é a garantia.
+ */
+const $ = (id) => document.getElementById(id);
+let NATUREZAS = [];
+
+function showAlert(msg, tipo = 'success') {
+  const e = $('alertGlobal');
+  e.className = 'alert ' + tipo;
+  e.textContent = msg;
+  e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 6000);
+}
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!r.ok || d.success === false) throw new Error(d.error || ('HTTP ' + r.status));
+  return d;
+}
+
+function opcoes(select, lista, selecionado) {
+  select.innerHTML = '<option value="">Selecione uma natureza</option>'
+    + lista.map((n) => `<option value="${n.id}">${n.codigo} — ${n.descricao || ''}</option>`).join('');
+  select.value = selecionado == null ? '' : String(selecionado);
+}
+
+/* Mostra o que a natureza escolhida decide. Três perguntas, nesta ordem, que
+   são as que mudam a vida do lojista: sai nota? entra no financeiro? mexe no
+   estoque? */
+function pintarEfeitos() {
+  for (const [selectId, alvoId] of [['natPedido', 'efeitosPedido'], ['natNfce', 'efeitosNfce']]) {
+    const alvo = $(alvoId);
+    const n = NATUREZAS.find((x) => String(x.id) === $(selectId).value);
+    if (!n) {
+      alvo.className = 'efeitos-vazio';
+      alvo.textContent = 'Escolha uma natureza para ver o que ela determina.';
+      continue;
+    }
+    alvo.className = 'efeitos';
+    const selo = (ligado, texto) =>
+      `<span class="efeito ${ligado ? 'sim' : ''}"><b>${ligado ? 'Sim' : 'Não'}</b> ${texto}</span>`;
+    alvo.innerHTML = selo(n.emiteNFe, 'emite documento fiscal')
+      + selo(n.geraFinanceiro, 'gera conta a receber')
+      + selo(n.movimentaEstoque, 'movimenta estoque');
+  }
+}
+
+async function carregar() {
+  try {
+    const d = await api('/api/loja/config');
+    const c = d.config || {};
+    NATUREZAS = d.naturezas || [];
+    if (!NATUREZAS.length) {
+      showAlert('Nenhuma natureza de operação cadastrada nesta empresa. '
+        + 'Cadastre em Fiscal · Naturezas de operação antes de configurar o catálogo.', 'error');
+    }
+    // O pedido aceita qualquer natureza de saída; a NFC-e só as que emitem.
+    opcoes($('natPedido'), NATUREZAS.filter((n) => n.usarEmPedido), c.tipoOperacaoPedidoId);
+    opcoes($('natNfce'), NATUREZAS.filter((n) => n.emiteNFe), c.tipoOperacaoNfceId);
+    pintarEfeitos();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function salvar() {
+  const bt = $('btSalvar');
+  bt.disabled = true;
+  try {
+    /* Manda os dois campos sempre, inclusive vazios: vazio é como o lojista
+       desfaz a escolha, e a rota preserva o que não recebe. */
+    await api('/api/loja/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tipoOperacaoPedidoId: $('natPedido').value || null,
+        tipoOperacaoNfceId: $('natNfce').value || null,
+      }),
+    });
+    showAlert('Regras fiscais salvas.');
+  } catch (e) { showAlert(e.message, 'error'); }
+  finally { bt.disabled = false; }
+}
+
+carregar();
+</script>
+</body>
+</html>

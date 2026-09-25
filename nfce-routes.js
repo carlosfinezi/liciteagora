@@ -52,6 +52,48 @@ function naturezaDoPdv(db) {
   return db.prepare('SELECT * FROM tipos_operacao WHERE id = ?').get(cfg.pdvTipoOperacaoId) || null;
 }
 
+/**
+ * A natureza desta emissão: a informada por quem chamou, ou a do PDV.
+ *
+ * O `db` é o do TENANT da requisição, então buscar o id dentro dele é o que
+ * garante o isolamento: um id de outro tenant simplesmente não existe aqui e a
+ * emissão para. Não há caminho em que a natureza venha pronta de fora.
+ *
+ * Omitir `tipoOperacaoId` é o caminho de sempre, e é por isso que PDV e
+ * restaurante não mudam de comportamento: os dois não informam nada e continuam
+ * caindo no `naturezaDoPdv`. Informar NÃO grava em `nfce_config` — a escolha
+ * vale para esta nota e só para ela.
+ */
+function naturezaDaEmissao(db, tipoOperacaoId) {
+  if (tipoOperacaoId == null || tipoOperacaoId === '') return naturezaDoPdv(db);
+  const id = Number(tipoOperacaoId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error('Natureza de operação inválida para esta emissão');
+  }
+  const nat = db.prepare('SELECT * FROM tipos_operacao WHERE id = ?').get(id);
+  if (!nat) throw new Error('Natureza de operação não encontrada nesta empresa');
+  if (Number(nat.ativo) === 0) {
+    throw new Error(`A natureza "${nat.descricao}" está inativa`);
+  }
+  return nat;
+}
+
+/**
+ * O pedido comercial que originou esta nota — ou null.
+ *
+ * Mesma defesa da natureza: o pedido é procurado NO BANCO DO TENANT, então um
+ * id de outro tenant não é encontrado e a emissão para antes de gravar. É a
+ * única barreira que não depende de ninguém lembrar de checar.
+ */
+function pedidoDaEmissao(db, pedidoId) {
+  if (pedidoId == null || pedidoId === '') return null;
+  const id = Number(pedidoId);
+  if (!Number.isInteger(id) || id <= 0) throw new Error('Pedido de origem inválido');
+  const ped = db.prepare('SELECT id FROM pedidos WHERE id = ?').get(id);
+  if (!ped) throw new Error('Pedido de origem não encontrado nesta empresa');
+  return ped.id;
+}
+
 // Política de prazo padrão do balcão (nfce_config.pdvPoliticaPrazoId): de onde
 // saem os meios de pagamento oferecidos e o vencimento das parcelas da CR.
 function politicaDoPdv(db) {
@@ -215,6 +257,12 @@ function migrar(db) {
   alterSafe(db, 'ALTER TABLE nfce_config ADD COLUMN pdvPoliticaPrazoId INTEGER');
   alterSafe(db, 'ALTER TABLE nfce ADD COLUMN tipoOperacaoId INTEGER');
   alterSafe(db, 'ALTER TABLE contas_a_receber ADD COLUMN nfceId INTEGER');
+  // Vínculo com o pedido comercial (2026-09-21). NULL no PDV e no restaurante;
+  // só a emissão originada de pedido carimba. O porquê de o índice ser PARCIAL
+  // está no db-schema.js, junto do espelho que alcança tenant já existente.
+  alterSafe(db, 'ALTER TABLE nfce ADD COLUMN pedidoId INTEGER');
+  alterSafe(db, `CREATE UNIQUE INDEX IF NOT EXISTS idx_nfce_pedido_autorizada
+                 ON nfce(pedidoId) WHERE pedidoId IS NOT NULL AND statusSefaz = 'autorizada'`);
 }
 
 function tag(xml, name) {
@@ -275,7 +323,7 @@ async function emitirNFCe(db, payload) {
   if (!pagamentos.length) throw new Error('Informe a forma de pagamento');
 
   // A natureza manda no CFOP dos itens e nos efeitos pós-autorização.
-  const natureza = naturezaDoPdv(db);
+  const natureza = naturezaDaEmissao(db, payload.tipoOperacaoId);
   if (!natureza) {
     throw new Error('Natureza de operação do PDV não configurada — defina em PDV · Configurações');
   }
@@ -283,6 +331,9 @@ async function emitirNFCe(db, payload) {
     throw new Error(`A natureza "${natureza.descricao}" não emite documento fiscal — escolha outra em PDV · Configurações`);
   }
   const politica = politicaDoPdv(db);
+  // Origem opcional. Validado ANTES de falar com a SEFAZ: descobrir que o
+  // pedido não existe depois de a nota estar autorizada não teria conserto.
+  const pedidoOrigemId = pedidoDaEmissao(db, payload.pedidoId);
 
   // Consumidor identificado e com whitelist de meios: o balcão respeita a mesma
   // regra do pedido. Sem CPF/CNPJ não há cliente a consultar e nada é barrado.
@@ -521,15 +572,16 @@ async function emitirNFCe(db, payload) {
     const r = db.prepare(`INSERT INTO nfce
       (numero, serie, chaveAcesso, protocoloAutorizacao, tpAmb, valorProdutos, valorDesconto, valorTotal,
        consumidorCpfCnpj, consumidorNome, xmlAssinado, qrCodeUrl, urlChave,
-       statusSefaz, rejeicaoMotivo, tipoOperacaoId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+       statusSefaz, rejeicaoMotivo, tipoOperacaoId, pedidoId)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       nNF, serie, chave, protocolo, cfg.tpAmb,
       valorProdTot, valorDesc, vNF,
       cpfCnpjCons || null, payload.consumidorNome || null,
       xmlFinal, qrCodeUrl, urlChave,
       autorizada ? 'autorizada' : 'rejeitada',
       autorizada ? null : `cStat=${cStat} · ${xMotivo}`,
-      natureza.id
+      natureza.id,
+      pedidoOrigemId
     );
     id = r.lastInsertRowid;
 
@@ -557,14 +609,25 @@ async function emitirNFCe(db, payload) {
       // Efeitos só depois do "autorizada": nota rejeitada não move estoque nem
       // abre cobrança. -3h porque a data que interessa é a do balcão (BRT).
       const dataEmissao = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      const pessoa = pessoaDaVenda(db, cpfCnpjCons, payload.consumidorNome);
-      aplicarEfeitosDaNatureza(db, {
-        nfceId: id, numero: nNF, natureza, politica,
-        pessoaId: pessoa ? pessoa.id : null,
-        itens, valorTotal: vNF, dataEmissao,
-        tPag: String(pagamentos[0].tPag).padStart(2, '0'),
-        lotesDaVenda,
-      });
+      /* `efeitosJaAplicados` existe para o documento poder ser SÓ documento.
+         Quem vende pelo balcão não aplicou nada antes, e por isso o padrão é
+         aplicar — omitir a chave mantém PDV e restaurante idênticos.
+         Quem chega com um pedido comercial já reservou na confirmação e já
+         baixou na entrega: repetir aqui baixaria o estoque duas vezes e abriria
+         uma segunda conta a receber para a mesma venda (medido em 2026-09-21:
+         4 unidades saíram para um pedido de 2, e nasceram 2 CRs).
+         Nesta fase nenhum endpoint passa isto — a fronteira existe, o
+         consumidor ainda não. */
+      if (!payload.efeitosJaAplicados) {
+        const pessoa = pessoaDaVenda(db, cpfCnpjCons, payload.consumidorNome);
+        aplicarEfeitosDaNatureza(db, {
+          nfceId: id, numero: nNF, natureza, politica,
+          pessoaId: pessoa ? pessoa.id : null,
+          itens, valorTotal: vNF, dataEmissao,
+          tPag: String(pagamentos[0].tPag).padStart(2, '0'),
+          lotesDaVenda,
+        });
+      }
 
       // A reserva feita antes do envio vira consumo e ganha o número da nota.
       if (reservaReceitaIds.length) {
@@ -587,7 +650,10 @@ async function emitirNFCe(db, payload) {
   tx();
 
   return { id, cStat, xMotivo, chave, protocolo, nNF, serie, qrCodeUrl, urlChave,
-           natureza: { id: natureza.id, codigo: natureza.codigo, descricao: natureza.descricao } };
+           natureza: { id: natureza.id, codigo: natureza.codigo, descricao: natureza.descricao },
+           // null no balcão e no restaurante; preenchido quando a nota veio de
+           // um pedido. Quem chamou precisa saber o que foi gravado.
+           pedidoId: pedidoOrigemId };
 }
 
 function registrarRotas(app, db) {
@@ -866,4 +932,12 @@ module.exports = {
   emitirNFCe,
   // Expostos para teste: são a parte da emissão que não depende de SEFAZ.
   naturezaDoPdv, politicaDoPdv, parcelasDaPolitica, aplicarEfeitosDaNatureza,
+  // A fronteira reutilizável (2026-09-21). Os três campos OPCIONAIS do payload:
+  //
+  //   tipoOperacaoId      natureza desta nota; omitido = a do PDV
+  //   efeitosJaAplicados  true = só documenta, não mexe em estoque nem em CR
+  //   pedidoId            pedido comercial de origem; gravado em nfce.pedidoId
+  //
+  // Omitir os três é o caminho de sempre, e é o que PDV e restaurante fazem.
+  naturezaDaEmissao, pedidoDaEmissao,
 };

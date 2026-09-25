@@ -292,6 +292,146 @@ t('B9. banner: some do catálogo quando removido, e nunca recua para o logo', as
 });
 
 // ============================================================================
+// E. PUT /api/loja/config não destrói o que não recebe
+//
+// Esta rota grava a linha inteira de `loja_config`. Até 19/09, campo ausente
+// no corpo virava `null` (texto) ou `0` (liga/desliga) — então salvar uma
+// configuração apagava outra. Os sintomas eram reais: o modal de aparência não
+// mandava e-mail nem telefone, e apagava os dois; uma tela que mandasse só o
+// preço tiraria o catálogo do ar, porque `ativa` ausente virava 0.
+//
+// A regra agora é uma só, e estes casos a guardam campo por campo: AUSENTE
+// preserva, ENVIADO aplica — inclusive enviar vazio, que continua limpando.
+// ============================================================================
+
+function lojaComDados() {
+  const db = bancoNovo('e' + Math.random().toString(36).slice(2, 7));
+  /* `migrarLojaDB` porque `loja_config` nasce por ela, e não pelo `initSchema`
+     que o `bancoNovo` roda — mesmo par que o `baseComProdutos` acima usa. */
+  require('../loja-routes').migrarLojaDB(db);
+  /* E `produto_imagens` porque o GET conta fotos: sem a tabela ele devolve 500
+     e o caso reprovaria por falta do harness, não por defeito do código. */
+  db.exec(`CREATE TABLE IF NOT EXISTS produto_imagens (id INTEGER PRIMARY KEY AUTOINCREMENT,
+    produtoId INTEGER NOT NULL, caminho TEXT NOT NULL, urlOrigem TEXT,
+    origem TEXT NOT NULL DEFAULT 'outra', autorizadoPor TEXT, autorizadoEm TEXT,
+    largura INTEGER, altura INTEGER, bytes INTEGER, ordem INTEGER DEFAULT 0,
+    dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP)`);
+  const app = appFalso();
+  require('../loja-routes').registrarRotasLojaAdmin(app, db);
+  // Estado inicial com TUDO preenchido: só assim se vê o que some.
+  app.chamar('PUT', '/api/loja/config', {
+    ativa: 1, nome: 'LOJA TESTE', descricao: 'apresentação da loja',
+    whatsapp: '44999990000', email: 'contato@loja.com', telefone: '4433221100',
+    mostrarPreco: 1, mostrarEstoque: 1,
+    tema: { corPrimaria: '#123456', fundo: 'escuro', fonte: 'tecnica', raio: 16 },
+    pagamentoModo: 'pix', pagamentoVencimentoDias: 7,
+  });
+  return { db, app, ler: () => app.chamar('GET', '/api/loja/config').body.config };
+}
+
+t('E1. salvar SÓ o tema não apaga e-mail nem telefone', () => {
+  const { app, ler } = lojaComDados();
+  const antes = ler();
+  assert(antes.email === 'contato@loja.com' && antes.telefone === '4433221100',
+    'o estado inicial não gravou contato: ' + JSON.stringify(antes));
+
+  // É exatamente o que o modal "Aparência do catálogo" manda.
+  const r = app.chamar('PUT', '/api/loja/config', {
+    tema: { corPrimaria: '#aabbcc', fundo: 'claro', fonte: 'neutra', raio: 4 },
+  });
+  assert(r.body && r.body.success, 'o PUT falhou: ' + JSON.stringify(r.body));
+
+  const d = ler();
+  assert(d.email === 'contato@loja.com', `o e-mail virou ${JSON.stringify(d.email)}`);
+  assert(d.telefone === '4433221100', `o telefone virou ${JSON.stringify(d.telefone)}`);
+  assert(d.nome === 'LOJA TESTE', `o nome virou ${JSON.stringify(d.nome)}`);
+  assert(d.descricao === 'apresentação da loja', `a apresentação virou ${JSON.stringify(d.descricao)}`);
+  assert(d.whatsapp === '44999990000', `o whatsapp virou ${JSON.stringify(d.whatsapp)}`);
+  // E o que ele veio mudar, mudou.
+  assert(d.tema.corPrimaria === '#aabbcc', 'a cor não foi salva');
+});
+
+t('E2. salvar SÓ o tema não despublica e não mexe em preço', () => {
+  const { app, ler } = lojaComDados();
+  app.chamar('PUT', '/api/loja/config', { tema: { corPrimaria: '#aabbcc' } });
+  const d = ler();
+  /* `ativa` ausente virava 0: salvar a aparência tirava a loja do ar. */
+  assert(d.ativa === 1, 'salvar o tema DESPUBLICOU o catálogo');
+  assert(d.mostrarPreco === 1, 'salvar o tema desligou "mostrar preço"');
+  assert(d.mostrarEstoque === 1, 'salvar o tema desligou "mostrar disponibilidade"');
+  assert(d.pagamentoModo === 'pix', 'salvar o tema trocou a forma de cobrança');
+  assert(d.pagamentoVencimentoDias === 7, 'salvar o tema trocou o vencimento');
+});
+
+t('E3. salvar SÓ preço e pagamento não mexe em tema nem em contato', () => {
+  const { app, ler } = lojaComDados();
+  // É exatamente o que a tela "Preço e pagamento" manda.
+  app.chamar('PUT', '/api/loja/config', {
+    mostrarPreco: false, mostrarEstoque: false,
+    pagamentoModo: 'boleto', pagamentoVencimentoDias: 15,
+  });
+  const d = ler();
+  assert(d.mostrarPreco === 0 && d.mostrarEstoque === 0, 'os dois "mostrar" não foram salvos');
+  assert(d.pagamentoModo === 'boleto' && d.pagamentoVencimentoDias === 15,
+    'a cobrança não foi salva');
+  // Nada mais pode ter se mexido.
+  assert(d.tema.corPrimaria === '#123456' && d.tema.fundo === 'escuro'
+      && d.tema.fonte === 'tecnica' && d.tema.raio === 16,
+    'preço e pagamento alterou o TEMA: ' + JSON.stringify(d.tema));
+  assert(d.email === 'contato@loja.com' && d.telefone === '4433221100'
+      && d.nome === 'LOJA TESTE', 'preço e pagamento alterou o contato');
+  assert(d.ativa === 1, 'preço e pagamento DESPUBLICOU o catálogo');
+});
+
+t('E4. campo enviado VAZIO continua limpando — preservar não é ignorar', () => {
+  const { app, ler } = lojaComDados();
+  app.chamar('PUT', '/api/loja/config', { email: '', telefone: null, mostrarPreco: false });
+  const d = ler();
+  assert(d.email === null, `enviar vazio devia limpar o e-mail, veio ${JSON.stringify(d.email)}`);
+  assert(d.telefone === null, `enviar null devia limpar o telefone, veio ${JSON.stringify(d.telefone)}`);
+  assert(d.mostrarPreco === 0, 'enviar false devia desligar "mostrar preço"');
+  // O que não foi enviado segue intacto.
+  assert(d.nome === 'LOJA TESTE' && d.ativa === 1, 'o resto foi levado junto');
+});
+
+t('E5. os QUATRO tokens do tema sobrevivem à ida e volta', () => {
+  const { app, ler } = lojaComDados();
+  /* O catálogo público lê os quatro em `public/loja/tema.js`. Antes de 19/09
+     só a cor tinha editor no Catálogo Online; fundo, tipografia e cantos só
+     existiam na Loja virtual antiga. */
+  app.chamar('PUT', '/api/loja/config', {
+    tema: { corPrimaria: '#B4531A', fundo: 'escuro', fonte: 'editorial', raio: 24 },
+  });
+  const t1 = ler().tema;
+  assert(t1.corPrimaria === '#B4531A', 'cor não persistiu: ' + t1.corPrimaria);
+  assert(t1.fundo === 'escuro', 'fundo não persistiu: ' + t1.fundo);
+  assert(t1.fonte === 'editorial', 'tipografia não persistiu: ' + t1.fonte);
+  assert(t1.raio === 24, 'cantos não persistiram: ' + t1.raio);
+
+  /* E é ESTE o valor que chega ao público: `GET /loja/api/config` devolve
+     `tema: c.tema`, a mesma coluna lida aqui. Não há conversão no meio nem
+     cópia em outro lugar. */
+  const fonte = require('fs').readFileSync(require('path').join(RAIZ, 'loja-routes.js'), 'utf8');
+  assert(/tema: c\.tema/.test(fonte),
+    'a rota pública deixou de servir `loja_config.tema` direto');
+});
+
+t('E6. só existe UMA estrutura de tema, e é `loja_config.tema`', () => {
+  const db = bancoNovo('e6');
+  require('../loja-routes').migrarLojaDB(db);
+  const colunas = db.prepare("SELECT name FROM pragma_table_info('loja_config')").all().map((c) => c.name);
+  assert(colunas.includes('tema'), 'sumiu a coluna `tema`');
+  /* Nenhuma coluna paralela de aparência: se alguém criar `tema2`, `aparencia`
+     ou `corPrimaria` solta, passam a existir duas fontes para a mesma
+     configuração e o público lê uma delas por acaso. */
+  const paralelas = colunas.filter((c) => /^(tema|aparencia|visual)/i.test(c) && c !== 'tema');
+  assert(paralelas.length === 0, 'estrutura paralela de tema: ' + paralelas.join(', '));
+  const tabelas = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()
+    .map((x) => x.name).filter((n) => /tema|aparencia/i.test(n));
+  assert(tabelas.length === 0, 'tabela paralela de tema: ' + tabelas.join(', '));
+});
+
+// ============================================================================
 // C. UX no Chrome
 // ============================================================================
 

@@ -405,8 +405,355 @@ async function pintarSacola() {
     <section class="secao" id="secSugestoes" hidden>
       <h2>Complete seu pedido</h2>
       <div class="trilho" id="sugestoes"></div>
-    </section>`;
+    </section>
+    <div class="ir-checkout">
+      <button class="bt-principal" id="btIrCheckout" type="button">Continuar</button>
+    </div>`;
   carregarSugestoes();
+}
+
+/* ===================== checkout ===========================================
+   Do carrinho ao pedido comercial. As etapas que o pedido pediu — como
+   receber, dados, endereço, pagamento, observações, revisão — vivem numa
+   página só, empilhadas: num celular, oito telas em sequência custam oito
+   esperas e escondem o que já foi preenchido.
+
+   Nada de preço, frete ou total é enviado. O corpo leva referência de produto,
+   quantidade, escolhas e o que só o cliente sabe; o resto o servidor decide.
+   ========================================================================= */
+
+/** Estado do formulário. Só vive enquanto a aba está aberta. */
+let CHECKOUT = { atendimento: null, pagamento: null, chave: null, enviando: false };
+
+/**
+ * A chave da tentativa.
+ *
+ * Nasce quando o cliente entra no checkout e vale até o pedido sair: é isso
+ * que faz duplo clique, retry e F5 convergirem para UM pedido. Gerar uma por
+ * clique no botão devolveria o problema que ela existe para resolver.
+ */
+function chaveDaTentativa() {
+  if (!CHECKOUT.chave) {
+    CHECKOUT.chave = (crypto.randomUUID && crypto.randomUUID())
+      || (Date.now() + '-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
+  }
+  return CHECKOUT.chave;
+}
+
+async function pintarCheckout() {
+  await recalcular();
+  const alvo = $('conteudo');
+  if (!SACOLA.itens.length) { location.hash = '#/'; return; }
+
+  const e = (LOJA && LOJA.entrega) || {};
+  const podeRetirada = !!e.retirada;
+  const podeEntrega = !!e.delivery;
+  if (!podeRetirada && !podeEntrega) {
+    alvo.innerHTML = `<div class="vazio-msg">Esta loja não está recebendo pedidos agora.
+      <br><button class="btn-linha" data-voltar="1">Ver o catálogo</button></div>`;
+    return;
+  }
+  // Serviço único não é escolha: já vem marcado.
+  if (!CHECKOUT.atendimento) {
+    CHECKOUT.atendimento = podeRetirada && !podeEntrega ? 'retirada'
+      : (!podeRetirada && podeEntrega ? 'entrega' : null);
+  }
+
+  alvo.innerHTML = `
+    <div class="chk">
+      <h1>Finalizar pedido</h1>
+
+      <section class="chk-bloco">
+        <h2>Como você quer receber?</h2>
+        <div class="chk-opcoes">
+          ${podeRetirada ? `<button type="button" class="chk-op" data-atend="retirada">
+            <strong>Retirada</strong><span>Você busca na loja</span></button>` : ''}
+          ${podeEntrega ? `<button type="button" class="chk-op" data-atend="entrega">
+            <strong>Delivery</strong><span>Entregamos no seu endereço</span></button>` : ''}
+        </div>
+        <div id="chkRetiradaInfo" class="chk-aviso" hidden></div>
+      </section>
+
+      <section class="chk-bloco">
+        <h2>Seus dados</h2>
+        <div class="chk-campo">
+          <label for="chkNome">Nome *</label>
+          <input id="chkNome" type="text" autocomplete="name" maxlength="80" placeholder="Como devemos chamar você">
+        </div>
+        <div class="chk-campo">
+          <label for="chkTelefone">WhatsApp / telefone *</label>
+          <input id="chkTelefone" type="tel" inputmode="numeric" autocomplete="tel"
+                 maxlength="20" placeholder="(00) 00000-0000">
+        </div>
+        <div class="chk-campo">
+          <label for="chkDoc">CPF ou CNPJ <span class="chk-op-txt">(opcional)</span></label>
+          <input id="chkDoc" type="text" inputmode="numeric" maxlength="20" placeholder="Só se quiser na nota">
+        </div>
+      </section>
+
+      <section class="chk-bloco" id="chkEndereco" hidden>
+        <h2>Endereço de entrega</h2>
+        <div class="chk-linha">
+          <div class="chk-campo chk-cep">
+            <label for="chkCep">CEP</label>
+            <input id="chkCep" type="text" inputmode="numeric" maxlength="9" placeholder="00000-000">
+          </div>
+          <div class="chk-campo chk-num">
+            <label for="chkNumero">Número *</label>
+            <input id="chkNumero" type="text" maxlength="20" placeholder="123">
+          </div>
+        </div>
+        <div class="chk-campo">
+          <label for="chkRua">Rua *</label>
+          <input id="chkRua" type="text" autocomplete="address-line1" maxlength="200">
+        </div>
+        <div class="chk-campo">
+          <label for="chkComplemento">Complemento</label>
+          <input id="chkComplemento" type="text" maxlength="100" placeholder="Apto, bloco, casa">
+        </div>
+        <div class="chk-campo">
+          <label for="chkBairro">Bairro *</label>
+          ${(e.freteModo === 'bairro' && (e.bairros || []).length)
+            ? `<select id="chkBairro">
+                 <option value="">Escolha o bairro</option>
+                 ${e.bairros.map((b) => `<option value="${esc(b.nome)}">${esc(b.nome)}${
+                     b.taxa ? ' — ' + brl(b.taxa) : ' — grátis'}</option>`).join('')}
+               </select>`
+            : '<input id="chkBairro" type="text" maxlength="80">'}
+        </div>
+        <div class="chk-linha">
+          <div class="chk-campo"><label for="chkCidade">Cidade *</label>
+            <input id="chkCidade" type="text" maxlength="100"></div>
+          <div class="chk-campo chk-uf"><label for="chkUf">UF *</label>
+            <input id="chkUf" type="text" maxlength="2" placeholder="PA"></div>
+        </div>
+        <div class="chk-campo">
+          <label for="chkReferencia">Ponto de referência</label>
+          <input id="chkReferencia" type="text" maxlength="120" placeholder="Perto de…">
+        </div>
+      </section>
+
+      <section class="chk-bloco">
+        <h2>Pagamento</h2>
+        <p class="chk-aviso" id="chkQuandoPaga"></p>
+        <div class="chk-opcoes">
+          <button type="button" class="chk-op" data-pag="pix"><strong>PIX</strong></button>
+          <button type="button" class="chk-op" data-pag="dinheiro"><strong>Dinheiro</strong></button>
+          <button type="button" class="chk-op" data-pag="cartao"><strong>Cartão</strong><span>na entrega/retirada</span></button>
+        </div>
+        <div id="chkTroco" hidden>
+          <label class="chk-check">
+            <input type="checkbox" id="chkPrecisaTroco"> Precisa de troco?
+          </label>
+          <div class="chk-campo" id="chkTrocoValor" hidden>
+            <label for="chkTrocoPara">Troco para quanto?</label>
+            <input id="chkTrocoPara" type="text" inputmode="decimal" maxlength="12" placeholder="0,00">
+          </div>
+        </div>
+      </section>
+
+      <section class="chk-bloco">
+        <h2>Observações</h2>
+        <div class="chk-campo">
+          <textarea id="chkObs" rows="3" maxlength="300"
+                    placeholder="Algo que a loja precise saber"></textarea>
+        </div>
+      </section>
+
+      <section class="chk-bloco chk-revisao">
+        <h2>Revise seu pedido</h2>
+        <ul class="chk-itens">${SACOLA.itens.map((i) => `
+          <li><span>${i.quantidade}× ${esc(i.descricao)}${
+            i.opcoes.length ? ` <em>(${i.opcoes.map((o) => esc(o.nome)).join(', ')})</em>` : ''}</span>
+              <strong>${i.total == null ? '—' : brl(i.total)}</strong></li>`).join('')}
+        </ul>
+        <div class="chk-totais">
+          <div><span>Subtotal</span><span id="chkSubtotal">${brl(SACOLA.total)}</span></div>
+          <div id="chkLinhaFrete" hidden><span>Entrega</span><span id="chkFrete">—</span></div>
+          <div class="chk-total"><span>Total</span><span id="chkTotal">${brl(SACOLA.total)}</span></div>
+        </div>
+        <p class="chk-aviso" id="chkAvisoFrete" hidden></p>
+      </section>
+
+      <p class="chk-erro" id="chkErro" hidden></p>
+      <button type="button" class="bt-principal" id="btFinalizar">Finalizar pedido</button>
+      <button type="button" class="btn-linha" data-voltar-sacola="1">Voltar à sacola</button>
+    </div>`;
+
+  pintarEscolhas();
+}
+
+/** Marca os botões escolhidos e mostra/esconde o que depende deles. */
+function pintarEscolhas() {
+  const e = (LOJA && LOJA.entrega) || {};
+  document.querySelectorAll('[data-atend]').forEach((b) =>
+    b.classList.toggle('on', b.dataset.atend === CHECKOUT.atendimento));
+  document.querySelectorAll('[data-pag]').forEach((b) =>
+    b.classList.toggle('on', b.dataset.pag === CHECKOUT.pagamento));
+
+  const entrega = CHECKOUT.atendimento === 'entrega';
+  const end = $('chkEndereco');
+  if (end) end.hidden = !entrega;
+
+  /* Retirada: o endereço que importa é o DA LOJA, e ele já vem da
+     configuração — o mesmo que o painel ⓘ mostra. */
+  const info = $('chkRetiradaInfo');
+  if (info) {
+    if (CHECKOUT.atendimento === 'retirada' && (LOJA.endereco || LOJA.atendimento)) {
+      info.hidden = false;
+      info.innerHTML = [
+        LOJA.endereco ? `Retire em: <strong>${esc(LOJA.endereco)}</strong>` : '',
+        LOJA.atendimento && LOJA.atendimento.rotulo ? esc(LOJA.atendimento.rotulo) : '',
+      ].filter(Boolean).join('<br>');
+    } else { info.hidden = true; }
+  }
+
+  const quando = $('chkQuandoPaga');
+  if (quando) {
+    quando.textContent = CHECKOUT.atendimento
+      ? `Você paga na ${entrega ? 'entrega' : 'retirada'}. Nada é cobrado agora.`
+      : 'Nada é cobrado agora.';
+  }
+
+  const troco = $('chkTroco');
+  if (troco) {
+    troco.hidden = CHECKOUT.pagamento !== 'dinheiro';
+    if (troco.hidden) { $('chkPrecisaTroco').checked = false; $('chkTrocoValor').hidden = true; }
+  }
+
+  // Frete estimado na revisão. O valor que VALE é o que o servidor devolver.
+  const linha = $('chkLinhaFrete');
+  if (linha) {
+    if (!entrega) { linha.hidden = true; $('chkAvisoFrete').hidden = true; atualizarTotal(0); return; }
+    linha.hidden = false;
+    const modo = e.freteModo;
+    if (modo === 'gratis') { $('chkFrete').textContent = 'grátis'; atualizarTotal(0); }
+    else if (modo === 'fixo') { $('chkFrete').textContent = brl(e.freteValor || 0); atualizarTotal(e.freteValor || 0); }
+    else {
+      const b = $('chkBairro');
+      const nome = b ? (b.value || '') : '';
+      const achado = (e.bairros || []).find((x) => x.nome === nome);
+      if (achado) { $('chkFrete').textContent = brl(achado.taxa); atualizarTotal(achado.taxa); }
+      else { $('chkFrete').textContent = 'a calcular'; atualizarTotal(0); }
+    }
+  }
+}
+
+function atualizarTotal(frete) {
+  const t = $('chkTotal');
+  if (t) t.textContent = brl((SACOLA.total || 0) + (Number(frete) || 0));
+}
+
+/** Monta o corpo: referências e intenção, nunca preço. */
+function corpoDoPedido() {
+  const v = (id) => { const el = $(id); return el ? el.value.trim() : ''; };
+  const corpo = {
+    idempotencyKey: chaveDaTentativa(),
+    cliente: { nome: v('chkNome'), telefone: v('chkTelefone'), cpfCnpj: v('chkDoc') || null },
+    atendimento: CHECKOUT.atendimento,
+    pagamento: CHECKOUT.pagamento,
+    observacao: v('chkObs') || null,
+    itens: lerCarrinho(),
+  };
+  if (CHECKOUT.atendimento === 'entrega') {
+    corpo.endereco = {
+      cep: v('chkCep'), logradouro: v('chkRua'), numero: v('chkNumero'),
+      complemento: v('chkComplemento'), bairro: v('chkBairro'),
+      cidade: v('chkCidade'), uf: v('chkUf'), referencia: v('chkReferencia'),
+    };
+  }
+  if (CHECKOUT.pagamento === 'dinheiro' && $('chkPrecisaTroco') && $('chkPrecisaTroco').checked) {
+    corpo.precisaTroco = true;
+    corpo.trocoPara = Number(String(v('chkTrocoPara')).replace(/\./g, '').replace(',', '.'));
+  }
+  return corpo;
+}
+
+async function finalizarPedido() {
+  const erro = $('chkErro');
+  const mostrar = (msg) => { erro.hidden = false; erro.textContent = msg; erro.scrollIntoView({ block: 'center' }); };
+  erro.hidden = true;
+
+  if (!CHECKOUT.atendimento) return mostrar('Escolha se quer retirar ou receber em casa.');
+  if (!CHECKOUT.pagamento) return mostrar('Escolha a forma de pagamento.');
+
+  /* Trava de reentrada: o botão desabilitado já evita o clique repetido, e a
+     chave de idempotência cobre o que passar daqui (retry, rede, F5). */
+  if (CHECKOUT.enviando) return;
+  CHECKOUT.enviando = true;
+  const bt = $('btFinalizar');
+  bt.disabled = true;
+  bt.textContent = 'Enviando…';
+
+  try {
+    const d = await fetch('/loja/api/pedido/finalizar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpoDoPedido()),
+    }).then((r) => r.json().catch(() => ({ success: false })));
+
+    if (!d || !d.success) {
+      mostrar((d && d.error) || 'Não conseguimos concluir seu pedido agora. Tente de novo.');
+      return;
+    }
+    ULTIMO_PEDIDO = d;
+    gravarCarrinho([]);                 // o pedido saiu: a sacola esvazia
+    SACOLA = { itens: [], total: 0, quantidadeItens: 0 };
+    CHECKOUT.chave = null;              // a próxima compra é outra tentativa
+    location.hash = '#/pedido/' + encodeURIComponent(d.numero);
+  } catch {
+    mostrar('Não conseguimos falar com a loja. Verifique a conexão e tente de novo.');
+  } finally {
+    CHECKOUT.enviando = false;
+    if (bt) { bt.disabled = false; bt.textContent = 'Finalizar pedido'; }
+  }
+}
+
+let ULTIMO_PEDIDO = null;
+
+function pintarSucesso(numero) {
+  const d = ULTIMO_PEDIDO;
+  const alvo = $('conteudo');
+  const num = decodeURIComponent(numero || '');
+  if (!d) {
+    /* Recarregou a página de sucesso: o resumo vive na memória da aba, e
+       inventar um pedido a partir do endereço seria pior que admitir. */
+    alvo.innerHTML = `<div class="ok-tela">
+      <h1>Pedido enviado</h1>
+      <p>Seu pedido <strong>${esc(num)}</strong> foi registrado.</p>
+      <button class="btn-linha" data-voltar="1">Voltar ao catálogo</button></div>`;
+    pintarBarra();
+    return;
+  }
+  const zap = d.whatsapp
+    ? `https://wa.me/${d.whatsapp}?text=${encodeURIComponent(
+        `Olá! Acabei de fazer o pedido nº ${num} pelo catálogo.`)}`
+    : null;
+  const instrucao = {
+    pix: 'A loja vai enviar as instruções de pagamento do PIX.',
+    dinheiro: 'Separe o valor para pagar na ' + (d.atendimento === 'entrega' ? 'entrega' : 'retirada') + '.',
+    cartao: 'A maquininha vai na ' + (d.atendimento === 'entrega' ? 'entrega' : 'retirada') + '.',
+  }[d.pagamento && d.pagamento.codigo] || '';
+
+  alvo.innerHTML = `
+    <div class="ok-tela">
+      <div class="ok-selo">✓</div>
+      <h1>Pedido recebido!</h1>
+      <p class="ok-num">Nº <strong>${esc(num)}</strong></p>
+      <div class="chk-totais">
+        <div><span>Subtotal</span><span>${brl(d.subtotal)}</span></div>
+        ${d.frete ? `<div><span>Entrega</span><span>${brl(d.frete)}</span></div>` : ''}
+        <div class="chk-total"><span>Total</span><span>${brl(d.total)}</span></div>
+      </div>
+      <p class="ok-linha"><strong>${d.atendimento === 'entrega' ? 'Delivery' : 'Retirada'}</strong>
+        · ${esc((d.pagamento && d.pagamento.rotulo) || '')}</p>
+      ${instrucao ? `<p class="chk-aviso">${esc(instrucao)}</p>` : ''}
+      ${d.atendimento === 'retirada' && LOJA.endereco
+        ? `<p class="chk-aviso">Retire em: <strong>${esc(LOJA.endereco)}</strong></p>` : ''}
+      ${zap ? `<a class="bt-principal" href="${esc(zap)}" target="_blank" rel="noopener noreferrer">
+                 Falar com a loja no WhatsApp</a>` : ''}
+      <button class="btn-linha" data-voltar="1">Voltar ao catálogo</button>
+    </div>`;
+  pintarBarra();
 }
 
 async function carregarSugestoes() {
@@ -438,7 +785,13 @@ function pintarBarra() {
   const n = SACOLA.quantidadeItens;
   $('barraQtd').textContent = n + (n === 1 ? ' produto' : ' produtos');
   $('barraTotal').textContent = SACOLA.semPreco ? 'a combinar' : brl(SACOLA.total);
-  b.hidden = location.hash === '#/sacola';
+  /* A barra é um atalho PARA a sacola, e some nas telas em que o pedido já
+     está sendo fechado: ali ela não tem para onde levar, e no checkout ainda
+     cobre um campo — em 390px ela ocupa os últimos 73px da janela, por cima do
+     rótulo e do campo Rua. */
+  b.hidden = location.hash === '#/sacola'
+    || location.hash === '#/checkout'
+    || location.hash.startsWith('#/pedido/');
   document.body.classList.toggle('com-barra', !b.hidden);
 }
 
@@ -462,6 +815,12 @@ async function rotear() {
   } else if (h === '#/sacola') {
     topo.hidden = true;
     await pintarSacola();
+  } else if (h === '#/checkout') {
+    topo.hidden = true;
+    await pintarCheckout();
+  } else if (h.startsWith('#/pedido/')) {
+    topo.hidden = true;
+    pintarSucesso(h.slice(9));
   } else {
     topo.hidden = false;
     pintarHome();
@@ -746,7 +1105,41 @@ async function carregar() {
 
 /* ===================== eventos globais ===================================== */
 
+/* O troco e o frete dependem de campos que mudam sem clique. */
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'chkPrecisaTroco') {
+    const cx = $('chkTrocoValor');
+    if (cx) cx.hidden = !e.target.checked;
+    return;
+  }
+  if (e.target.id === 'chkBairro') pintarEscolhas();
+});
+
 document.addEventListener('click', async (e) => {
+  /* ---- checkout ---- */
+  const irChk = e.target.closest('#btIrCheckout');
+  if (irChk) {
+    /* O serviço escolhido na sacola entra no checkout já marcado — perguntar
+       duas vezes a mesma coisa é o jeito mais rápido de a pessoa desistir. */
+    const marcado = document.querySelector('.servico-bt.on');
+    if (marcado) {
+      CHECKOUT.atendimento = marcado.dataset.servico === 'delivery' ? 'entrega' : 'retirada';
+    }
+    return irPara('#/checkout');
+  }
+  const atend = e.target.closest('[data-atend]');
+  if (atend) {
+    /* `pintarEscolhas`, e não `pintarCheckout`: repintar a tela inteira apaga
+       o nome e o telefone que a pessoa já digitou. Só o que depende da
+       escolha é atualizado. */
+    CHECKOUT.atendimento = atend.dataset.atend;
+    return pintarEscolhas();
+  }
+  const pag = e.target.closest('[data-pag]');
+  if (pag) { CHECKOUT.pagamento = pag.dataset.pag; return pintarEscolhas(); }
+  if (e.target.closest('[data-voltar-sacola]')) return irPara('#/sacola');
+  if (e.target.closest('#btFinalizar')) return finalizarPedido();
+
   const mais = e.target.closest('[data-mais]');
   if (mais) {
     e.stopPropagation();

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Preço e pagamento — Catálogo Online</title>
+<!-- `theme-boot` ANTES do CSS: ele fixa o tema (claro/escuro) no <html> antes
+     da primeira pintura. Depois da folha, a tela pisca no tema errado por um
+     quadro — foi o que o D1 do test-tema-global pegou. -->
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/app-modern.css">
+<link rel="stylesheet" href="/css/sidebar.css">
+<style>
+.grade-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px 18px; }
+.campo { display: flex; flex-direction: column; gap: 5px; }
+.campo label { font-size: .84em; font-weight: 600; color: var(--text-2); }
+.campo select, .campo input {
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--bg-0); color: var(--text-1); font-family: inherit;
+  /* 16px: abaixo disto o iOS dá zoom ao focar, e a tela salta. */
+  font-size: 16px; min-height: 44px;
+}
+.campo .dica { font-size: .78em; color: var(--text-3); }
+.campo.largo { grid-column: 1 / -1; }
+
+.linha-check { display: flex; align-items: center; gap: 10px; min-height: 44px;
+  grid-column: 1 / -1; }
+.linha-check input { width: 20px; height: 20px; accent-color: var(--primary); }
+.linha-check span { font-size: .92em; }
+
+.aviso { font-size: .82em; color: var(--text-3); margin: 0; }
+@media (max-width: 640px) {
+  .grade-form { grid-template-columns: 1fr; }
+  /* Os botões do cabeçalho herdam 40px do `.btn` global. No celular o alvo
+     mínimo é 44px, e subir aqui não mexe no resto do ERP. */
+  .page-header .btn { min-height: 44px; }
+  .page-header .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Preço e pagamento</h1>
+      <small>O que o visitante vê de preço e como o pedido é cobrado no fechamento</small>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn btn-secondary" onclick="location.href='/catalogo/catalogo-online.html'">
+        ← Catálogo Online</button>
+      <button type="button" class="btn btn-primary" id="btSalvar" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="card">
+    <h3 class="card-title">O que aparece na vitrine</h3>
+    <div class="grade-form">
+      <label class="linha-check">
+        <input type="checkbox" id="mostrarPreco">
+        <span>Mostrar preço para visitantes</span>
+      </label>
+      <label class="linha-check">
+        <input type="checkbox" id="mostrarEstoque">
+        <span>Mostrar disponibilidade</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 class="card-title">Cobrança no fechamento do pedido</h3>
+    <div class="grade-form">
+      <div class="campo largo">
+        <label for="pagamentoModo">Como cobrar</label>
+        <select id="pagamentoModo" onchange="pintarVencimento()">
+          <option value="nenhum">Não cobrar — a loja confere e cobra depois</option>
+          <option value="pix">Pix na hora</option>
+          <option value="boleto">Boleto na hora</option>
+          <option value="pix-ou-boleto">Pix ou boleto, o comprador escolhe</option>
+        </select>
+        <span class="dica">Estas são as opções que o ERP já emite hoje. Pagamento
+          online com cartão e gateway não está neste módulo.</span>
+      </div>
+      <div class="campo" id="campoVencimento">
+        <label for="pagamentoVencimentoDias">Vencimento em (dias)</label>
+        <input type="number" id="pagamentoVencimentoDias" min="0" max="60" step="1">
+        <span class="dica">Contados a partir da data do pedido.</span>
+      </div>
+    </div>
+  </div>
+
+  <p class="aviso">A publicação do catálogo fica no selo do cabeçalho da tela
+    Catálogo Online. Nome, contato e horários ficam em Informações da empresa.</p>
+
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('loja');</script>
+<script>
+/**
+ * Preço e pagamento do Catálogo Online.
+ *
+ * Quatro campos que JÁ EXISTIAM, e que só estavam no lugar errado: até 19/09
+ * eles moravam na Loja virtual antiga, alcançável por um item de menu chamado
+ * "Contato, preço e pagamento" que abria aquela tela inteira — na aba de
+ * produtos, não na de pagamento.
+ *
+ * Nada de novo foi criado para isto: mesma tabela `loja_config`, mesmas
+ * colunas (`mostrarPreco`, `mostrarEstoque`, `pagamentoModo`,
+ * `pagamentoVencimentoDias`) e a mesma rota `GET`/`PUT /api/loja/config` que a
+ * tela antiga usa. Ela continua funcionando e editando os mesmos valores.
+ *
+ * O PUT manda SÓ estes quatro campos. Desde 19/09 a rota preserva o que não
+ * recebe, então salvar aqui não mexe em tema, contato nem publicação.
+ */
+const $ = (id) => document.getElementById(id);
+
+function showAlert(msg, tipo = 'success') {
+  const e = $('alertGlobal');
+  e.className = 'alert ' + tipo;
+  e.textContent = msg;
+  e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 6000);
+}
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!r.ok || d.success === false) throw new Error(d.error || ('HTTP ' + r.status));
+  return d;
+}
+
+/* Sem cobrança na hora não há vencimento a definir. O campo some em vez de
+   ficar ali pedindo um número que não vai a lugar nenhum. */
+function pintarVencimento() {
+  $('campoVencimento').style.display = $('pagamentoModo').value === 'nenhum' ? 'none' : '';
+}
+
+async function carregar() {
+  try {
+    const d = await api('/api/loja/config');
+    const c = d.config || {};
+    $('mostrarPreco').checked = !!c.mostrarPreco;
+    $('mostrarEstoque').checked = !!c.mostrarEstoque;
+    $('pagamentoModo').value = c.pagamentoModo || 'nenhum';
+    $('pagamentoVencimentoDias').value = c.pagamentoVencimentoDias == null ? 3 : c.pagamentoVencimentoDias;
+    pintarVencimento();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function salvar() {
+  const bt = $('btSalvar');
+  bt.disabled = true;
+  try {
+    await api('/api/loja/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mostrarPreco: $('mostrarPreco').checked,
+        mostrarEstoque: $('mostrarEstoque').checked,
+        pagamentoModo: $('pagamentoModo').value,
+        pagamentoVencimentoDias: Number($('pagamentoVencimentoDias').value) || 0,
+      }),
+    });
+    showAlert('Preço e pagamento salvos. O catálogo público já reflete a mudança.');
+  } catch (e) { showAlert(e.message, 'error'); }
+  finally { bt.disabled = false; }
+}
+
+carregar();
+</script>
+</body>
+</html>

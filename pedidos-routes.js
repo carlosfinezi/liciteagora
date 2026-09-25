@@ -348,6 +348,21 @@ function carregarPedidoCompleto(db, pedidoId, opts) {
   return { ...pedido, itens };
 }
 
+/*
+ * A confirmação canônica, alcançável de fora.
+ *
+ * `confirmarPedidoInterno` vive dentro de `registrarRotasPedidos` porque
+ * precisa do `db` do escopo — que em multi-tenant é o PROXY, resolvido por
+ * requisição. O checkout público do Catálogo Online precisa confirmar pelo
+ * mesmo caminho que o ERP usa, e a alternativa seria repetir as validações
+ * (rascunho, cliente, itens, atendimento, alçada, estoque) numa segunda
+ * versão que divergiria na primeira correção.
+ *
+ * Isto NÃO é uma cópia nem uma variante: é a MESMA função, guardada numa
+ * referência quando as rotas são registradas. O corpo dela não mudou.
+ */
+let _confirmarPedidoInterno = null;
+
 function registrarRotasPedidos(app, db) {
   function registrarHistorico(pedidoId, statusAnterior, statusNovo, acao, motivo, usuario, dadosExtras) {
     db.prepare(`INSERT INTO pedido_historico (pedidoId, statusAnterior, statusNovo, acao, motivo, usuario, dadosExtras)
@@ -1309,6 +1324,8 @@ function registrarRotasPedidos(app, db) {
     }
     return { ok: true, insuficiencias };
   }
+  // Guardada aqui, uma vez, quando as rotas nascem.
+  _confirmarPedidoInterno = confirmarPedidoInterno;
 
   app.post('/api/pedidos/:id/confirmar', (req, res) => {
     try {
@@ -2160,4 +2177,21 @@ function registrarRotasPedidos(app, db) {
 // gerarNumero e recalcularTotal saem daqui para a loja virtual criar pedido
 // pelo mesmo caminho. Duplicar a numeração noutro módulo produziria número
 // repetido assim que dois pedidos nascessem juntos.
-module.exports = { registrarRotasPedidos, gerarNumero, recalcularTotal, erroValorFrete, erroQuantidade };
+module.exports = {
+  registrarRotasPedidos, gerarNumero, recalcularTotal, erroValorFrete, erroQuantidade,
+  /**
+   * Confirma um pedido pelo caminho canônico. Mesma função que
+   * `POST /api/pedidos/:id/confirmar` usa — validações, alçada, reserva de
+   * estoque e transação inclusive.
+   *
+   * A guarda não é formalidade: chamada antes do registro das rotas, a
+   * referência é `null`, e falhar dizendo o motivo é melhor que um
+   * `TypeError` a três camadas de distância.
+   */
+  confirmarPedidoInterno(pedId, opts) {
+    if (!_confirmarPedidoInterno) {
+      throw new Error('confirmarPedidoInterno: rotas de pedidos ainda não foram registradas');
+    }
+    return _confirmarPedidoInterno(pedId, opts);
+  },
+};

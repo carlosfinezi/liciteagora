@@ -1304,8 +1304,32 @@ for (const col of [
    * hora, sem precisar apagar nada.
    */
   'tokenPublico TEXT',
-  'tokenPublicoEm TEXT'
+  'tokenPublicoEm TEXT',
+  /*
+   * Idempotência do checkout público (2026-09-20).
+   *
+   * O navegador gera um UUID por TENTATIVA de finalização e o repete em todo
+   * reenvio — duplo clique, retry de rede, timeout, F5. A garantia de "uma
+   * tentativa, no máximo um pedido" é o índice UNIQUE logo abaixo: consultar
+   * antes de inserir não resolve, porque entre a consulta e o INSERT cabe a
+   * segunda requisição.
+   *
+   * NULL é o estado normal e o de todo pedido interno — ERP, Venda rápida,
+   * PDV, licitação, OS, marketplace. O UNIQUE é PARCIAL justamente por isso:
+   * NULL não colide com NULL, e nada muda para quem já existia.
+   *
+   * Não reaproveita `tokenPublico`: aquele é credencial de leitura do pedido
+   * (`/api/orcamento/:token`), nasce só quando alguém clica em Compartilhar e
+   * é revogado escrevendo NULL. Uma chave vinda do navegador virando senha de
+   * acesso, e a revogação do link apagando a proteção contra duplicidade,
+   * seriam dois defeitos de uma vez.
+   */
+  'idempotenciaChave TEXT'
 ]) alterSafe(db, `ALTER TABLE pedidos ADD COLUMN ${col}`);
+/* A autoridade contra concorrência. Parcial porque só o checkout público
+   preenche a coluna. */
+alterSafe(db, `CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_idempotencia
+               ON pedidos(idempotenciaChave) WHERE idempotenciaChave IS NOT NULL`);
 // Índice do token: a busca pública entra por ele, e sem índice seria varredura
 // da tabela inteira a cada abertura de link.
 alterSafe(db, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_token_publico ON pedidos(tokenPublico) WHERE tokenPublico IS NOT NULL');
@@ -1401,6 +1425,37 @@ for (const col of ['instagram TEXT', 'facebook TEXT']) {
 for (const col of require('./loja-routes').COLUNAS_INFO_LOJA) {
   alterSafe(db, `ALTER TABLE loja_config ADD COLUMN ${col}`);
 }
+
+/* Vínculo da NFC-e com o pedido comercial (Fase 1 fiscal, 2026-09-21).
+ *
+ * Até aqui a tabela `nfce` não sabia de onde a nota veio: 21 colunas e nenhuma
+ * ligação com pedido, venda ou origem. O restaurante já sofria disso — monta
+ * `origemComandaId` no payload e o campo é descartado, porque ninguém o lê e a
+ * tabela não o guarda.
+ *
+ * NULL é o estado normal: PDV e restaurante nunca preenchem. Só a emissão
+ * originada de pedido comercial carimba, e isso ainda não acontece — nesta fase
+ * o vínculo é aceito pelo emissor, não usado pelo catálogo.
+ *
+ * ── Por que o índice é PARCIAL, e não um UNIQUE em pedidoId ────────────────
+ *
+ * Nota REJEITADA também é gravada (`statusSefaz='rejeitada'`), e cancelada
+ * continua na tabela. Um UNIQUE simples faria a primeira rejeição ocupar o
+ * lugar e impediria a reemissão legítima. O parcial deixa passar quantas
+ * rejeitadas e canceladas houver, e barra a segunda AUTORIZADA para o mesmo
+ * pedido. Como `statusSefaz` é mutável, cancelar tira a linha do índice e
+ * libera a reemissão sozinho, sem ninguém precisar lembrar disso.
+ *
+ * Isto NÃO é regra fiscal — é integridade de dado: impede duas notas válidas
+ * apontando para o mesmo pedido ao mesmo tempo. Quando duas emissões
+ * concorrerem, é o banco que decide, como já decide a idempotência do
+ * checkout.
+ *
+ * Sem FK de propósito: `nfce` não tem nenhuma hoje, e criar uma só aqui mudaria
+ * o comportamento de exclusão de pedidos, que é efeito fora desta fase. */
+alterSafe(db, 'ALTER TABLE nfce ADD COLUMN pedidoId INTEGER');
+alterSafe(db, `CREATE UNIQUE INDEX IF NOT EXISTS idx_nfce_pedido_autorizada
+               ON nfce(pedidoId) WHERE pedidoId IS NOT NULL AND statusSefaz = 'autorizada'`);
 
 
 // sniper-lance-routes.js + monitor-v2.js: ALTERs em participacoes_comprasnet

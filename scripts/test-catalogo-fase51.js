@@ -502,21 +502,32 @@ t('D6. XSS em nome, descrição e endereço não executa', async () => {
   });
 });
 
-/* D7 — o cabeçalho em telas estreitas.
+/* D7 — o cabeçalho, do celular ao desktop.
  *
- * A exigência original continua de pé, e ficou MAIS forte: marca e ícones são
- * importantes, então nenhum dos dois pode sumir, encolher abaixo do alvo de
- * toque ou vazar da tela. O que mudou é como o cabeçalho cumpre isso: em vez
- * de espremer tudo numa linha até o nome virar "PRO…", ele quebra em duas —
- * marca em cima, redes e ⓘ embaixo.
+ * A exigência original continua de pé: marca e ícones são importantes, e
+ * nenhum dos dois pode sumir, encolher abaixo do alvo de toque ou vazar da
+ * tela. O que mudou, em 18/09, é ONDE os ícones cumprem esse papel.
  *
- * Por isso "nome legível" deixou de ser medido em pixels. Largura não prova
- * leitura: 72px de largura passavam no critério antigo e mostravam "PRO…" na
- * tela (medido em produção, 390px, 16/09). O que se mede agora é quantos
- * CARACTERES ficam visíveis.
+ * No celular o cabeçalho leva logo, nome e ⓘ. Os ícones de rede saem dali e
+ * ficam no painel ⓘ, com os mesmos links. Isso NÃO afrouxa o caso: o que era
+ * uma verificação ("os ícones estão no cabeçalho") virou duas, e a segunda é
+ * mais difícil de satisfazer por acidente — os ícones têm de estar AUSENTES
+ * do cabeçalho e PRESENTES no painel, com href funcionando. Esconder a rede
+ * dos dois lugares reprova, e era esse o risco de simplesmente apagá-la.
  *
- * Os quatro cenários de rede existem porque o aperto depende deles: com só o
- * WhatsApp sobra espaço, com os três mais o ⓘ são 176px que a marca não tem.
+ * As duas tentativas anteriores ficam registradas porque cada uma reprovou
+ * por um motivo diferente, e os dois viraram asserção aqui:
+ *
+ *   - espremer tudo numa linha deixava o nome em "PRO…" (medido em produção,
+ *     390px, 16/09). Daí "nome legível" ser medido em CARACTERES VISÍVEIS, e
+ *     não em pixels de largura: 72px de largura passavam no critério antigo e
+ *     mostravam três letras na tela;
+ *   - deixar o cabeçalho quebrar em duas linhas resolvia o nome e custava uma
+ *     faixa de ícones embaixo da marca. Daí a asserção de LINHA ÚNICA no
+ *     celular.
+ *
+ * 768px está na lista de propósito: fica acima do limite de 720px e prova o
+ * outro lado da media query, com os ícones de volta ao cabeçalho.
  */
 const REDES_CENARIOS = [
   /* `empTelefone` também vai a null: o WhatsApp público cai no telefone do
@@ -528,6 +539,9 @@ const REDES_CENARIOS = [
   ['as três', { instagram: 'loja', facebook: 'loja' }],
 ];
 
+/** Acima disto os ícones de rede voltam ao cabeçalho (media query do CSS). */
+const LIMITE_CELULAR = 720;
+
 for (const largura of [320, 375, 390, 430, 768]) {
   for (const [rotulo, redes] of REDES_CENARIOS) {
     t(`D7-${largura} (${rotulo}). cabeçalho legível e sem overflow`, async () => {
@@ -537,22 +551,23 @@ for (const largura of [320, 375, 390, 430, 768]) {
         { nome: 'NOME BEM LONGO DE UMA LOJA QUE NAO CABE', endereco: 'RUA X, 1',
           mostrarEndereco: true, horarios: COMERCIAL, ...redes }) };
       await comNavegador([A], largura, async (page, ctx) => {
-        const r = await page.evaluate((qtdEsperada) => {
+        const celular = largura <= LIMITE_CELULAR;
+        const esperados = redes.whatsapp === null ? 0
+          : 1 + (redes.instagram ? 1 : 0) + (redes.facebook ? 1 : 0);
+
+        const r = await page.evaluate(() => {
           const dentro = (s) => { const e = document.querySelector(s); if (!e) return null;
             const b = e.getBoundingClientRect();
             return { ok: b.left >= -1 && b.right <= window.innerWidth + 1,
-                     w: Math.round(b.width), h: Math.round(b.height),
-                     x: Math.round(b.left), y: Math.round(b.top) }; };
+                     w: Math.round(b.width), h: Math.round(b.height) }; };
 
           /* Quantos caracteres do nome o visitante realmente lê: corta o texto
-             até ele caber na caixa e conta. É isto que separa "PRODUTOS BOM
-             GOSTO" de "PRO…" — a largura do elemento é a mesma nos dois. */
+             até ele caber e conta. É isto que separa "PRODUTOS BOM GOSTO" de
+             "PRO…" — a largura do elemento é a mesma nos dois. Mede os DOIS
+             eixos: com uma linha só o excesso vaza na horizontal e
+             `scrollHeight` nunca cresce. */
           const el = document.getElementById('nomeLoja');
           const texto = el.textContent;
-          /* Cabe nos DOIS eixos. Medir só a altura deixa passar o corte de uma
-             linha com `white-space: nowrap`, onde o excesso vaza na horizontal
-             e `scrollHeight` nunca cresce — a sabotagem de 16/09 atravessou
-             este caso exatamente por aí. */
           const cabe = () => el.scrollHeight <= el.clientHeight + 1
                           && el.scrollWidth <= el.clientWidth + 1;
           let visiveis = texto.length;
@@ -569,43 +584,70 @@ for (const largura of [320, 375, 390, 430, 768]) {
 
           const marca = document.querySelector('.marca-loja').getBoundingClientRect();
           const acoes = document.querySelector('.acoes-topo').getBoundingClientRect();
-          const icones = [...document.querySelectorAll('#redes .rede')];
-          const menorAlvo = [...icones, document.getElementById('btInfo')]
-            .reduce((m, e) => { const b = e.getBoundingClientRect();
-              const v = Math.min(b.width, b.height); return m === null || v < m ? v : m; }, null);
+          /* Ícone no DOM mas com largura zero é ícone escondido: contar só os
+             que têm caixa é o que distingue "saiu do cabeçalho" de "sumiu do
+             HTML", e são coisas diferentes. */
+          const visiveisIcones = [...document.querySelectorAll('#redes .rede')]
+            .filter((e) => e.getBoundingClientRect().width > 0);
+          const bt = document.getElementById('btInfo');
+          const alvoInfo = bt.getBoundingClientRect();
 
           return {
-            redes: dentro('#redes'), marca: dentro('.marca-loja'),
-            acoes: dentro('.acoes-topo'), logo: dentro('header.topo img.logo'),
-            rodape: dentro('.rodape-grade'),
-            qtdIcones: icones.length, qtdEsperada,
-            infoVisivel: !!document.getElementById('btInfo').offsetParent,
-            menorAlvo: menorAlvo === null ? null : Math.round(menorAlvo),
+            marca: dentro('.marca-loja'), acoes: dentro('.acoes-topo'),
+            logo: dentro('header.topo img.logo'), rodape: dentro('.rodape-grade'),
+            iconesVisiveis: visiveisIcones.length,
+            iconesNoHtml: document.querySelectorAll('#redes .rede').length,
+            menorAlvo: visiveisIcones.length
+              ? Math.round(Math.min(...visiveisIcones.map((e) => {
+                  const b = e.getBoundingClientRect(); return Math.min(b.width, b.height); }))) : null,
+            infoVisivel: !!bt.offsetParent,
+            alvoInfo: { w: Math.round(alvoInfo.width), h: Math.round(alvoInfo.height) },
             nome: texto, visiveis,
-            // Marca e ações não podem ocupar o mesmo espaço da tela.
+            // Segunda linha de verdade: o ⓘ começa abaixo do fim da marca.
+            quebrou: acoes.top >= marca.bottom - 1,
             sobrepoe: marca.right > acoes.left + 1 && marca.left < acoes.right - 1
                    && marca.bottom > acoes.top + 1 && marca.top < acoes.bottom - 1,
             rolaH: document.documentElement.scrollWidth > window.innerWidth + 1,
           };
-        }, redes.whatsapp === null ? 0 : 1 + (redes.instagram ? 1 : 0) + (redes.facebook ? 1 : 0));
+        });
 
-        assert(r.qtdIcones === r.qtdEsperada,
-          `${r.qtdIcones} ícones de rede, esperados ${r.qtdEsperada} — nenhuma rede configurada pode ser escondida`);
-        if (r.qtdIcones) {
-          assert(r.redes.ok, 'a barra de redes vaza da tela');
-          assert(r.menorAlvo >= 44, `alvo de toque de ${r.menorAlvo}px — abaixo dos 44px`);
+        // ── o cabeçalho ──────────────────────────────────────────────────
+        if (celular) {
+          assert(r.iconesVisiveis === 0,
+            `${r.iconesVisiveis} ícone(s) de rede no cabeçalho do celular — eles vivem no painel ⓘ`);
+          assert(!r.quebrou, 'o cabeçalho do celular quebrou em duas linhas');
+        } else {
+          assert(r.iconesVisiveis === esperados,
+            `${r.iconesVisiveis} ícones no cabeçalho, esperados ${esperados} — no desktop eles aparecem`);
+          if (esperados) assert(r.menorAlvo >= 44, `alvo de toque de ${r.menorAlvo}px — abaixo dos 44px`);
         }
         assert(r.infoVisivel, 'o botão Informações sumiu do cabeçalho');
+        assert(r.alvoInfo.w >= 44 && r.alvoInfo.h >= 44,
+          `o ⓘ mede ${r.alvoInfo.w}x${r.alvoInfo.h}px — abaixo do alvo de toque`);
         assert(r.marca.ok, 'a marca vaza da tela');
         assert(r.acoes.ok, 'o grupo de ações vaza da tela');
         assert(r.logo.w >= 24, `o logo colapsou para ${r.logo.w}px`);
-        /* 24 caracteres, ou o nome inteiro se for menor. Era exatamente aqui
-           que "PRO…" (3 caracteres) passava batido medindo só largura. */
         assert(r.visiveis >= Math.min(r.nome.length, 24),
           `nome ilegível: ${r.visiveis} de ${r.nome.length} caracteres — "${r.nome.slice(0, r.visiveis)}…"`);
         assert(!r.sobrepoe, 'a marca e os ícones se sobrepõem');
         assert(r.rodape.ok, 'o rodapé vaza da tela');
         assert(!r.rolaH, 'a página rola na horizontal');
+
+        // ── o painel ⓘ, que é para onde as redes foram ───────────────────
+        const painel = await page.evaluate(async () => {
+          document.getElementById('btInfo').click();
+          await new Promise((x) => setTimeout(x, 400));
+          const bg = document.getElementById('infoBg');
+          const hrefs = [...bg.querySelectorAll('a[href]')].map((a) => a.getAttribute('href'));
+          return { aberto: !bg.hidden,
+            zap: hrefs.some((h) => /wa\.me|api\.whatsapp/i.test(h)),
+            insta: hrefs.some((h) => /instagram\.com/i.test(h)),
+            face: hrefs.some((h) => /facebook\.com/i.test(h)) };
+        });
+        assert(painel.aberto, 'o painel Informações não abriu');
+        if (redes.whatsapp !== null) assert(painel.zap, 'o WhatsApp sumiu do painel Informações');
+        if (redes.instagram) assert(painel.insta, 'o Instagram sumiu do painel Informações');
+        if (redes.facebook) assert(painel.face, 'o Facebook sumiu do painel Informações');
         assert(ctx.erros.length === 0, 'erro de página: ' + ctx.erros.join(' | '));
       });
     });

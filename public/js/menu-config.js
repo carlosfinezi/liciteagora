@@ -216,6 +216,16 @@ const menuConfig = {
                    caminho é CATÁLOGO → Catálogo Online → ⚙️ Configurações. */
                 { page: 'loja', icone: '🛵', texto: 'Catálogo · Entrega',
                   link: '/catalogo/loja-entrega.html', oculto: true },
+                /* Preço e pagamento. Mesmo desenho das duas irmãs acima: o
+                   caminho é CATÁLOGO → Catálogo Online → ⚙️ Configurações, e o
+                   registro existe para o RBAC não cair na herança do diretório. */
+                { page: 'loja', icone: '💳', texto: 'Catálogo · Preço e pagamento',
+                  link: '/catalogo/loja-preco-pagamento.html', oculto: true },
+                /* Regras fiscais. Mesma família das três acima: chega-se por
+                   CATÁLOGO → Catálogo Online → ⚙️ Configurações, e o registro
+                   existe para o RBAC não cair na herança do diretório. */
+                { page: 'loja', icone: '🧾', texto: 'Catálogo · Regras fiscais',
+                  link: '/catalogo/loja-regras-fiscais.html', oculto: true },
                 { page: 'catalogo-etiquetas', icone: '🏷️', texto: 'Etiquetas', link: '/catalogo/etiquetas.html' },
                 { page: 'cadastro-marcas', icone: '🏷️', texto: 'Marcas', link: '/catalogo/marcas.html' },
                 { page: 'cadastro-modelos', icone: '🔖', texto: 'Modelos', link: '/catalogo/modelos.html' },

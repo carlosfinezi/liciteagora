@@ -288,13 +288,13 @@ t('A17b. a página não contém mais o fluxo de login do portal', async () => {
 // B. A página no Chrome, sem login
 // ============================================================================
 
-async function comNavegador(tenants, fn) {
+async function comNavegador(tenants, fn, opcoes = {}) {
   const srv = await subir(tenants);
   const porta = srv.address().port;
   const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new',
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--hide-scrollbars'] });
   const page = await browser.newPage();
-  await page.setViewport({ width: 1280, height: 900 });
+  await page.setViewport(opcoes.viewport || { width: 1280, height: 900 });
   const erros = [], rede = [];
   page.on('pageerror', (e) => erros.push(e.message));
   page.on('request', (r) => {
@@ -453,6 +453,84 @@ t('B-preco. o preço exibido é o do servidor, não o do navegador', async () =>
     assert(r.preco === 20 && r.total === 20,
       'o preço adulterado no navegador venceu o do servidor: ' + JSON.stringify(r));
   });
+});
+
+/* Também nasceu de uma captura: o círculo branco no rodapé era a logo ausente
+   que deveria estar escondida. A causa servia a três sintomas de uma vez —
+   `hidden` perdia para a regra de classe com `display`, e o selo de
+   atendimento, a faixa de categorias e a logo do rodapé ficavam todos na tela.
+   O caso mede a CAUSA, não os três: nenhum `[hidden]` pode ocupar caixa. */
+t('B-hidden. elemento marcado como oculto não ocupa espaço na tela', async () => {
+  const A = { slug: 'a', db: montarTenant('nav9', { ativa: 1, produtos: PRODUTOS_A,
+    /* Sem logo e sem horário de propósito: é a loja recém-publicada, que é
+       justamente onde os três apareciam. */
+    config: { nome: 'LOJA SEM LOGO', whatsapp: '44999990000' } }) };
+  await comNavegador([A], async (page) => {
+    const teimosos = await page.evaluate(() => {
+      const fora = [];
+      for (const el of document.querySelectorAll('[hidden]')) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 || r.height > 0) {
+          fora.push(`${el.id || el.className || el.tagName} (${Math.round(r.width)}x${Math.round(r.height)},`
+            + ` display:${getComputedStyle(el).display})`);
+        }
+      }
+      return fora;
+    });
+    assert(teimosos.length === 0, 'marcado como oculto, mas ocupando a tela: ' + teimosos.join('; '));
+  });
+});
+
+/* Este caso nasceu de uma captura, não de um teste: a barra fixa da sacola
+   continuava no checkout e cobria o rótulo e o campo Rua — 73px por cima do
+   formulário, em 390px. Ela já sumia em #/sacola, e as rotas novas (#/checkout
+   e #/pedido/…) não tinham entrado na regra.
+   A medida é geral de propósito: qualquer elemento fixo que venha a cobrir
+   campo do checkout reprova aqui, e não só a barra. */
+t('B-checkout-livre. nenhum elemento fixo cobre campo do checkout no celular', async () => {
+  const A = { slug: 'a', db: montarTenant('nav8', { ativa: 1, produtos: PRODUTOS_A, config: CFG_A }) };
+  await comNavegador([A], async (page) => {
+    await page.evaluate(async () => {
+      const p = PRODUTOS.find((x) => x.sku === 'A2');
+      await adicionar({ produtoId: p.id, quantidade: 1, opcoes: [], textos: {}, comentario: null });
+    });
+    await new Promise((r) => setTimeout(r, 500));
+    await page.evaluate(() => { location.hash = '#/sacola'; });
+    await new Promise((r) => setTimeout(r, 800));
+
+    const foiAoCheckout = await page.evaluate(() => {
+      const bt = document.getElementById('btIrCheckout');
+      if (!bt) return false;
+      const retirada = document.querySelector('[data-servico="retirada"]');
+      if (retirada) retirada.click();
+      bt.click();
+      return true;
+    });
+    assert(foiAoCheckout, 'a sacola não oferece o caminho para o checkout');
+    await new Promise((r) => setTimeout(r, 900));
+
+    const m = await page.evaluate(() => {
+      const campos = [...document.querySelectorAll('.chk input, .chk select, .chk textarea, .chk label')]
+        .filter((c) => c.getBoundingClientRect().height > 0);
+      const cobertos = [];
+      for (const el of document.querySelectorAll('body *')) {
+        const s = getComputedStyle(el);
+        if (s.position !== 'fixed' || s.display === 'none' || s.visibility === 'hidden') continue;
+        if (el.offsetHeight < 20 || Number(s.opacity) === 0) continue;
+        const r = el.getBoundingClientRect();
+        for (const c of campos) {
+          const q = c.getBoundingClientRect();
+          const alturaEmComum = Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top);
+          if (alturaEmComum > 2 && q.left < r.right && q.right > r.left) {
+            cobertos.push(`${el.id || el.className || el.tagName} cobre ${c.id || c.tagName}`);
+          }
+        }
+      }
+      return { naTela: !!document.querySelector('.chk'), cobertos: [...new Set(cobertos)] };
+    });
+    assert(m.naTela, 'o checkout não abriu');
+    assert(m.cobertos.length === 0, 'elemento fixo por cima do formulário: ' + m.cobertos.join('; '));
+  }, { viewport: { width: 390, height: 844, isMobile: true, hasTouch: true } });
 });
 
 (async () => {

@@ -22,10 +22,11 @@ const multer = require('multer');
 const imgs = require('./produto-imagens');
 const { requirePortalAuth } = require('./portal-routes');
 const { resolverPreco } = require('./precos-routes');
-const { gerarNumero, recalcularTotal } = require('./pedidos-routes');
+const { gerarNumero, recalcularTotal, confirmarPedidoInterno } = require('./pedidos-routes');
 const { resolverDeposito } = require('./estoque-routes');
 const { reentrarContextoTenant } = require('./tenant-middleware');
 const { criarReservasPedido } = require('./reservas-routes');
+const semDoc = require('./pessoa-sem-documento');
 
 const RAIZ_PUBLICA = path.join(__dirname, 'public');
 const SUBDIR_LOJA = 'uploads/loja';
@@ -128,6 +129,32 @@ const COLUNAS_INFO_LOJA = [
    * intocado e a exibição o aplica por CSS (`object-position` + `scale`). */
   'logoFoco TEXT',
   'bannerFoco TEXT',
+
+  /* ── Regras fiscais do catálogo (Fase 1 fiscal, 2026-09-21) ───────────────
+   *
+   * Duas REFERÊNCIAS a `tipos_operacao`, e nada além disso. `emiteNFe`,
+   * `geraFinanceiro`, `movimentaEstoque`, CFOP, finalidade e impostos NÃO são
+   * copiados para cá: a natureza escolhida continua sendo a fonte única, e o
+   * motor do ERP continua decidindo os efeitos. Copiar qualquer um desses
+   * campos criaria uma segunda verdade que envelheceria sozinha no dia em que
+   * o lojista editasse a natureza.
+   *
+   * `tipoOperacaoPedidoId` é a natureza com que o pedido do catálogo NASCE.
+   * Até 2026-09-20 ele nascia com `tipoOperacaoId` NULL, e três decisões
+   * fiscais eram tomadas por fallback fail-open — gerar financeiro, ser
+   * fiscal e movimentar estoque, todas por omissão. Funcionava por acidente,
+   * não por escolha.
+   *
+   * `tipoOperacaoNfceId` é a natureza da NFC-e originada de pedido do
+   * catálogo. Ela é CONFIGURÁVEL nesta fase e ainda não é USADA: nenhum
+   * endpoint do catálogo emite NFC-e, porque delivery e cancelamento ainda
+   * não estão resolvidos. Ela existe aqui para que a Fase 2 não precise
+   * mexer em schema.
+   *
+   * Nenhuma das duas é preenchida automaticamente, e nenhum pedido antigo é
+   * adotado retroativamente. */
+  'tipoOperacaoPedidoId INTEGER',
+  'tipoOperacaoNfceId INTEGER',
 ];
 
 /**
@@ -358,6 +385,150 @@ function bairrosCobertura(db, { somenteAtivos = true } = {}) {
  * Quando `servicoDelivery` está desligado, a cobertura inteira some do payload:
  * publicar bairros de um serviço que não é oferecido só gera pergunta.
  */
+/* ══════════════════════════════════════════════════════════════════════════
+   CHECKOUT PÚBLICO — peças de entrada
+   Só o que não depende do banco. A rota vive em `registrarRotasLojaPublica`.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** Só dígitos, e nada de string gigante vinda do corpo. */
+const soDigitos = (v, max) => String(v == null ? '' : v).replace(/\D/g, '').slice(0, max);
+
+/** Texto de entrada: apara, colapsa espaço, limita, e null quando sobra nada. */
+const txtPub = (v, max) => {
+  const t = String(v == null ? '' : v).trim().replace(/\s+/g, ' ').slice(0, max);
+  return t || null;
+};
+
+/**
+ * CPF/CNPJ com dígito verificador conferido.
+ *
+ * O ERP não tinha validador, e cadastrar documento inválido é pior que não
+ * cadastrar: ele viaja até a NF-e e o erro aparece na SEFAZ com a venda já
+ * feita. Quem não quer informar tem o caminho explícito do
+ * `pessoa-sem-documento`; quem informa, informa certo.
+ *
+ * @returns {string|null} só os dígitos, ou null se não for válido.
+ */
+function documentoValido(bruto) {
+  const d = soDigitos(bruto, 14);
+  if (d.length === 11) {
+    if (/^(\d)\1{10}$/.test(d)) return null;
+    const dv = (base, peso) => {
+      const soma = base.split('').reduce((acc, n, i) => acc + Number(n) * (peso - i), 0);
+      const r = (soma * 10) % 11;
+      return String(r === 10 ? 0 : r);
+    };
+    return dv(d.slice(0, 9), 10) === d[9] && dv(d.slice(0, 10), 11) === d[10] ? d : null;
+  }
+  if (d.length === 14) {
+    if (/^(\d)\1{13}$/.test(d)) return null;
+    const dv = (base) => {
+      const pesos = base.length === 12
+        ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+        : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+      const soma = base.split('').reduce((acc, n, i) => acc + Number(n) * pesos[i], 0);
+      const r = soma % 11;
+      return String(r < 2 ? 0 : 11 - r);
+    };
+    return dv(d.slice(0, 12)) === d[12] && dv(d.slice(0, 13)) === d[13] ? d : null;
+  }
+  return null;
+}
+
+/**
+ * A impressão digital da INTENÇÃO do checkout.
+ *
+ * Existe por causa de um caso só: a mesma chave de idempotência chegando com
+ * um pedido DIFERENTE. Devolver calado o pedido antigo faria o cliente achar
+ * que comprou o que acabou de montar; criar um segundo pedido derrubaria a
+ * própria idempotência. A saída é recusar com 409 — e para recusar é preciso
+ * saber que a intenção mudou.
+ *
+ * ── Por que NÃO precisa de coluna nova ──────────────────────────────────────
+ *
+ * Tudo o que compõe a impressão é gravado no pedido: cliente, atendimento,
+ * meio de pagamento, total e a linha de cada item com a descrição já montada
+ * (que carrega as personalizações). Então ela é RECALCULÁVEL a partir do
+ * pedido, e comparar não exige guardar hash nenhum.
+ *
+ * Comparar só total, cliente e contagem de itens seria fraco: trocar um
+ * produto por outro de mesmo preço passaria batido. Aqui entram os ids, as
+ * quantidades e a descrição de cada item, em ordem estável.
+ */
+function impressaoDaIntencao(d) {
+  const partes = [
+    'n=' + (d.nome || ''),
+    't=' + (d.telefone || ''),
+    'doc=' + (d.documento || ''),
+    'at=' + (d.atendimento || ''),
+    'pg=' + (d.pagamento || ''),
+    'tot=' + Number(d.total || 0).toFixed(2),
+    ...[...d.itens]
+      .map((i) => `${i.produtoId}x${i.quantidade}:${i.descricao}`)
+      .sort(),                     // ordem do carrinho não muda a intenção
+  ];
+  return crypto.createHash('sha256').update(partes.join('|')).digest('hex');
+}
+
+/** Hoje em Brasília, no mesmo critério do resto do ERP (UTC-3, sem timezone por tenant). */
+function dataDeHojeBrasilia() {
+  return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * A natureza com que o pedido do catálogo nasce — ou null se não dá para saber.
+ *
+ * Devolve a LINHA de `tipos_operacao`, e não o id, porque quem chama precisa
+ * saber o que ela decide antes de criar qualquer coisa.
+ *
+ * Três recusas, e todas devolvem null:
+ *   - nada configurado;
+ *   - configurado para uma natureza que não existe mais (alguém a removeu);
+ *   - configurado para uma natureza inativa.
+ *
+ * O id vem do BANCO DO TENANT, então natureza de outra empresa não é
+ * encontrada aqui — é o mesmo isolamento que vale para o resto do ERP, e não
+ * depende de ninguém lembrar de checar o tenant.
+ *
+ * O que esta função NÃO faz, de propósito: julgar `emiteNFe`,
+ * `geraFinanceiro` ou `movimentaEstoque`. Essas decisões são da natureza
+ * escolhida, e é justamente por isso que o lojista a escolhe. Exigir aqui um
+ * valor para qualquer uma delas seria trazer a regra para dentro do catálogo,
+ * que é o oposto do que esta fase faz.
+ */
+function naturezaDoPedidoDoCatalogo(db, cfg) {
+  const id = Number(cfg && cfg.tipoOperacaoPedidoId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  let nat;
+  try { nat = db.prepare('SELECT * FROM tipos_operacao WHERE id = ?').get(id); }
+  catch { return null; }   // tenant antigo, sem a tabela: cai na recusa de negócio
+  if (!nat) return null;
+  if (Number(nat.ativo) === 0) return null;
+  return nat;
+}
+
+/** Os três meios desta fase, no vocabulário SEFAZ que o ERP já usa. */
+const PAGAMENTOS_CHECKOUT = { pix: '17', dinheiro: '01', cartao: '03' };
+const ROTULO_PAGAMENTO = { pix: 'PIX', dinheiro: 'Dinheiro', cartao: 'Cartão na entrega/retirada' };
+
+/**
+ * A descrição do item, com as personalizações que o SERVIDOR validou.
+ *
+ * `pedido_itens` não tem campo para opções, e criar um seria estrutura nova
+ * para o que a descrição resolve — é ela que o separador lê e que sai no PDF.
+ * O nome de cada opção vem de `rest_opcoes`, buscado por id; do cliente vem
+ * só o campo livre, já limitado por `validarEscolhas`.
+ */
+function descricaoDoItem(item) {
+  const partes = [item.descricao];
+  for (const o of item.opcoes) partes.push(o.nome);
+  for (const [rotulo, valor] of Object.entries(item.textos || {})) {
+    if (valor) partes.push(`${rotulo}: ${valor}`);
+  }
+  if (item.comentario) partes.push(`Obs.: ${item.comentario}`);
+  return partes.join(' · ').slice(0, 300);
+}
+
 function entregaPublica(db, cfg) {
   const delivery = !!cfg.servicoDelivery;
   const modo = MODOS_FRETE.includes(cfg.freteModo) ? cfg.freteModo : 'gratis';
@@ -683,6 +854,26 @@ function registrarRotasLojaPublica(app, db) {
     } catch { return null; }
   };
 
+  /**
+   * Erro INESPERADO numa rota anônima: o detalhe fica do lado de cá e o
+   * visitante recebe uma frase só.
+   *
+   * O motivo é quem está do outro lado. Estas rotas respondem a quem não fez
+   * login nenhum, e `e.message` do SQLite carrega nome de tabela, nome de
+   * coluna e trecho de SQL — um mapa do banco entregue a pedido.
+   *
+   * Isto NÃO alcança as recusas de negócio. "Loja não publicada", "Produto não
+   * encontrado", quantidade inválida e personalização inválida são
+   * `return res.status(4xx)` dentro do `try`: retornam sem lançar e nunca
+   * passam por aqui. Quem chega neste ponto é exceção, e exceção não tem
+   * mensagem para o cliente.
+   */
+  const erroInterno = (res, rota, e) => {
+    console.error(`[loja] ${rota}:`, e.message);
+    return res.status(500).json({ success: false,
+      error: 'Não foi possível carregar agora. Tente de novo em instantes.' });
+  };
+
   const precoVisivel = (cfg, produto, pessoaId) => {
     if (pessoaId) return resolverPreco(db, produto.id, { pessoaId, quantidade: 1 }).preco;
     return cfg.mostrarPreco ? Number(produto.precoVenda) || 0 : null;
@@ -733,7 +924,7 @@ function registrarRotasLojaPublica(app, db) {
         mostrarPreco: !!c.mostrarPreco, mostrarEstoque: !!c.mostrarEstoque, tema: c.tema,
         pagamento: c.pagamentoModo || 'nenhum',
       } });
-    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+    } catch (e) { return erroInterno(res, '/loja/api/config', e); }
   });
 
   app.get('/loja/api/produtos', (req, res) => {
@@ -786,7 +977,7 @@ function registrarRotasLojaPublica(app, db) {
       const categorias = [...new Set(linhas.map(p => (p.categoria || '').trim()).filter(Boolean))]
         .sort(compararCategorias(ordemCategorias(db)));
       res.json({ success: true, total: produtos.length, categorias, produtos });
-    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+    } catch (e) { return erroInterno(res, '/loja/api/produtos', e); }
   });
 
   // ---------- área do comprador (login do portal) ----------
@@ -967,7 +1158,7 @@ function registrarRotasLojaPublica(app, db) {
         fotos: fotosDe(p.id, p.imagemPath),
         personalizacoes: personalizacoesDe(db, p.id),
       } });
-    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+    } catch (e) { return erroInterno(res, '/loja/api/produtos/:id', e); }
   });
 
   /**
@@ -988,59 +1179,420 @@ function registrarRotasLojaPublica(app, db) {
    * `precoAdicional` NUNCA vem do corpo — é lido de `rest_opcoes` pelo id. Um
    * adicional adulterado no navegador não muda um centavo.
    */
+  /**
+   * Monta os itens do carrinho COM AUTORIDADE DO SERVIDOR.
+   *
+   * Extraída do handler de `carrinho/calcular` para ser usada também na
+   * finalização — a alternativa seria repetir a mesma validação em dois
+   * lugares, e a segunda cópia divergiria na primeira correção. Nada do que
+   * chega do navegador é aceito como verdade: `produtoId` e `quantidade` são
+   * referências, e preço, opções e textos são resolvidos aqui.
+   *
+   * @returns {{erro?:string, status?:number, item?:number, produtoId?:number, itens?:Array}}
+   */
+  function montarItensDoCarrinho(c, bruto, pessoaId) {
+    if (bruto.length > 200) {
+      return { erro: 'Carrinho grande demais', status: 422 };
+    }
+    const itens = [];
+    for (const [i, entrada] of bruto.entries()) {
+      const produtoId = Number(entrada && entrada.produtoId);
+      const quantidade = Math.floor(Number(entrada && entrada.quantidade) || 0);
+      if (!Number.isFinite(produtoId) || produtoId <= 0 || quantidade <= 0) continue;
+
+      const p = db.prepare(`SELECT id, sku, descricao, marca, unidade, precoVenda, imagemPath
+        FROM produtos WHERE id = ? AND ativo = 1 AND publicadoNaLoja = 1`).get(produtoId);
+      if (!p) continue;                       // despublicado entre visitas: some da sacola
+
+      const grupos = personalizacoesDe(db, p.id);
+      const escolhidas = Array.isArray(entrada.opcoes) ? entrada.opcoes.map(Number) : [];
+      const textos = (entrada.textos && typeof entrada.textos === 'object') ? entrada.textos : {};
+
+      const validado = validarEscolhas(grupos, escolhidas, textos);
+      if (validado.erro) {
+        return { erro: validado.erro, status: 422, item: i, produtoId };
+      }
+
+      const precoBase = precoVisivel(c, p, pessoaId);
+      const adicional = validado.opcoes.reduce((s, o) => s + o.precoAdicional, 0);
+      const unitario = precoBase == null ? null : r2c(precoBase + adicional);
+
+      itens.push({
+        produtoId: p.id, sku: p.sku, descricao: p.descricao,
+        marca: marcaVisivel(p.marca), unidade: p.unidade,
+        foto: (fotosDe(p.id, p.imagemPath)[0] || null),
+        quantidade,
+        precoBase, adicional: r2c(adicional), precoUnitario: unitario,
+        total: unitario == null ? null : r2c(unitario * quantidade),
+        opcoes: validado.opcoes.map((o) => ({ id: o.id, grupoId: o.grupoId, nome: o.nome,
+                                              precoAdicional: o.precoAdicional })),
+        textos: validado.textos,
+        comentario: entrada.comentario == null ? null : String(entrada.comentario).trim().slice(0, 300) || null,
+      });
+    }
+    return { itens };
+  }
+
   app.post('/loja/api/carrinho/calcular', (req, res) => {
     try {
       const c = lerConfig(db);
       if (!c.ativa) return res.status(404).json({ success: false, error: 'Loja não publicada' });
 
       const bruto = Array.isArray(req.body?.itens) ? req.body.itens : [];
-      if (bruto.length > 200) {
-        return res.status(422).json({ success: false, error: 'Carrinho grande demais' });
+
+      const r = montarItensDoCarrinho(c, bruto, pessoaLogada(req));
+      if (r.erro) {
+        return res.status(r.status).json({ success: false, error: r.erro,
+                                           item: r.item, produtoId: r.produtoId });
       }
-
-      const pessoaId = pessoaLogada(req);
-      const itens = [];
-      for (const [i, entrada] of bruto.entries()) {
-        const produtoId = Number(entrada && entrada.produtoId);
-        const quantidade = Math.floor(Number(entrada && entrada.quantidade) || 0);
-        if (!Number.isFinite(produtoId) || produtoId <= 0 || quantidade <= 0) continue;
-
-        const p = db.prepare(`SELECT id, sku, descricao, marca, unidade, precoVenda, imagemPath
-          FROM produtos WHERE id = ? AND ativo = 1 AND publicadoNaLoja = 1`).get(produtoId);
-        if (!p) continue;                       // despublicado entre visitas: some da sacola
-
-        const grupos = personalizacoesDe(db, p.id);
-        const escolhidas = Array.isArray(entrada.opcoes) ? entrada.opcoes.map(Number) : [];
-        const textos = (entrada.textos && typeof entrada.textos === 'object') ? entrada.textos : {};
-
-        const validado = validarEscolhas(grupos, escolhidas, textos);
-        if (validado.erro) {
-          return res.status(422).json({ success: false, error: validado.erro, item: i, produtoId });
-        }
-
-        const precoBase = precoVisivel(c, p, pessoaId);
-        const adicional = validado.opcoes.reduce((s, o) => s + o.precoAdicional, 0);
-        const unitario = precoBase == null ? null : r2c(precoBase + adicional);
-
-        itens.push({
-          produtoId: p.id, sku: p.sku, descricao: p.descricao,
-          marca: marcaVisivel(p.marca), unidade: p.unidade,
-          foto: (fotosDe(p.id, p.imagemPath)[0] || null),
-          quantidade,
-          precoBase, adicional: r2c(adicional), precoUnitario: unitario,
-          total: unitario == null ? null : r2c(unitario * quantidade),
-          opcoes: validado.opcoes.map((o) => ({ id: o.id, grupoId: o.grupoId, nome: o.nome,
-                                                precoAdicional: o.precoAdicional })),
-          textos: validado.textos,
-          comentario: entrada.comentario == null ? null : String(entrada.comentario).trim().slice(0, 300) || null,
-        });
-      }
+      const itens = r.itens;
 
       const semPreco = itens.some((i) => i.total == null);
       const total = r2c(itens.reduce((s, i) => s + (i.total || 0), 0));
       res.json({ success: true, itens, total, semPreco,
                  quantidadeItens: itens.reduce((s, i) => s + i.quantidade, 0) });
-    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+    } catch (e) { return erroInterno(res, '/loja/api/carrinho/calcular', e); }
+  });
+
+  /**
+   * POST /loja/api/pedido/finalizar — o checkout público.
+   *
+   * Uma tentativa de checkout vira, no máximo, UM pedido comercial normal.
+   *
+   * ── O que o servidor decide, e o navegador não ─────────────────────────
+   * preço, frete, total, origem (`catalogo`) e o texto das personalizações.
+   * Do corpo vêm referências (produtoId, quantidade, ids de opção) e o que só
+   * o cliente sabe (nome, telefone, endereço, forma de pagamento).
+   *
+   * ── Atômico ────────────────────────────────────────────────────────────
+   * Pessoa, pedido, itens, frete, atendimento, pagamento e CONFIRMAÇÃO — que
+   * é quem reserva estoque — acontecem numa transação só. `better-sqlite3`
+   * aninha por savepoint, e o rollback externo desfaz o interno: falhando
+   * qualquer etapa, não sobra pessoa órfã, rascunho abandonado, item solto
+   * nem reserva parcial. Nenhum DELETE compensatório.
+   *
+   * ── Idempotência ───────────────────────────────────────────────────────
+   * `pedidos.idempotenciaChave` com UNIQUE parcial. A consulta prévia serve
+   * ao caso comum (retry depois da resposta perdida); quem garante sob
+   * concorrência é a constraint — entre um SELECT e um INSERT cabe a segunda
+   * requisição, e é exatamente aí que o duplo clique cai.
+   */
+  /**
+   * Reenvio da MESMA tentativa: devolve o pedido que já existe.
+   *
+   * Antes de devolver, confere que a intenção é a mesma — recalculando a
+   * impressão a partir do que está gravado. Se mudou, 409: a chave já foi
+   * usada para outro pedido, e responder o antigo como se fosse o novo seria
+   * mentir para quem comprou.
+   */
+  function responderExistente(res, pedido, impressaoAgora) {
+    const p = db.prepare(`SELECT p.numero, p.valorTotal, p.valorFrete, p.tipoAtendimento,
+        p.meioPagamento, pe.razaoSocial, pe.telefone, pe.cpfCnpj, pe.semDocumento
+      FROM pedidos p LEFT JOIN pessoas pe ON pe.id = p.clienteId
+      WHERE p.id = ?`).get(pedido.id);
+    const itens = db.prepare(`SELECT produtoId, quantidade, descricao
+      FROM pedido_itens WHERE pedidoId = ? ORDER BY id`).all(pedido.id);
+    const codigo = Object.keys(PAGAMENTOS_CHECKOUT)
+      .find((k) => PAGAMENTOS_CHECKOUT[k] === p.meioPagamento) || null;
+
+    const impressaoAntes = impressaoDaIntencao({
+      nome: p.razaoSocial, telefone: p.telefone,
+      documento: Number(p.semDocumento) === 1 ? null : p.cpfCnpj,
+      atendimento: p.tipoAtendimento, pagamento: codigo,
+      total: r2c(p.valorTotal),
+      itens: itens.map((i) => ({ produtoId: i.produtoId, quantidade: i.quantidade,
+                                 descricao: i.descricao })),
+    });
+
+    if (impressaoAntes !== impressaoAgora) {
+      return res.status(409).json({ success: false,
+        error: 'Esta tentativa de compra já foi usada para outro pedido. Recarregue a página para começar de novo.' });
+    }
+
+    const c = lerConfig(db);
+    return res.json({
+      success: true, repetido: true,
+      numero: p.numero, total: r2c(p.valorTotal),
+      subtotal: r2c(p.valorTotal - (p.valorFrete || 0)), frete: r2c(p.valorFrete || 0),
+      atendimento: p.tipoAtendimento,
+      pagamento: { codigo, rotulo: ROTULO_PAGAMENTO[codigo] || null },
+      whatsapp: whatsappNormalizado(c.whatsapp || (empresaDe(db) || {}).telefone),
+    });
+  }
+
+  app.post('/loja/api/pedido/finalizar', (req, res) => {
+    /* Erro do cliente é mensagem que ele entende. Nada de SQL, stack, id
+       interno ou nome de tenant — a rota é pública. */
+    const recusa = (status, error, extra) =>
+      res.status(status).json({ success: false, error, ...(extra || {}) });
+
+    try {
+      const c = lerConfig(db);
+      if (!c.ativa) return recusa(404, 'Este catálogo não está disponível no momento.');
+
+      /* ── a natureza de operação, antes de qualquer criação ──────────────
+       *
+       * Sem ela o pedido nasceria com `tipoOperacaoId` NULL, e o ERP decidiria
+       * três coisas fiscais por omissão: gerar financeiro, ser fiscal e
+       * movimentar estoque. Isso funciona por acidente, e num pedido que entra
+       * sozinho pela internet o acidente não serve.
+       *
+       * A recusa vem ANTES de existir pessoa, pedido, item ou reserva, então o
+       * lojista que ainda não configurou não fica com meio pedido no banco. A
+       * mensagem é de negócio e não diz o que falta: quem lê é o consumidor, e
+       * nome de configuração interna não ajuda ninguém do lado de lá.
+       *
+       * Vale só para o catálogo. O fallback do ERP continua como está para
+       * todos os outros módulos e para os pedidos que já existem. */
+      const natureza = naturezaDoPedidoDoCatalogo(db, c);
+      if (!natureza) {
+        return recusa(409, 'Esta loja ainda não está configurada para receber pedidos. '
+          + 'Entre em contato com a loja.');
+      }
+
+      const b = req.body || {};
+
+      // ── chave da tentativa ────────────────────────────────────────────
+      const chave = txtPub(b.idempotencyKey, 100);
+      if (!chave || chave.length < 8) {
+        return recusa(422, 'Não foi possível identificar esta tentativa. Recarregue a página e tente de novo.');
+      }
+
+      // ── quem está comprando ───────────────────────────────────────────
+      const nome = txtPub(b.cliente && b.cliente.nome, 80);
+      if (!nome || nome.length < 2) return recusa(422, 'Informe seu nome.');
+      const telefone = soDigitos(b.cliente && b.cliente.telefone, 15);
+      if (telefone.length < 10) return recusa(422, 'Informe um telefone com DDD.');
+
+      /* Documento é opcional. Informado, precisa ser válido: documento
+         inválido no cadastro só aparece na SEFAZ, com a venda feita. */
+      let documento = null;
+      const docBruto = b.cliente && b.cliente.cpfCnpj;
+      if (docBruto != null && String(docBruto).trim() !== '') {
+        documento = documentoValido(docBruto);
+        if (!documento) return recusa(422, 'CPF/CNPJ inválido. Confira ou deixe em branco.');
+      }
+
+      // ── como recebe ───────────────────────────────────────────────────
+      const atendimento = String(b.atendimento || '');
+      if (!['retirada', 'entrega'].includes(atendimento)) {
+        return recusa(422, 'Escolha se quer retirar ou receber em casa.');
+      }
+      if (atendimento === 'retirada' && !c.servicoRetirada) {
+        return recusa(422, 'No momento esta loja não está aceitando retirada.');
+      }
+      if (atendimento === 'entrega' && !c.servicoDelivery) {
+        return recusa(422, 'No momento esta loja não está fazendo entregas.');
+      }
+
+      // ── pagamento: INTENÇÃO, nesta fase ───────────────────────────────
+      const pagamento = String(b.pagamento || '');
+      if (!PAGAMENTOS_CHECKOUT[pagamento]) {
+        return recusa(422, 'Escolha uma forma de pagamento.');
+      }
+
+      // ── itens, com autoridade do servidor ─────────────────────────────
+      const bruto = Array.isArray(b.itens) ? b.itens : [];
+      if (!bruto.length) return recusa(422, 'Sua sacola está vazia.');
+      const montado = montarItensDoCarrinho(c, bruto, null);
+      if (montado.erro) return recusa(montado.status, montado.erro);
+      const itens = montado.itens;
+      if (!itens.length) {
+        return recusa(409, 'Os produtos da sua sacola não estão mais disponíveis.');
+      }
+      if (itens.some((i) => i.total == null)) {
+        return recusa(409, 'Alguns produtos estão sem preço. Fale com a loja para finalizar.');
+      }
+      const subtotal = r2c(itens.reduce((acc, i) => acc + i.total, 0));
+
+      // ── endereço e frete, quando é entrega ────────────────────────────
+      let frete = 0;
+      let end = null;
+      if (atendimento === 'entrega') {
+        const e = b.endereco || {};
+        end = {
+          logradouro: txtPub(e.logradouro || e.rua, 200),
+          numero: txtPub(e.numero, 20),
+          complemento: txtPub(e.complemento, 100),
+          bairro: txtPub(e.bairro, 80),
+          cidade: txtPub(e.cidade, 100),
+          uf: (txtPub(e.uf, 2) || '').toUpperCase() || null,
+          cep: soDigitos(e.cep, 8) || null,
+          referencia: txtPub(e.referencia, 120),
+        };
+        if (!end.logradouro || !end.numero || !end.bairro || !end.cidade || !end.uf) {
+          return recusa(422, 'Complete o endereço de entrega: rua, número, bairro, cidade e estado.');
+        }
+
+        const modo = MODOS_FRETE.includes(c.freteModo) ? c.freteModo : 'gratis';
+        if (modo === 'gratis') frete = 0;
+        else if (modo === 'fixo') frete = r2c(c.freteValor);
+        else {
+          const lista = bairrosCobertura(db);
+          const alvo = end.bairro.toLowerCase();
+          const achado = lista.find((x) => String(x.nome).toLowerCase() === alvo);
+          if (achado) frete = r2c(achado.taxa);
+          else {
+            /* Fora da cobertura. Mesmo com `aceitaForaCobertura`, a
+               configuração não diz QUANTO cobrar de quem está fora — não há
+               taxa padrão nem "a combinar". Arbitrar 0 daria entrega grátis a
+               quem mora longe; arbitrar a maior taxa cobraria um valor que
+               ninguém definiu. Recusar é o único caminho que não inventa
+               preço, e o cliente fica sabendo o que fazer. */
+            return recusa(422, c.aceitaForaCobertura
+              ? 'Ainda não temos taxa definida para este bairro. Fale com a loja para combinar a entrega.'
+              : 'Ainda não entregamos neste bairro.');
+          }
+        }
+      }
+
+      const total = r2c(subtotal + frete);
+
+      // ── troco: validado, e registrado em texto ────────────────────────
+      let linhaTroco = null;
+      if (pagamento === 'dinheiro' && b.precisaTroco) {
+        const trocoPara = r2c(Number(b.trocoPara));
+        if (!(trocoPara > 0)) return recusa(422, 'Informe para quanto precisa de troco.');
+        if (trocoPara < total) {
+          return recusa(422, `O troco precisa ser a partir de ${total.toFixed(2).replace('.', ',')}.`);
+        }
+        linhaTroco = `Troco para: R$ ${trocoPara.toFixed(2).replace('.', ',')}`;
+      }
+
+      const obsCliente = txtPub(b.observacao, 300);
+
+      /* A observação é o que o atendente lê. O meio de pagamento também vai
+         em `pedidos.meioPagamento`, em código SEFAZ; aqui ele aparece por
+         extenso porque é onde quem separa e entrega vai olhar. */
+      const observacao = ['[Catálogo Online]',
+        `Pagamento: ${ROTULO_PAGAMENTO[pagamento]}`,
+        linhaTroco,
+        end && end.referencia ? `Referência: ${end.referencia}` : null,
+        obsCliente,
+      ].filter(Boolean).join(' · ').slice(0, 500);
+
+      /* A impressão da INTENÇÃO, para o caso "mesma chave, outro pedido".
+         Reconstruída dos mesmos dados que serão gravados, para poder ser
+         recalculada depois a partir do pedido — sem guardar campo novo. */
+      const impressao = impressaoDaIntencao({
+        nome, telefone, documento, atendimento, pagamento, total,
+        itens: itens.map((i) => ({ produtoId: i.produtoId, quantidade: i.quantidade,
+                                   descricao: descricaoDoItem(i) })),
+      });
+
+      // ── já existe pedido para esta tentativa? ─────────────────────────
+      const anterior = db.prepare(
+        'SELECT id, numero FROM pedidos WHERE idempotenciaChave = ?').get(chave);
+      if (anterior) return responderExistente(res, anterior, impressao);
+
+      // ── a operação, inteira, numa transação ──────────────────────────
+      let criado;
+      try {
+        criado = db.transaction(() => {
+          /* Pessoa: reusa por DOCUMENTO, nunca por telefone. Dois clientes
+             dividem o mesmo número com frequência (casal, empresa, recado), e
+             unir cadastros por isso mistura o histórico de compra de gente
+             diferente — sem volta. */
+          let pessoaId = null;
+          if (documento) {
+            const achada = db.prepare('SELECT id FROM pessoas WHERE cpfCnpj = ?').get(documento);
+            if (achada) pessoaId = achada.id;
+          }
+          if (!pessoaId) {
+            const chaveDoc = documento || semDoc.gerarIdentificadorSemDocumento();
+            pessoaId = db.prepare(`INSERT INTO pessoas
+                (cpfCnpj, tipo, razaoSocial, telefone, celular, ativo, semDocumento, origem)
+              VALUES (?, ?, ?, ?, ?, 1, ?, 'catalogo')`)
+              .run(chaveDoc, documento && documento.length === 14 ? 'PJ' : 'PF',
+                   nome, telefone, telefone, documento ? 0 : 1).lastInsertRowid;
+          }
+
+          const numero = gerarNumero(db, 'pedido');
+          /* `tipo = 'catalogo'` é definido AQUI, e não aceito do corpo:
+             `ORIGENS_CLIENTE` não inclui 'catalogo' justamente para que a
+             procedência não possa ser forjada por quem chama a rota. */
+          /* `tipoOperacaoId` entra no INSERT, e não num UPDATE depois: a
+             confirmação logo abaixo consulta a natureza para decidir se
+             reserva estoque, e um pedido que existisse por um instante sem
+             ela seria reservado pelo fallback antes de a natureza chegar. */
+          const pedidoId = db.prepare(`INSERT INTO pedidos
+              (numero, tipo, modoDocumento, clienteId, status, dataPedido, observacao,
+               depositoId, tipoAtendimento, meioPagamento, tipoFrete, valorFrete,
+               enderecoEntrega, numeroEntrega, complementoEntrega, bairroEntrega,
+               cidadeEntrega, ufEntrega, cepEntrega, contatoEntrega, telefoneEntrega,
+               idempotenciaChave, tipoOperacaoId)
+            VALUES (?, 'catalogo', 'pedido', ?, 'rascunho', ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            /* `date('now','-3 hours')` é como o resto deste arquivo grava data:
+               o ERP inteiro usa a hora de Brasília e não há timezone por tenant. */
+            .run(numero, pessoaId, dataDeHojeBrasilia(), observacao, resolverDeposito(db, {}),
+                 atendimento, PAGAMENTOS_CHECKOUT[pagamento],
+                 atendimento === 'entrega' ? 'CIF' : null, frete,
+                 end && end.logradouro, end && end.numero, end && end.complemento,
+                 end && end.bairro, end && end.cidade, end && end.uf, end && end.cep,
+                 nome, telefone, chave, natureza.id).lastInsertRowid;
+
+          const ins = db.prepare(`INSERT INTO pedido_itens
+              (pedidoId, produtoId, descricao, quantidade, precoUnitario, valorTotal)
+            VALUES (?, ?, ?, ?, ?, ?)`);
+          for (const i of itens) {
+            ins.run(pedidoId, i.produtoId, descricaoDoItem(i), i.quantidade,
+                    i.precoUnitario, i.total);
+          }
+          recalcularTotal(db, pedidoId);
+
+          /* A MESMA confirmação do ERP: valida cliente, itens, atendimento,
+             alçada e estoque, e cria a reserva. Devolve `{ok:false}` em vez
+             de lançar, então o erro vira exceção aqui — é ela que desfaz a
+             transação inteira. */
+          const conf = confirmarPedidoInterno(pedidoId, {});
+          if (!conf.ok) {
+            const e = new Error('CONFIRMACAO');
+            e.detalhe = conf;
+            throw e;
+          }
+          return { id: pedidoId, numero };
+        })();
+      } catch (e) {
+        /* Corrida: a outra requisição criou o pedido entre a consulta e o
+           INSERT. A constraint é quem pegou — e é para isso que ela existe. */
+        if (/UNIQUE constraint failed: pedidos.idempotenciaChave/i.test(e.message || '')) {
+          const dela = db.prepare(
+            'SELECT id, numero FROM pedidos WHERE idempotenciaChave = ?').get(chave);
+          if (dela) return responderExistente(res, dela, impressao);
+          return recusa(409, 'Seu pedido já está sendo processado. Aguarde um instante.');
+        }
+        if (e.message === 'CONFIRMACAO') {
+          const d = e.detalhe || {};
+          if (d.insuficiencias && d.insuficiencias.length) {
+            const nomes = d.insuficiencias
+              .map((x) => x.sku || x.descricao).filter(Boolean).slice(0, 5);
+            return recusa(409, nomes.length
+              ? `Alguns itens não têm mais a quantidade pedida: ${nomes.join(', ')}. Ajuste a sacola e tente de novo.`
+              : 'Alguns itens não têm mais a quantidade pedida. Ajuste a sacola e tente de novo.');
+          }
+          return recusa(409, 'Não foi possível concluir o pedido agora. Tente novamente em instantes.');
+        }
+        throw e;
+      }
+
+      const p = db.prepare('SELECT numero, valorTotal FROM pedidos WHERE id = ?').get(criado.id);
+      return res.json({
+        success: true,
+        numero: p.numero,
+        total: r2c(p.valorTotal),
+        subtotal, frete,
+        atendimento,
+        pagamento: { codigo: pagamento, rotulo: ROTULO_PAGAMENTO[pagamento] },
+        whatsapp: whatsappNormalizado(c.whatsapp || (empresaDe(db) || {}).telefone),
+      });
+    } catch (e) {
+      /* Nada do erro real vai para a rua: ele pode carregar SQL, nome de
+         coluna ou dado de outro cliente. O log fica do lado de cá. */
+      console.error('[loja] finalizar pedido:', e.message);
+      return res.status(500).json({ success: false,
+        error: 'Não conseguimos concluir seu pedido agora. Tente de novo em instantes.' });
+    }
   });
 
   /**
@@ -1084,7 +1636,7 @@ function registrarRotasLojaPublica(app, db) {
                  temPersonalizacao: personalizacoesDe(db, p.id).length > 0,
                  fotos: fotosDe(p.id, p.imagemPath) };
       }) });
-    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+    } catch (e) { return erroInterno(res, '/loja/api/sugestoes', e); }
   });
 }
 
@@ -1109,7 +1661,18 @@ function registrarRotasLojaAdmin(app, db) {
         aguardando = db.prepare(`SELECT COUNT(*) n FROM pedidos
           WHERE COALESCE(origemLoja,0) = 1 AND status = 'rascunho'`).get().n;
       } catch { /* base ainda sem a coluna */ }
-      res.json({ success: true, config: c, presets: PRESETS,
+      /* As naturezas vão junto porque a tela de Regras Fiscais é um SELECT: o
+         lojista escolhe entre as que já existem no ERP e nunca digita uma.
+         Vão os três campos de efeito (`emiteNFe`, `geraFinanceiro`,
+         `movimentaEstoque`) para a tela poder DESCREVER o que a escolha faz —
+         ler, não guardar. Quem decide continua sendo a natureza. */
+      let naturezas = [];
+      try {
+        naturezas = db.prepare(`SELECT id, codigo, descricao, emiteNFe, geraFinanceiro,
+            movimentaEstoque, usarEmPedido
+          FROM tipos_operacao WHERE ativo = 1 ORDER BY codigo`).all();
+      } catch { /* tenant sem a tabela ainda: a tela mostra a lista vazia */ }
+      res.json({ success: true, config: c, presets: PRESETS, naturezas,
                  resumo: { publicados, semFoto, aguardando },
                  url: `${req.protocol}://${req.get('host')}/loja/` });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
@@ -1132,13 +1695,79 @@ function registrarRotasLojaAdmin(app, db) {
       db.prepare('UPDATE loja_config SET pagamentoModo=?, pagamentoVencimentoDias=? WHERE id=1').run(modo, venc);
 
       const txt = (v, max) => v == null ? null : String(v).trim().slice(0, max) || null;
+
+      /* CAMPO AUSENTE NÃO É CAMPO VAZIO.
+       *
+       * Esta rota grava a linha inteira, e até 19/09 quem não mandasse um campo
+       * o perdia: `txt(undefined)` devolve `null` e `b.ativa ? 1 : 0` devolve 0.
+       * Na prática, salvar a aparência apagava o e-mail e o telefone digitados
+       * em "Informações da empresa", e uma tela que mandasse só o preço tirava
+       * o catálogo do ar.
+       *
+       * `whatsapp`, `pagamentoModo` e `pagamentoVencimentoDias` já tinham essa
+       * proteção; o resto não tinha, e a diferença era descuido, não decisão.
+       * Agora vale para todos: ausente preserva, enviado aplica a regra normal
+       * de sempre — inclusive enviar vazio, que continua limpando o campo. */
+      const enviado = (campo) => Object.prototype.hasOwnProperty.call(b, campo);
+      const texto = (campo, max) => (enviado(campo) ? txt(b[campo], max) : atual[campo]);
+      const liga = (campo) => (enviado(campo) ? (b[campo] ? 1 : 0) : (atual[campo] ? 1 : 0));
+
       db.prepare(`UPDATE loja_config SET ativa=?, nome=?, descricao=?, whatsapp=?, email=?, telefone=?,
           mostrarPreco=?, mostrarEstoque=?, tema=?, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=1`)
-        .run(b.ativa ? 1 : 0, txt(b.nome, 80), txt(b.descricao, 300),
+        .run(liga('ativa'), texto('nome', 80), texto('descricao', 300),
              // Só dígitos no WhatsApp: o link do wa.me não aceita máscara.
              b.whatsapp != null ? String(b.whatsapp).replace(/\D/g, '').slice(0, 15) || null : atual.whatsapp,
-             txt(b.email, 120), txt(b.telefone, 40),
-             b.mostrarPreco ? 1 : 0, b.mostrarEstoque ? 1 : 0, JSON.stringify(tema));
+             texto('email', 120), texto('telefone', 40),
+             liga('mostrarPreco'), liga('mostrarEstoque'), JSON.stringify(tema));
+
+      /* ── Regras fiscais: só a REFERÊNCIA, sempre validada aqui ───────────
+       *
+       * O id que chega é entrada não confiável como qualquer outra. A busca é
+       * feita no banco do tenant da requisição, então id de outra empresa não
+       * é encontrado e a gravação é recusada — não há como um tenant apontar
+       * para a natureza de outro.
+       *
+       * Vazio é permitido e significa "não configurado": é assim que o lojista
+       * desfaz a escolha. O checkout recusa pedido nesse estado, e é isso que
+       * se quer — melhor não vender do que vender sem saber o que a venda
+       * movimenta.
+       *
+       * Para a natureza da NFC-e, `emiteNFe = 1` é exigido: uma natureza que
+       * não emite documento fiscal não pode ser a natureza de um documento
+       * fiscal. Isso não é regra inventada aqui — é o mesmo teste que o
+       * emissor já faz antes de montar o XML.
+       *
+       * Para a natureza do PEDIDO nada é exigido além de existir e estar
+       * ativa. `geraFinanceiro`, `movimentaEstoque` e `emiteNFe` são a decisão
+       * que o lojista está tomando ao escolhê-la. */
+      const naturezaValida = (campo, exigirEmissao) => {
+        if (!enviado(campo)) return { manter: true };
+        const bruto = b[campo];
+        if (bruto == null || bruto === '') return { valor: null };
+        const id = Number(bruto);
+        if (!Number.isInteger(id) || id <= 0) return { erro: 'Natureza de operação inválida.' };
+        const nat = db.prepare('SELECT id, descricao, ativo, emiteNFe FROM tipos_operacao WHERE id = ?').get(id);
+        if (!nat) return { erro: 'Natureza de operação não encontrada nesta empresa.' };
+        if (Number(nat.ativo) === 0) return { erro: `A natureza "${nat.descricao}" está inativa.` };
+        if (exigirEmissao && !Number(nat.emiteNFe)) {
+          return { erro: `A natureza "${nat.descricao}" não emite documento fiscal — `
+            + 'escolha uma que emita para usar na NFC-e.' };
+        }
+        return { valor: nat.id };
+      };
+
+      const natPedido = naturezaValida('tipoOperacaoPedidoId', false);
+      if (natPedido.erro) return res.status(400).json({ success: false, error: natPedido.erro });
+      const natNfce = naturezaValida('tipoOperacaoNfceId', true);
+      if (natNfce.erro) return res.status(400).json({ success: false, error: natNfce.erro });
+
+      if (!natPedido.manter) {
+        db.prepare('UPDATE loja_config SET tipoOperacaoPedidoId=? WHERE id=1').run(natPedido.valor);
+      }
+      if (!natNfce.manter) {
+        db.prepare('UPDATE loja_config SET tipoOperacaoNfceId=? WHERE id=1').run(natNfce.valor);
+      }
+
       res.json({ success: true, config: lerConfig(db) });
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });

@@ -92,6 +92,29 @@
   font: inherit; font-size: .87em; min-height: 40px; }
 .menu-cfg-lista button:hover { background: var(--bg-2); }
 .mc-sep { height: 1px; background: var(--border); margin: 5px 4px; }
+/* Título e véu do painel: peças do celular, e no desktop não existem. */
+.mc-fundo, .mc-titulo { display: none; }
+
+/* ---- aparência: paletas, tokens e prévia ----
+   Os quatro tokens são os de `loja_config.tema`, os mesmos que o catálogo
+   público lê em `public/loja/tema.js`. A prévia aqui é ilustrativa: quem
+   manda no resultado é aquele arquivo. */
+.ap-grade { display: grid; grid-template-columns: 1fr 210px; gap: 18px; align-items: start; }
+.ap-paletas { display: flex; gap: 8px; flex-wrap: wrap; }
+.ap-paleta { width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--border);
+  cursor: pointer; padding: 0; }
+.ap-paleta:hover { border-color: var(--text-2); }
+.ap-paleta:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ap-previa label { display: block; margin-bottom: 6px; }
+.ap-tela { border: 1px solid var(--border); border-radius: 10px; padding: 12px;
+  display: flex; flex-direction: column; gap: 10px; font-size: .84em; }
+.ap-topo { border-bottom: 1px solid rgba(128,128,128,.25); padding-bottom: 8px; }
+.ap-cartao { border: 1px solid rgba(128,128,128,.3); border-radius: var(--ap-raio, 10px);
+  padding: 10px; }
+.ap-marca { font-size: .85em; opacity: .7; }
+.ap-preco { font-weight: 660; margin-top: 4px; }
+.ap-bt { background: var(--ap-cor, #0E6B63); color: #fff; border: 0; cursor: default;
+  border-radius: var(--ap-raio, 10px); padding: 9px 12px; font: inherit; font-weight: 600; }
 
 /* ---- editor de enquadramento ---- */
 .enq-palco { position: relative; width: 100%; aspect-ratio: 1; background: var(--bg-3);
@@ -289,6 +312,125 @@ body.arrastando-lista { user-select: none; -webkit-user-select: none; cursor: gr
   /* 16px: abaixo disso o Safari do iOS dá zoom ao focar e o painel sai da tela. */
   .pn-corpo input, .pn-corpo textarea, .pn-corpo select { font-size: 16px; }
   .pp-foto { width: 92px; height: 92px; }
+
+  /* ══════════════ CATÁLOGO ONLINE NO CELULAR ══════════════
+     Cada bloco abaixo conserta uma coisa medida em iPhone, e não uma
+     suposição. Tudo é CSS: nenhuma função muda de lugar no JavaScript, e o
+     desktop não é tocado. */
+
+  /* ── 1. Configurações: popover vira painel ──────────────────────────────
+     O menu é `position: absolute; right: 0` com 232px de largura. Aqui o
+     botão fica a menos de 232px da borda esquerda, então o menu abria em
+     `left: -81px` e cortava a primeira letra de cada opção ("s da empresa",
+     "obertura"). Ancorar num botão que não tem espaço ao lado é o erro;
+     no celular o painel ocupa a largura da tela e ninguém precisa mirar. */
+  .mc-fundo:not([hidden]) { display: block; position: fixed; inset: 0;
+    background: rgba(0,0,0,.5); z-index: 60; }
+  .menu-cfg-lista { position: fixed; left: 0; right: 0; bottom: 0; top: auto;
+    z-index: 61; min-width: 0; max-height: 82vh; overflow-y: auto;
+    border-radius: 16px 16px 0 0; border-bottom: 0;
+    padding: 0 10px calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .mc-titulo { display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 14px 4px 10px; font-weight: 650; font-size: 1.02em;
+    position: sticky; top: 0; background: var(--bg-1); border-bottom: 1px solid var(--border);
+    margin-bottom: 6px; }
+  /* `.menu-cfg-lista button` já define `width: 100%`, e vence este seletor se
+     ele não for tão específico quanto aquele — sem isso o × esticava por toda
+     a largura do título. */
+  .menu-cfg-lista .mc-x { background: none; border: 0; color: var(--text-2);
+    font-size: 1.6rem; line-height: 1; cursor: pointer; flex: 0 0 auto;
+    width: 44px; min-width: 44px; height: 44px; min-height: 44px;
+    padding: 0; border-radius: 8px; text-align: center; }
+  /* Texto inteiro e alvo confortável: a opção mais longa tem 26 caracteres. */
+  .menu-cfg-lista button[role="menuitem"] { min-height: 52px; font-size: .96em;
+    padding: 12px 10px; white-space: normal; }
+
+  /* ── 2. Controles da capa saem de cima da foto ──────────────────────────
+     Eram quatro pílulas de 26px de altura sobre a imagem, com a URL
+     espremida a 21px de largura para um texto de 302px — virava "ht…".
+     Agora a foto fica limpa e os controles descem para barras próprias,
+     dentro do mesmo bloco. Nenhum botão saiu: Trocar capa, Ajustar, Remover,
+     Copiar e Abrir continuam todos aqui. */
+  .cap-banner { height: auto; min-height: 96px; display: flex; flex-direction: column; }
+  .cap-banner img { height: 96px; flex-shrink: 0; }
+  /* Fundo do tema, e não o véu escuro: fora da foto o véu deixava aparecer o
+     gradiente do banner por baixo e a barra ficava com um tom esverdeado que
+     parecia defeito. */
+  .cap-link, .cap-banner-acoes { position: static; max-width: none; border-radius: 0;
+    padding: 8px 12px; gap: 8px; flex-wrap: wrap; background: var(--bg-2);
+    backdrop-filter: none; }
+  .cap-link { order: 2; border-top: 1px solid var(--border); }
+  .cap-banner-acoes { order: 3; justify-content: flex-start; }
+  /* A URL ganha a linha inteira e deixa de ser um toco de três letras. */
+  .cap-link code { flex: 1 1 100%; font-size: .82em; color: var(--text-2); }
+  .cl-bt { min-height: 44px; padding: 8px 14px; font-size: .84em;
+    background: var(--bg-3); color: var(--text-1); }
+  .cl-bt:hover { background: var(--border); }
+
+  /* A logo não invade a capa no celular: com os controles logo abaixo da foto,
+     o círculo caía EM CIMA de "Trocar capa" e escondia metade do rótulo. */
+  .cap-corpo .cap-logo-bt { margin-top: 0; }
+  .cap-corpo { padding-top: 12px; }
+
+  /* ── 3. Identidade: logo e nome lado a lado, sem disputa ────────────────
+     "Ajustar logo" ficava ENTRE a logo e o nome e empurrava o nome para a
+     direita, que então quebrava em três linhas em 320px. Ele passa para uma
+     linha própria, discreta, e o nome recupera a largura. */
+  /* Linha 1: logo e identidade lado a lado. Linha 2: status e "Ajustar logo".
+     `flex: 1 1 0` no texto é o que mantém a logo ao lado dele — com base
+     `auto`, a largura pedida pelo nome empurrava o texto para uma linha só
+     dele e a logo ficava sozinha, gastando altura à toa. */
+  .cap-corpo { gap: 10px 12px; align-items: flex-start; flex-wrap: wrap; }
+  .cap-logo-bt { order: 0; }
+  /* `min-width: 65%` reserva a maior parte da linha para a identidade, e com
+     isso "Ajustar logo" nunca cabe ao lado do nome: ele desce para a linha de
+     baixo, junto do selo de publicação. Sem essa reserva o texto encolhia o
+     quanto fosse preciso para o botão caber, e o nome quebrava em pedaços
+     ("PRODUT / OS BOM / GOSTO" em 320px, "PRODUTOS BOM / GOSTO" em 430px).
+     É uma proporção da largura disponível, não uma medida de nome nenhum. */
+  .cap-txt { order: 1; flex: 1 1 0; min-width: 65%; padding-top: 2px; }
+  .cap-txt h2 { font-size: 1.1rem; }
+  /* O botão não ganha a largura toda: é ajuste ocasional, e esticado ficava
+     mais chamativo que o nome da loja, que é o que se lê primeiro. */
+  .cap-acoes { order: 2; flex: 0 0 auto; width: auto; padding-top: 0; gap: 8px; }
+  #btAjustarLogo { order: 2; flex: 0 0 auto; min-height: 44px; align-self: auto !important; }
+  #capStatus { min-height: 44px; padding: 0 14px; }
+  .cap-resumo { padding: 0 14px 12px; }
+
+  /* ── 4. Categoria: o nome vem primeiro ─────────────────────────────────
+     Em 320px o nome desaparecia por inteiro — sobrava `⠿ ▶ 18 produto(s) ·
+     18 publicado(s)` e o "+ Produto" por cima do texto. A prioridade estava
+     invertida: contador e botão ficavam inteiros e o nome, que identifica a
+     categoria, ia a zero. Agora o nome ocupa a primeira linha e não é
+     cortado; os contadores descem para a segunda. */
+  .bc-cab { align-items: flex-start; gap: 8px; padding: 10px 12px; }
+  .bc-toggle { flex-wrap: wrap; align-items: center; row-gap: 2px; }
+  .bc-nome { white-space: normal; overflow: visible; text-overflow: clip;
+    overflow-wrap: anywhere; flex: 1 1 auto; }
+  /* `white-space: normal` porque a regra base usa `nowrap`: em 320px o texto
+     "18 produto(s) · 17 publicado(s)" não cabia na largura do toggle e passava
+     POR BAIXO do "+ Produto", que é opaco — o fim da frase sumia sem nunca
+     contar como "cortado", já que o overflow do flex item é visível. */
+  .bc-qtd { flex: 1 1 100%; padding-left: 26px; white-space: normal; }
+  .bc-cab > .btn { flex-shrink: 0; min-height: 44px; }
+  .puxador-cat { margin-top: 4px; }
+
+  /* ── 5. Busca: campo, e não um card em volta de um campo ────────────────
+     O `.toolbar` global desenha caixa, borda e 12px de recheio em volta de
+     um único input. Numa tela de celular isso é altura gasta antes de se
+     ver o primeiro produto. */
+  .toolbar { background: none; border: 0; padding: 0; margin-bottom: 10px; }
+  .toolbar input { flex: 1 1 100%; min-height: 46px; font-size: 16px; padding: 10px 12px; }
+
+  /* A prévia da aparência desce para baixo dos campos: lado a lado, em
+     coluna de 210px, ela espremeria os seletores de fundo e tipografia. */
+  .ap-grade { grid-template-columns: 1fr; }
+
+  /* ── 6. Alvo de toque nos dois controles que ficaram em 40px ────────────
+     A barra de categorias continua rolando na horizontal de propósito; o que
+     muda é a altura de cada pílula, que o dedo precisa acertar. */
+  #btCfg { min-height: 44px; }
+  .nav-cats button { min-height: 44px; }
 }
 </style>
 </head>
@@ -307,12 +449,24 @@ body.arrastando-lista { user-select: none; -webkit-user-select: none; cursor: gr
       <div class="menu-cfg">
         <button type="button" class="btn btn-secondary" id="btCfg" onclick="alternarMenuCfg()"
                 aria-haspopup="true" aria-expanded="false">⚙️ Configurações</button>
-        <div class="menu-cfg-lista" id="menuCfg" role="menu" hidden>
+        <!-- No celular este menu deixa de ser popover e vira painel: o fundo
+             escurecido e o título só aparecem lá, por CSS. -->
+        <div class="mc-fundo" id="mcFundo" onclick="fecharMenuCfg()" hidden></div>
+        <div class="menu-cfg-lista" id="menuCfg" role="menu" aria-labelledby="mcTitulo" hidden>
+          <div class="mc-titulo">
+            <span id="mcTitulo">Configurações do catálogo</span>
+            <button type="button" class="mc-x" onclick="fecharMenuCfg()" aria-label="Fechar">×</button>
+          </div>
           <button type="button" role="menuitem" onclick="fecharMenuCfg(); location.href='/catalogo/loja-informacoes.html';">Informações da empresa</button>
-          <button type="button" role="menuitem" onclick="fecharMenuCfg(); location.href='/catalogo/loja-entrega.html';">Entrega e cobertura</button>
           <button type="button" role="menuitem" onclick="fecharMenuCfg(); abrirAparencia();">Aparência do catálogo</button>
+          <button type="button" role="menuitem" onclick="fecharMenuCfg(); location.href='/catalogo/loja-entrega.html';">Entrega e cobertura</button>
+          <!-- "Preço e pagamento" era "Contato, preço e pagamento" e abria a
+               Loja virtual antiga INTEIRA, na aba de produtos. Os quatro campos
+               que o nome prometia agora têm tela própria, com os mesmos dados.
+               A tela antiga não foi tocada e continua acessível por ela mesma. -->
+          <button type="button" role="menuitem" onclick="fecharMenuCfg(); location.href='/catalogo/loja-preco-pagamento.html';">Preço e pagamento</button>
+          <button type="button" role="menuitem" onclick="fecharMenuCfg(); location.href='/catalogo/loja-regras-fiscais.html';">Regras fiscais</button>
           <button type="button" role="menuitem" onclick="fecharMenuCfg(); location.href='/catalogo/categorias.html';">Gerenciar categorias</button>
-          <button type="button" role="menuitem" onclick="fecharMenuCfg(); location.href='/varejo/loja.html';">Contato, preço e pagamento</button>
           <div class="mc-sep"></div>
           <button type="button" role="menuitem" onclick="fecharMenuCfg(); abrirPublico();">Ver a vitrine publicada</button>
         </div>
@@ -538,7 +692,12 @@ function pintarCapa() {
   const st = document.getElementById('capStatus');
   st.textContent = l.ativa ? 'Publicado' : 'Não publicado';
   st.className = 'badge bt-badge ' + (l.ativa ? 'success' : '');
-  st.title = l.ativa ? 'Clique para tirar do ar' : 'Clique para publicar';
+  /* `data-dica`, e não `title`: o balão nativo aparece por cima do nosso,
+     branco e atrasado (proibido desde a Fase 3.2.1). Este escapou da regra
+     por ser atribuído em tempo de execução — o caso que guarda a proibição lê
+     o HTML do arquivo, e aqui não há `title=` nenhum escrito. */
+  st.dataset.dica = l.ativa ? 'Clique para tirar do ar' : 'Clique para publicar';
+  st.setAttribute('aria-label', st.textContent + ': ' + st.dataset.dica);
 
   const r = DADOS.resumo;
   document.getElementById('capResumo').textContent =
@@ -630,10 +789,15 @@ function alternarMenuCfg() {
   const m = document.getElementById('menuCfg');
   const abrindo = m.hidden;
   m.hidden = !abrindo;
+  /* O fundo acompanha o menu pelo mesmo `hidden`. Quem decide se ele APARECE é
+     o CSS, não este código: no desktop ele fica `display: none` em qualquer
+     estado, e no celular vira o véu que escurece a tela atrás do painel. */
+  document.getElementById('mcFundo').hidden = !abrindo;
   document.getElementById('btCfg').setAttribute('aria-expanded', String(abrindo));
 }
 function fecharMenuCfg() {
   document.getElementById('menuCfg').hidden = true;
+  document.getElementById('mcFundo').hidden = true;
   document.getElementById('btCfg').setAttribute('aria-expanded', 'false');
 }
 document.addEventListener('click', (e) => {
@@ -1326,47 +1490,144 @@ async function copiarLink(btn) {
 
 /* ===================== APARÊNCIA ===================== */
 
-function abrirAparencia() {
+let PRESETS_TEMA = null;
+
+/* Aparência é SÓ aparência.
+ *
+ * Até 19/09 este modal editava publicação, nome, apresentação, WhatsApp,
+ * mostrar preço e mostrar disponibilidade — seis assuntos que não são visuais
+ * — e, de tema, só a cor. Os outros três tokens que o catálogo público
+ * consome (fundo, tipografia e cantos) existiam apenas na Loja virtual antiga.
+ *
+ * Nada foi reimplementado: as paletas vêm do servidor pelo mesmo
+ * `GET /api/loja/config` que a tela antiga usa, os quatro tokens são os mesmos
+ * de `loja_config.tema`, e o salvar manda só `tema`. Não há segundo motor de
+ * tema, segundo JSON nem tabela nova. */
+async function abrirAparencia() {
   const l = DADOS.loja;
+  const tema = { corPrimaria: '#0E6B63', fundo: 'claro', fonte: 'neutra', raio: 10, ...(l.tema || {}) };
+
+  /* As paletas são dado do servidor, não uma lista escrita aqui: repetir os
+     valores nesta tela criaria uma segunda fonte para a mesma coisa. */
+  if (!PRESETS_TEMA) {
+    try {
+      const d = await api('/api/loja/config');
+      PRESETS_TEMA = d.presets || {};
+    } catch (_) { PRESETS_TEMA = {}; }
+  }
+
+  const paletas = Object.entries(PRESETS_TEMA).map(([nome, p]) =>
+    `<button type="button" class="ap-paleta" data-paleta="${esc(nome)}"
+       style="background:${esc(p.corPrimaria)};"
+       data-dica="Ponto de partida: ${esc(nome)}" aria-label="Usar a paleta ${esc(nome)}"></button>`).join('');
+
   document.getElementById('apCorpo').innerHTML = `
-    <label style="display:flex;gap:8px;align-items:center;text-transform:none;font-weight:normal;margin-bottom:14px;">
-      <input type="checkbox" id="apAtiva" style="width:auto;" ${l.ativa ? 'checked' : ''}>
-      Catálogo publicado (visível para quem tiver o link)</label>
-    <div class="form-row"><div class="form-group full-width"><label>Nome público</label>
-      <input type="text" id="apNome" value="${esc(l.nomeProprio ? l.nome : '')}"
-             placeholder="${esc(l.nome || '')}"></div></div>
-    <div class="form-row"><div class="form-group full-width"><label>Apresentação</label>
-      <input type="text" id="apDescricao" value="${esc(l.descricao || '')}"></div></div>
-    <div class="form-row">
-      <div class="form-group"><label>WhatsApp</label>
-        <input type="text" id="apWhatsapp" value="${esc(l.whatsapp || '')}"></div>
-      <div class="form-group"><label>Cor principal</label>
-        <input type="color" id="apCor" value="${esc((l.tema && l.tema.corPrimaria) || '#0E6B63')}"></div>
-    </div>
-    <label style="display:flex;gap:8px;align-items:center;text-transform:none;font-weight:normal;margin-bottom:6px;">
-      <input type="checkbox" id="apPreco" style="width:auto;" ${l.mostrarPreco ? 'checked' : ''}> Mostrar preço para visitantes</label>
-    <label style="display:flex;gap:8px;align-items:center;text-transform:none;font-weight:normal;">
-      <input type="checkbox" id="apEstoque" style="width:auto;" ${l.mostrarEstoque ? 'checked' : ''}> Mostrar disponibilidade</label>
-    <p class="muted" style="font-size:.82em;margin-top:14px;margin-bottom:0;">
-      Banner, Instagram, Facebook e endereço público ainda não têm campo em
-      <code>loja_config</code>. Para logo e tema completo, use
-      <a href="/varejo/loja.html">Catálogo · Configurações</a>.</p>`;
+    <div class="ap-grade">
+      <div class="ap-campos">
+        ${paletas ? `<div class="form-group"><label>Ponto de partida</label>
+          <div class="ap-paletas">${paletas}</div></div>` : ''}
+        <div class="form-row">
+          <div class="form-group"><label for="apCor">Cor principal</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="color" id="apCor" value="${esc(tema.corPrimaria)}" style="width:52px;padding:2px;">
+              <input type="text" id="apCorHex" value="${esc(tema.corPrimaria)}" maxlength="7"
+                     placeholder="#0E6B63" style="max-width:110px;">
+            </div></div>
+          <div class="form-group"><label for="apFundo">Fundo</label>
+            <select id="apFundo">
+              <option value="claro"${tema.fundo === 'claro' ? ' selected' : ''}>Claro</option>
+              <option value="escuro"${tema.fundo === 'escuro' ? ' selected' : ''}>Escuro</option>
+            </select></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label for="apFonte">Tipografia</label>
+            <select id="apFonte">
+              <option value="neutra"${tema.fonte === 'neutra' ? ' selected' : ''}>Neutra</option>
+              <option value="tecnica"${tema.fonte === 'tecnica' ? ' selected' : ''}>Técnica</option>
+              <option value="editorial"${tema.fonte === 'editorial' ? ' selected' : ''}>Expressiva</option>
+            </select></div>
+          <div class="form-group"><label for="apRaio">Cantos <small class="muted" id="apRaioVal"></small></label>
+            <input type="range" id="apRaio" min="0" max="24" step="2" value="${Number(tema.raio) || 0}"></div>
+        </div>
+        <p class="muted" style="font-size:.82em;margin:10px 0 0;">
+          O logotipo e a capa se trocam no próprio cabeçalho desta tela, junto
+          do "Ajustar" de cada um.</p>
+      </div>
+      <div class="ap-previa">
+        <label>Prévia</label>
+        <div class="ap-tela" id="apTela">
+          <div class="ap-topo"><strong id="apPvNome">Sua loja</strong></div>
+          <div class="ap-cartao">
+            <div class="ap-marca">Marca</div>
+            <div>Produto de exemplo</div>
+            <div class="ap-preco">R$ 199,90</div>
+          </div>
+          <button type="button" class="ap-bt">Falar no WhatsApp</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById('apPvNome').textContent = l.nome || 'Sua loja';
+  for (const id of ['apCor', 'apFundo', 'apFonte', 'apRaio']) {
+    document.getElementById(id).addEventListener('input', pintarPrevia);
+  }
+  document.getElementById('apCorHex').addEventListener('change', () => {
+    const v = document.getElementById('apCorHex').value.trim();
+    if (/^#[0-9a-f]{6}$/i.test(v)) document.getElementById('apCor').value = v;
+    pintarPrevia();
+  });
+  document.getElementById('apCorpo').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-paleta]');
+    if (!b) return;
+    const p = PRESETS_TEMA[b.dataset.paleta];
+    if (!p) return;
+    document.getElementById('apCor').value = p.corPrimaria;
+    document.getElementById('apCorHex').value = p.corPrimaria;
+    document.getElementById('apFundo').value = p.fundo;
+    document.getElementById('apFonte').value = p.fonte;
+    document.getElementById('apRaio').value = p.raio;
+    pintarPrevia();
+  });
+  pintarPrevia();
   document.getElementById('modalAp').classList.add('open');
 }
+
+/** Mesmas famílias do catálogo público (`public/loja/tema.js`). */
+const AP_FONTES = {
+  neutra: "Inter, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
+  tecnica: "'IBM Plex Sans', Inter, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
+  editorial: "Poppins, Inter, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
+};
+
+function pintarPrevia() {
+  const cor = document.getElementById('apCor').value;
+  const fundo = document.getElementById('apFundo').value;
+  const raio = Number(document.getElementById('apRaio').value) || 0;
+  const fonte = document.getElementById('apFonte').value;
+  document.getElementById('apCorHex').value = cor;
+  document.getElementById('apRaioVal').textContent = raio + 'px';
+  const tela = document.getElementById('apTela');
+  const escuro = fundo === 'escuro';
+  tela.style.background = escuro ? '#14201F' : '#F7F8F8';
+  tela.style.color = escuro ? '#EAF2F1' : '#14201F';
+  tela.style.fontFamily = AP_FONTES[fonte] || AP_FONTES.neutra;
+  tela.style.setProperty('--ap-raio', raio + 'px');
+  tela.style.setProperty('--ap-cor', cor);
+}
+
 function fecharAparencia() { document.getElementById('modalAp').classList.remove('open'); }
 
 async function salvarAparencia() {
   const v = (id) => document.getElementById(id).value;
   try {
+    /* Só `tema` viaja. Os outros campos da rota ficam como estão — desde
+       19/09 ela preserva o que não recebe, então salvar aqui não mexe em
+       publicação, nome, contato nem preço. */
     await api('/api/loja/config', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        ativa: document.getElementById('apAtiva').checked ? 1 : 0,
-        nome: v('apNome').trim(), descricao: v('apDescricao').trim(),
-        whatsapp: v('apWhatsapp').trim(),
-        mostrarPreco: document.getElementById('apPreco').checked ? 1 : 0,
-        mostrarEstoque: document.getElementById('apEstoque').checked ? 1 : 0,
-        tema: { ...(DADOS.loja.tema || {}), corPrimaria: v('apCor') },
+        tema: { ...(DADOS.loja.tema || {}), corPrimaria: v('apCor'),
+                fundo: v('apFundo'), fonte: v('apFonte'), raio: Number(v('apRaio')) || 0 },
       }),
     });
     showAlert('Aparência salva.');

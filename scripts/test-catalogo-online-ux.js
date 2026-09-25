@@ -43,11 +43,14 @@ function catalogo() {
   const sem = prods(1, 20).map((p) => ({ ...p, publicado: false }));
   return {
     success: true,
+    /* Com BANNER: sem imagem não existe `<img>` na capa, e a verificação de
+       "controle por cima da foto" não teria foto nenhuma para conferir. */
     loja: { ativa: false, nome: 'EMPRESA TESTE LTDA', nomeProprio: false,
+      banner: '/img-teste.png',
       descricao: null, logo: null, logoProprio: false, whatsapp: '44999990000',
       tema: { corPrimaria: '#0E6B63' }, mostrarPreco: true, mostrarEstoque: true,
       pagamento: 'nenhum', url: 'https://empresa.liciteagora.app/loja/' },
-    resumo: { total: 8, publicados: 4, ocultos: 4, destaques: 1, semFoto: 8, categorias: 2 },
+    resumo: { total: 10, publicados: 5, ocultos: 5, destaques: 1, semFoto: 10, categorias: 3 },
     // Destaque carrega os MESMOS campos da linha de categoria (corrigido na
     // Fase 47): sem `sku`/`unidade` a linha saía como "sem SKU".
     destaques: [{ id: 1, sku: cestas[0].sku, descricao: cestas[0].descricao,
@@ -56,6 +59,11 @@ function catalogo() {
     categorias: [
       { categoria: 'CESTAS', produtos: cestas, total: 4, publicados: 2 },
       { categoria: 'DOCES', produtos: doces, total: 3, publicados: 2 },
+      /* Nome longo de propósito, e é o caso que interessa no celular: com
+         "CESTAS" e "DOCES" o truncamento não tem o que cortar, e uma sabotagem
+         que reintroduzia `text-overflow: ellipsis` passou batido (18/09). */
+      { categoria: 'TEMPEROS E CONDIMENTOS ESPECIAIS DA CASA',
+        produtos: prods(2, 30), total: 2, publicados: 1 },
       { categoria: null, produtos: sem, total: 1, publicados: 0 },
     ],
   };
@@ -71,6 +79,18 @@ function subirServidor() {
     if (url === '/api/loja/catalogo') {
       res.setHeader('Content-Type', 'application/json');
       return res.end(JSON.stringify(catalogo()));
+    }
+    /* O modal de aparência busca as paletas aqui. Sem esta resposta ele abre
+       SEM nenhuma paleta, e os casos passam medindo um modal que não é o que
+       o lojista vê — foi assim que uma sabotagem nas paletas não reprovou
+       nada (19/09). Os presets vêm do próprio `loja-routes`, e não de uma
+       cópia escrita neste arquivo. */
+    if (url === '/api/loja/config' && req.method === 'GET') {
+      res.setHeader('Content-Type', 'application/json');
+      return res.end(JSON.stringify({ success: true, config: catalogo().loja,
+        presets: require('../loja-routes').PRESETS,
+        resumo: { publicados: 4, semFoto: 8, aguardando: 0 },
+        url: 'https://empresa.liciteagora.app/loja/' }));
     }
     if (url === '/api/loja/produtos/publicar' || url === '/api/loja/produtos/destacar') {
       return ler((b) => {
@@ -100,11 +120,29 @@ function subirServidor() {
       res.setHeader('Content-Type', 'application/json');
       return res.end(JSON.stringify({ success: true, produtos: [], itens: [] }));
     }
+    if (url === '/img-teste.png') {
+      res.setHeader('Content-Type', 'image/png');
+      return res.end(Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+        'base64'));
+    }
     if (url === '/__e') {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      /* `window.__liciteShell = true` no PAI é o que `sidebar.js` testa: sem
+         isso a tela se julga avulsa e desenha a PRÓPRIA sidebar dentro do
+         iframe. Em produção a sidebar é do shell e a tela não tem nenhuma —
+         medir sem isto é medir uma tela que ninguém usa, e foi o que fez os
+         casos de celular acusarem a sidebar recolhida como "vazando". */
       return res.end(`<!doctype html><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1">
-        <style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%;display:block}</style>
+        <link rel="stylesheet" href="/css/sidebar.css">
+        <style>html,body{margin:0;height:100%;overflow:hidden}
+          iframe{border:0;position:fixed;top:var(--topbar-h,52px);left:0;right:0;
+                 width:100%;height:calc(100% - var(--topbar-h,52px));display:block}</style>
+        <script>
+          window.__liciteShell = true;
+          window.__shellPageChanged = function () {};
+        </script>
         <iframe id="tela" src="/catalogo/catalogo-online.html"></iframe>`);
     }
     const arq = path.join(PUB, url.replace(/^\//, ''));
@@ -159,8 +197,8 @@ t('A. capa: banner, logo, nome, status, link e resumo em UMA linha', async () =>
     assert(r.logoVisivel, 'logo/monograma não aparece');
     assert(r.cards === 0, `sobraram ${r.cards} cards de dashboard na área principal`);
     // Resumo discreto, numa linha, com os números certos.
-    assert(/8 produto\(s\)/.test(r.resumo) && /2 categoria\(s\)/.test(r.resumo)
-        && /4 publicado\(s\)/.test(r.resumo), 'resumo incompleto: ' + r.resumo);
+    assert(/10 produto\(s\)/.test(r.resumo) && /3 categoria\(s\)/.test(r.resumo)
+        && /5 publicado\(s\)/.test(r.resumo), 'resumo incompleto: ' + r.resumo);
     assert(erros.length === 0, 'exceção: ' + erros.join(' | '));
   } finally { await page.close(); }
 });
@@ -231,7 +269,7 @@ t('C. o painel Categorias tem adicionar, abrir/fechar todas e a lista', async ()
     assert(r.aberto, 'o painel não abriu');
     assert(r.temAdicionar, 'falta "+ Adicionar categoria"');
     assert(r.temTodas === 2, 'faltam Abrir todas / Fechar todas');
-    assert(/2 categoria\(s\) · 8 produto\(s\)/.test(r.texto), 'falta o total: ' + r.texto);
+    assert(/3 categoria\(s\) · 10 produto\(s\)/.test(r.texto), 'falta o total: ' + r.texto);
     assert(r.itens.some((i) => /Destaques/.test(i)), 'Destaques não está no painel');
     assert(r.itens.some((i) => /CESTAS/.test(i)), 'as categorias reais não estão no painel');
   } finally { await page.close(); }
@@ -249,8 +287,8 @@ t('C2. abrir todas e fechar todas funcionam de verdade', async () => {
       document.querySelector('[data-todas="0"]').click(); await espera();
       return { abertas, linhas, fechadas: document.querySelectorAll('.bloco-cat.aberta').length };
     });
-    assert(r.abertas === 4, `abriu ${r.abertas} blocos (3 categorias + destaques)`);
-    assert(r.linhas === 9, `mostrou ${r.linhas} linhas, esperado 9 (8 produtos + 1 destaque)`);
+    assert(r.abertas === 5, `abriu ${r.abertas} blocos (4 categorias + destaques)`);
+    assert(r.linhas === 11, `mostrou ${r.linhas} linhas, esperado 11 (10 produtos + 1 destaque)`);
     assert(r.fechadas === 0, `sobraram ${r.fechadas} blocos abertos`);
   } finally { await page.close(); }
 });
@@ -540,9 +578,330 @@ t('I. a busca filtra e limpar devolve tudo', async () => {
       b.value = ''; b.dispatchEvent(new Event('input', { bubbles: true })); await espera();
       return { total, filtrado, voltou: document.querySelectorAll('.lp').length };
     });
-    assert(r.total === 9, `esperava 9 linhas, veio ${r.total}`);
+    assert(r.total === 11, `esperava 11 linhas, veio ${r.total}`);
     assert(r.filtrado > 0 && r.filtrado < r.total, `a busca devolveu ${r.filtrado} de ${r.total}`);
     assert(r.voltou === r.total, `limpar devolveu ${r.voltou} de ${r.total}`);
+  } finally { await page.close(); }
+});
+
+// ============================================================================
+// M. Celular — o que foi medido num iPhone e não passava
+//
+// Esta tela sempre teve um bloco `@media`, e ainda assim chegava ao celular
+// com o menu de configurações metade fora da tela e o nome da categoria
+// reduzido a nada. O motivo de os casos anteriores não pegarem isso é que
+// todos medem o DESKTOP: a mesma verificação em 1280px não vê nenhum destes
+// defeitos. Aqui a largura é a do aparelho.
+// ============================================================================
+
+const CELULARES = [320, 375, 390, 430];
+
+for (const largura of CELULARES) {
+  t(`M1-${largura}. o menu Configurações abre INTEIRO dentro da tela`, async () => {
+    const { page, frame, erros } = await abrir(largura);
+    try {
+      const r = await frame.evaluate(async () => {
+        document.getElementById('btCfg').click();
+        await new Promise((x) => setTimeout(x, 400));
+        const m = document.getElementById('menuCfg');
+        const c = m.getBoundingClientRect();
+        const itens = [...m.querySelectorAll('button[role="menuitem"]')].map((b) => {
+          const q = b.getBoundingClientRect();
+          return { texto: b.textContent.trim(), l: Math.round(q.left), r: Math.round(q.right),
+                   h: Math.round(q.height), cortado: b.scrollWidth > b.clientWidth + 1 };
+        });
+        return {
+          aberto: !m.hidden,
+          caixa: { l: Math.round(c.left), r: Math.round(c.right), t: Math.round(c.top) },
+          viewport: { w: window.innerWidth, h: window.innerHeight },
+          titulo: (document.getElementById('mcTitulo') || {}).textContent || '',
+          tituloVisivel: !!(document.querySelector('.mc-titulo')
+            && document.querySelector('.mc-titulo').getBoundingClientRect().height > 0),
+          fechar: (() => { const x = document.querySelector('#menuCfg .mc-x');
+            if (!x) return null; const q = x.getBoundingClientRect();
+            return { w: Math.round(q.width), h: Math.round(q.height) }; })(),
+          itens,
+        };
+      });
+      assert(r.aberto, 'o menu não abriu');
+      /* O defeito medido em 18/09: `position: absolute; right: 0` com 232px de
+         largura, ancorado num botão que não tem 232px à esquerda. O menu abria
+         em left -81px e cada opção perdia a primeira letra. */
+      assert(r.caixa.l >= -1, `o menu começa em ${r.caixa.l}px — fora da tela pela esquerda`);
+      assert(r.caixa.r <= r.viewport.w + 1,
+        `o menu termina em ${r.caixa.r}px numa tela de ${r.viewport.w}px`);
+      assert(r.caixa.t >= -1, `o menu começa acima da tela (top ${r.caixa.t})`);
+      assert(r.itens.length === 6, `${r.itens.length} opções, esperadas 6`);
+      for (const it of r.itens) {
+        assert(it.l >= -1 && it.r <= r.viewport.w + 1,
+          `a opção "${it.texto}" fica fora da tela (${it.l} a ${it.r})`);
+        assert(!it.cortado, `a opção "${it.texto}" aparece cortada`);
+        assert(it.h >= 44, `a opção "${it.texto}" tem ${it.h}px de altura — alvo pequeno`);
+      }
+      assert(r.tituloVisivel && /Configurações/i.test(r.titulo),
+        'falta o título do painel no celular: ' + r.titulo);
+      assert(r.fechar && r.fechar.w >= 44 && r.fechar.h >= 44,
+        'o botão de fechar não existe ou é pequeno: ' + JSON.stringify(r.fechar));
+      assert(erros.length === 0, 'exceção: ' + erros.join(' | '));
+    } finally { await page.close(); }
+  });
+
+  t(`M2-${largura}. nada vaza da tela, e a página não rola na horizontal`, async () => {
+    const { page, frame } = await abrir(largura);
+    try {
+      const r = await frame.evaluate(() => {
+        const larg = window.innerWidth;
+        const fora = [];
+        for (const el of document.querySelectorAll('body *')) {
+          const c = el.getBoundingClientRect();
+          if (c.width === 0 || c.height === 0) continue;
+          /* A barra de categorias rola na horizontal DE PROPÓSITO, e os botões
+             dela passam da borda por construção. O que não pode é a PÁGINA
+             rolar — coberto pelo `rolaH` logo abaixo. */
+          if (el.closest('.nav-cats')) continue;
+          if (c.right > larg + 1 || c.left < -1) {
+            fora.push(el.tagName.toLowerCase()
+              + (el.id ? '#' + el.id : '')
+              + (typeof el.className === 'string' && el.className
+                  ? '.' + el.className.trim().split(/\s+/)[0] : '')
+              + ` [${Math.round(c.left)}..${Math.round(c.right)}]`);
+          }
+          if (fora.length > 6) break;
+        }
+        return { fora, rolaH: document.documentElement.scrollWidth > larg + 1,
+                 scrollW: document.documentElement.scrollWidth, larg };
+      });
+      assert(!r.rolaH, `a página rola na horizontal (${r.scrollW}px em ${r.larg}px)`);
+      assert(r.fora.length === 0, 'elementos fora da tela: ' + r.fora.join(', '));
+    } finally { await page.close(); }
+  });
+
+  t(`M3-${largura}. o nome da categoria não é cortado, e "+ Produto" cabe`, async () => {
+    const { page, frame } = await abrir(largura);
+    try {
+      const r = await frame.evaluate(() => {
+        /* Contadores do tamanho REAL antes de medir. No catálogo de teste as
+           categorias têm 1 a 4 produtos e o texto fica curto demais para
+           alcançar o botão; no `produtosbomgosto` são "18 produto(s) · 17
+           publicado(s)", e é com esse comprimento que o texto passava por
+           baixo do "+ Produto". Injetar aqui reproduz a condição sem mexer nas
+           contagens de que os outros casos dependem. */
+        for (const q of document.querySelectorAll('.bc-qtd')) {
+          q.textContent = '18 produto(s) · 17 publicado(s)';
+        }
+
+        const nomes = [], problemas = [];
+        /* Bloco a bloco, e não `querySelector` solto: o primeiro `.bc-qtd` da
+           página é o do bloco de destaques, que NÃO tem "+ Produto". Comparar
+           a distância entre os dois primeiros da página é comparar peças de
+           cabeçalhos diferentes, e nunca acusa nada. */
+        for (const cab of document.querySelectorAll('.bc-cab')) {
+          const nome = cab.querySelector('.bc-nome');
+          const qtd = cab.querySelector('.bc-qtd');
+          const bt = cab.querySelector('[data-novo]');
+          if (nome) {
+            nomes.push({ texto: nome.textContent.trim(),
+              cortado: nome.scrollWidth > nome.clientWidth + 1,
+              largura: Math.round(nome.getBoundingClientRect().width) });
+          }
+          if (!bt || !qtd) continue;
+          const b = bt.getBoundingClientRect();
+          const faixa = document.createRange();
+          faixa.selectNodeContents(qtd);
+          const t = faixa.getBoundingClientRect();
+          // O fim do TEXTO, não o da caixa: o `.bc-qtd` tem base 100% e a
+          // caixa dele encosta no botão mesmo com duas palavras dentro.
+          if (t.right > b.left + 1 && t.top < b.bottom - 1 && t.bottom > b.top + 1) {
+            problemas.push(`"${qtd.textContent.trim()}" vai até ${Math.round(t.right)}`
+              + `, e o botão começa em ${Math.round(b.left)}`);
+          }
+          if (b.height < 44) problemas.push(`botão com ${Math.round(b.height)}px de altura`);
+          if (b.right > window.innerWidth + 1) problemas.push('botão fora da tela');
+        }
+        const algumBotao = !!document.querySelector('.bc-cab [data-novo]');
+        return { nomes, problemas, algumBotao };
+      });
+      assert(r.nomes.length > 0, 'nenhuma categoria renderizada');
+      for (const n of r.nomes) {
+        /* Em 320px o nome chegava a DESAPARECER: sobrava `⠿ ▶ 18 produto(s)` e
+           nada mais. Contador e botão ficavam inteiros; o nome, que diz de que
+           categoria se trata, ia a zero. */
+        assert(!n.cortado, `a categoria "${n.texto}" aparece cortada`);
+        assert(n.largura >= 40, `a categoria "${n.texto}" ficou com ${n.largura}px`);
+      }
+      assert(r.algumBotao, 'o botão "+ Produto" sumiu da linha da categoria');
+      assert(r.problemas.length === 0, r.problemas.join(' | '));
+    } finally { await page.close(); }
+  });
+
+  t(`M4-${largura}. controles da capa: nenhum sobreposto e todos alcançáveis`, async () => {
+    const { page, frame } = await abrir(largura);
+    try {
+      const r = await frame.evaluate(() => {
+        const alvos = [...document.querySelectorAll('.cap-link .cl-bt, .cap-banner-acoes .cl-bt')]
+          .filter((e) => !e.hidden && e.getBoundingClientRect().width > 0);
+        const caixas = alvos.map((e) => ({ txt: e.textContent.trim(), c: e.getBoundingClientRect() }));
+        const sobrepostos = [];
+        for (let i = 0; i < caixas.length; i++) {
+          for (let j = i + 1; j < caixas.length; j++) {
+            const a = caixas[i].c, b = caixas[j].c;
+            if (a.left < b.right - 1 && a.right > b.left + 1
+             && a.top < b.bottom - 1 && a.bottom > b.top + 1) {
+              sobrepostos.push(caixas[i].txt + ' x ' + caixas[j].txt);
+            }
+          }
+        }
+        // A logo também não pode cair em cima de um botão da capa.
+        const logo = document.querySelector('.cap-logo-bt');
+        const lc = logo ? logo.getBoundingClientRect() : null;
+        const logoSobre = lc ? caixas.filter((k) =>
+          lc.left < k.c.right - 1 && lc.right > k.c.left + 1
+          && lc.top < k.c.bottom - 1 && lc.bottom > k.c.top + 1).map((k) => k.txt) : [];
+        /* Sobre a FOTO é onde eles estavam, e é o defeito de origem: quatro
+           pílulas por cima da imagem do lojista. Verificar só a sobreposição
+           ENTRE controles não pega isso — no desktop eles ficam em cantos
+           opostos e não se tocam, e ainda assim cobrem a foto. */
+        const img = document.querySelector('.cap-banner img');
+        const ic = img ? img.getBoundingClientRect() : null;
+        const sobreAFoto = ic ? caixas.filter((k) =>
+          ic.left < k.c.right - 1 && ic.right > k.c.left + 1
+          && ic.top < k.c.bottom - 1 && ic.bottom > k.c.top + 1).map((k) => k.txt) : [];
+        const url = document.getElementById('capUrl');
+        return {
+          sobreAFoto, temFoto: !!img,
+          rotulos: caixas.map((k) => k.txt),
+          pequenos: caixas.filter((k) => k.c.height < 44)
+            .map((k) => k.txt + ':' + Math.round(k.c.height)),
+          foraDaTela: caixas.filter((k) => k.c.right > window.innerWidth + 1).map((k) => k.txt),
+          sobrepostos, logoSobre,
+          urlLargura: url ? Math.round(url.getBoundingClientRect().width) : 0,
+        };
+      });
+      // Nenhuma função pode sumir no celular.
+      for (const esperado of ['Copiar', 'Abrir', 'Trocar capa']) {
+        assert(r.rotulos.includes(esperado), `"${esperado}" sumiu no celular`);
+      }
+      assert(r.pequenos.length === 0, 'controles abaixo de 44px: ' + r.pequenos.join(', '));
+      assert(r.foraDaTela.length === 0, 'controles fora da tela: ' + r.foraDaTela.join(', '));
+      assert(r.sobrepostos.length === 0, 'controles sobrepostos: ' + r.sobrepostos.join(', '));
+      assert(r.logoSobre.length === 0, 'a logo está por cima de: ' + r.logoSobre.join(', '));
+      assert(r.sobreAFoto.length === 0,
+        'controles por cima da foto da capa: ' + r.sobreAFoto.join(', '));
+      /* A URL chegava a 21px de largura para um texto de 302px — virava "ht…". */
+      assert(r.urlLargura >= 140, `a URL do catálogo ficou com ${r.urlLargura}px`);
+    } finally { await page.close(); }
+  });
+}
+
+t('M8. no celular "Ajustar logo" não disputa a linha com o nome da loja', async () => {
+  /* O botão fica ENTRE a logo e o nome no desktop. No celular, ao lado do
+     nome, ele comia a largura do texto e o nome quebrava em pedaços — em
+     320px chegou a "PRODUT / OS BOM / GOSTO". Aqui ele precisa estar numa
+     linha diferente da identidade, em qualquer largura de aparelho e com
+     qualquer tamanho de nome. */
+  for (const largura of [320, 375, 390, 430]) {
+    const { page, frame } = await abrir(largura);
+    try {
+      for (const nome of ['BG', 'EMPRESA TESTE LTDA',
+                          'SUPERMERCADO E DISTRIBUIDORA IRMAOS GONCALVES LTDA ME']) {
+        const r = await frame.evaluate(async (nome) => {
+          const h2 = document.getElementById('capNome');
+          h2.textContent = nome;
+          await new Promise((x) => setTimeout(x, 120));
+          const txt = document.querySelector('.cap-txt').getBoundingClientRect();
+          const bt = document.getElementById('btAjustarLogo').getBoundingClientRect();
+          const logo = document.querySelector('.cap-logo-bt').getBoundingClientRect();
+          return {
+            mesmaLinhaDoNome: bt.top < txt.bottom - 2 && bt.bottom > txt.top + 2,
+            // Logo e identidade, essas sim, ficam lado a lado.
+            logoAoLadoDoNome: logo.top < txt.bottom - 2 && logo.bottom > txt.top + 2,
+            cortado: h2.scrollWidth > h2.clientWidth + 1,
+            larguraNome: Math.round(h2.getBoundingClientRect().width),
+            alvoBotao: Math.round(bt.height),
+          };
+        }, nome);
+        assert(!r.mesmaLinhaDoNome,
+          `${largura}px, nome "${nome}": "Ajustar logo" voltou para a linha do nome`);
+        assert(r.logoAoLadoDoNome,
+          `${largura}px, nome "${nome}": a logo ficou numa linha só dela`);
+        assert(!r.cortado, `${largura}px: o nome "${nome}" aparece cortado`);
+        assert(r.alvoBotao >= 44, `${largura}px: "Ajustar logo" tem ${r.alvoBotao}px`);
+      }
+    } finally { await page.close(); }
+  }
+});
+
+t('M5. no desktop o menu continua popover ancorado no botão', async () => {
+  /* O painel de baixo é do celular. No desktop o menu não pode virar gaveta —
+     a mudança tem de parar na media query. */
+  const { page, frame } = await abrir(1280);
+  try {
+    const r = await frame.evaluate(async () => {
+      document.getElementById('btCfg').click();
+      await new Promise((x) => setTimeout(x, 300));
+      const m = document.getElementById('menuCfg');
+      const c = m.getBoundingClientRect();
+      const bt = document.getElementById('btCfg').getBoundingClientRect();
+      return { pos: getComputedStyle(m).position,
+        larguraMenu: Math.round(c.width), larguraTela: window.innerWidth,
+        abaixoDoBotao: c.top >= bt.bottom - 2 && c.top <= bt.bottom + 20,
+        dentro: c.left >= -1 && c.right <= window.innerWidth + 1,
+        fundo: (() => { const g = document.getElementById('mcFundo');
+          return g ? getComputedStyle(g).display : 'ausente'; })() };
+    });
+    assert(r.pos === 'absolute', `no desktop o menu virou ${r.pos}`);
+    assert(r.abaixoDoBotao, 'o menu deixou de nascer ancorado no botão');
+    assert(r.larguraMenu < r.larguraTela / 2,
+      `o menu ocupa ${r.larguraMenu}px de ${r.larguraTela}px — virou gaveta no desktop`);
+    assert(r.dentro, 'o menu vaza da tela no desktop');
+    assert(r.fundo === 'none', 'o véu do celular apareceu no desktop: ' + r.fundo);
+  } finally { await page.close(); }
+});
+
+t('M6. nenhum `title` no DOM, nem os postos por JavaScript', async () => {
+  /* O caso G lê o ARQUIVO, e por isso nunca viu o `title` que o `pintarCapa`
+     escrevia no selo de publicação em tempo de execução. Este olha o DOM
+     depois de a tela montar. */
+  const { page, frame } = await abrir(390);
+  try {
+    const r = await frame.evaluate(async () => {
+      /* Com os painéis ABERTOS: metade desta tela só existe depois de um
+         clique, e medir só o que nasce com a página deixa passar o `title` de
+         quem é criado depois — foi assim que as paletas do modal de aparência
+         reintroduziram o atributo sem este caso ver nada (19/09). */
+      await abrirAparencia();
+      await new Promise((x) => setTimeout(x, 400));
+      document.getElementById('btCfg').click();
+      await new Promise((x) => setTimeout(x, 300));
+      return {
+        comTitle: [...document.querySelectorAll('[title]')]
+          .map((e) => (e.id || e.className || e.tagName) + '="' + e.getAttribute('title') + '"'),
+        comDica: document.querySelectorAll('[data-dica]').length,
+      };
+    });
+    assert(r.comTitle.length === 0, 'voltou a usar title: ' + r.comTitle.join(', '));
+    assert(r.comDica > 0, 'a tela ficou sem nenhum tooltip próprio');
+  } finally { await page.close(); }
+});
+
+t('M7. a busca não vem dentro de um card no celular', async () => {
+  const { page, frame } = await abrir(390);
+  try {
+    const r = await frame.evaluate(() => {
+      const tb = document.querySelector('.toolbar');
+      const cs = getComputedStyle(tb);
+      const inp = document.getElementById('busca').getBoundingClientRect();
+      return { borda: cs.borderTopWidth, padding: cs.paddingTop,
+        alturaCaixa: Math.round(tb.getBoundingClientRect().height),
+        alturaInput: Math.round(inp.height) };
+    });
+    /* O `.toolbar` global desenha caixa, borda e 12px de recheio em volta de um
+       único campo — altura gasta antes de se ver o primeiro produto. */
+    assert(parseFloat(r.borda) === 0, 'a busca continua dentro de uma caixa com borda');
+    assert(parseFloat(r.padding) === 0, 'a busca continua com recheio de card');
+    assert(r.alturaInput >= 44, `o campo de busca tem ${r.alturaInput}px de altura`);
+    assert(r.alturaCaixa - r.alturaInput <= 4,
+      `a caixa da busca gasta ${r.alturaCaixa - r.alturaInput}px além do campo`);
   } finally { await page.close(); }
 });
 

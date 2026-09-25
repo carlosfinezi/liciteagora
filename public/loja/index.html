@@ -33,6 +33,15 @@
   --barra-h: 68px;
 }
 * { box-sizing: border-box; }
+/* `hidden` é atributo, e a regra do navegador que o obedece
+   (`[hidden] { display: none }`) perde para QUALQUER regra de classe que
+   declare `display`. Sem esta linha, `el.hidden = true` não escondia nada, e a
+   página tinha três sintomas da mesma causa: o selo de atendimento virava uma
+   bolinha vermelha muda no cabeçalho, a faixa de categorias segurava 22px
+   vazios, e a logo ausente virava um círculo branco no rodapé. A página inteira
+   mostra e esconde por `hidden` — não há um só `style.display` no
+   `catalogo.js` —, então a autoridade tem de ser dele. */
+[hidden] { display: none !important; }
 body {
   margin: 0; background: var(--ground); color: var(--ink);
   font-family: var(--fonte); line-height: 1.55;
@@ -50,38 +59,29 @@ img { max-width: 100%; }
   transform-origin: center; }
 header.topo { background: var(--surface); border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 30; }
-/* O cabeçalho quebra em duas linhas quando a marca e as ações não cabem lado
-   a lado — em vez de espremer o nome da loja até virar "PRO…".
+/* Cabeçalho de uma linha: marca à esquerda, ações à direita. Quem garante a
+   linha única é o `flex-basis: 0` da marca, logo abaixo.
 
-   Quem decide a quebra é o próprio conteúdo, não uma media query: o flexbox
-   compara as larguras PEDIDAS (a da marca com sua logo e seu nome, mais a das
-   ações) com a largura disponível e, não cabendo, manda as ações para a linha
-   de baixo. Isso vale para qualquer nome e qualquer combinação de redes — com
-   só o WhatsApp costuma sobrar espaço e tudo fica numa linha; com as três mais
-   o ⓘ, em tela estreita, desce. Nenhum número aqui conhece o nome de nenhuma
-   loja, e é por isso que funciona para qualquer tenant. */
+   O `flex-wrap: wrap` fica como último recurso, para o caso de as ações
+   crescerem além do que a tela comporta: aí é melhor descer uma linha do que
+   vazar pela lateral. No desenho de hoje ele não chega a disparar. */
 header.topo .wrap { display: flex; align-items: center; gap: 10px 14px; padding: 12px 16px;
   flex-wrap: wrap; justify-content: space-between; }
-/* `space-between` faz as duas coisas de uma vez: numa linha, joga as ações
-   para a direita da marca; quebrada, a linha das ações tem um item só e ele
-   fica no início — embaixo da marca, e não no canto oposto ao nome a que
-   pertence. Não custa media query nenhuma. */
 .acoes-topo { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
 /* Logo circular e 1:1 nos três lugares em que ela aparece. `cover` preenche o
    círculo sem esticar; o recorte visível vem do enquadramento salvo. */
 header.topo img.logo { width: 52px; height: 52px; border-radius: 50%; aspect-ratio: 1;
   object-fit: cover; background: #fff; border: 1px solid var(--line); flex-shrink: 0; }
 /* A marca é o caminho de volta: link, não botão.
-   `flex-basis: auto` é o que dispara a quebra do cabeçalho: a largura que a
-   marca PEDE é a do seu próprio conteúdo, e não cabendo ela mais as ações, o
-   flexbox manda as ações para a linha de baixo em vez de espremer o nome.
-   Uma base fixa aqui foi testada e é pior: com `260px`, uma loja de nome curto
-   quebrava o cabeçalho em 320px mesmo sem nenhuma rede ligada, onde caberia
-   folgado. O conteúdo é quem sabe de quanto precisa.
-   `min-width: 0` continua ali para o recorte do nome poder agir quando nem
-   duas linhas bastam. */
+   `flex-basis: 0` é o que mantém o cabeçalho numa linha só: a marca não pede
+   a largura do próprio conteúdo, ela ocupa o que sobra depois do ⓘ e das
+   redes. Com `auto`, a largura pedida pelo nome empurrava o ⓘ para uma
+   segunda linha em 320px — o cabeçalho ia de 77px para 129px de altura, e
+   isso acontecia mesmo sem nenhuma rede ligada.
+   Faltando espaço, quem cede é o nome, que tem até duas linhas e depois
+   reticências. `min-width: 0` é o que permite esse recorte acontecer. */
 .marca-loja { display: flex; align-items: center; gap: 12px; min-width: 0;
-  flex: 1 1 auto; text-decoration: none; color: inherit; }
+  flex: 1 1 0; text-decoration: none; color: inherit; }
 .cab-txt { min-width: 0; display: flex; flex-direction: column; }
 /* O nome usa até DUAS linhas antes de recorrer às reticências.
    Numa linha só, um nome de razão social inteira ("SUPERMERCADO E
@@ -103,12 +103,21 @@ header.topo img.logo { width: 52px; height: 52px; border-radius: 50%; aspect-rat
 
 /* Ícones sociais: sem texto ao lado, com 44px de alvo mesmo desenhando 20px. */
 .redes { display: flex; gap: 2px; flex-shrink: 0; align-items: center; }
-/* O status é a primeira coisa a sair quando o espaço aperta: ele é informativo,
-   e marca e ícones não são negociáveis. No celular ele reaparece logo abaixo,
-   em linha própria, onde cabe inteiro. */
+/* No celular o cabeçalho fica com logo, nome e ⓘ. Saem dali o status, que
+   reaparece logo abaixo em linha própria, e os ícones de rede.
+
+   As redes saem porque têm para onde ir: o painel ⓘ lista WhatsApp, Instagram
+   e Facebook com os mesmos links, e o botão que o abre continua no cabeçalho.
+   Mantê-las ali custava uma segunda linha de ícones e espremia o nome da loja,
+   que é o que identifica quem está vendendo. Nenhum dado é removido, e em tela
+   maior os ícones continuam aparecendo.
+
+   O limite é o mesmo do status, e não um número novo: é onde este cabeçalho já
+   reconhece que o espaço apertou. */
 .status-linha { display: none; }
 @media (max-width: 720px) {
   header.topo .status { display: none; }
+  header.topo .redes { display: none; }
   .status-linha { display: block; padding: 10px 0 0; }
   .status-linha .status { font-size: 13px; }
 }
@@ -118,6 +127,71 @@ header.topo img.logo { width: 52px; height: 52px; border-radius: 50%; aspect-rat
 .rede svg { width: 21px; height: 21px; display: block; }
 .rede:hover { color: var(--primaria); background: color-mix(in srgb, var(--primaria) 10%, transparent); }
 .rede:focus-visible { outline: 2px solid var(--primaria); outline-offset: 2px; }
+
+/* ---------- checkout ----------
+   Mobile-first: uma coluna, campos de 16px (abaixo disso o iOS dá zoom ao
+   focar) e alvos de 44px. As etapas são seções empilhadas, não telas em
+   sequência — no celular, oito telas custam oito esperas e escondem o que já
+   foi preenchido. */
+.chk { display: flex; flex-direction: column; gap: 18px; padding-bottom: 20px; }
+.chk h1 { font-size: 1.35rem; margin: 18px 0 0; }
+.chk-bloco { background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--raio); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.chk-bloco h2 { font-size: 1rem; margin: 0; }
+.chk-opcoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.chk-op { background: var(--surface); border: 1.5px solid var(--line); border-radius: var(--raio);
+  padding: 12px; min-height: 60px; cursor: pointer; font: inherit; color: inherit;
+  display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.chk-op strong { font-size: .98em; }
+.chk-op span { font-size: .8em; color: var(--ink-2); }
+.chk-op.on { border-color: var(--primaria); background: color-mix(in srgb, var(--primaria) 8%, transparent); }
+.chk-op:focus-visible { outline: 2px solid var(--primaria); outline-offset: 2px; }
+
+.chk-campo { display: flex; flex-direction: column; gap: 5px; }
+.chk-campo label { font-size: .84em; font-weight: 600; color: var(--ink-2); }
+.chk-op-txt { font-weight: 400; color: var(--ink-2); }
+.chk-campo input, .chk-campo select, .chk-campo textarea {
+  width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: var(--raio);
+  background: var(--ground); color: var(--ink); font-family: inherit;
+  font-size: 16px; min-height: 46px; }
+.chk-campo textarea { min-height: 76px; resize: vertical; }
+.chk-linha { display: flex; gap: 10px; }
+.chk-linha .chk-campo { flex: 1; }
+.chk-cep { max-width: 130px; }
+.chk-num { max-width: 110px; }
+.chk-uf { max-width: 80px; }
+.chk-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: .92em; }
+.chk-check input { width: 20px; height: 20px; accent-color: var(--primaria); }
+
+.chk-itens { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.chk-itens li { display: flex; justify-content: space-between; gap: 12px; font-size: .9em; }
+.chk-itens em { color: var(--ink-2); font-style: normal; font-size: .92em; }
+.chk-totais { display: flex; flex-direction: column; gap: 6px; padding-top: 10px;
+  border-top: 1px solid var(--line); font-size: .92em; }
+.chk-totais > div { display: flex; justify-content: space-between; }
+.chk-total { font-size: 1.05em; font-weight: 700; padding-top: 4px; }
+.chk-aviso { font-size: .84em; color: var(--ink-2); margin: 0; }
+.chk-erro { background: #FDECEA; color: #8A1C13; border-radius: var(--raio);
+  padding: 12px 14px; margin: 0; font-size: .92em; }
+[data-theme="escuro"] .chk-erro, .escuro .chk-erro { background: #3A1A16; color: #FFD9D4; }
+
+.ir-checkout { padding: 4px 0 20px; }
+.bt-principal { display: block; width: 100%; background: var(--primaria);
+  color: var(--primaria-texto); border: 0; border-radius: var(--raio);
+  padding: 15px; font: inherit; font-size: 1.02em; font-weight: 650; cursor: pointer;
+  min-height: 52px; text-align: center; text-decoration: none; }
+.bt-principal:disabled { opacity: .6; cursor: default; }
+
+/* ---------- sucesso ---------- */
+.ok-tela { display: flex; flex-direction: column; gap: 14px; align-items: center;
+  text-align: center; padding: 30px 0 24px; }
+.ok-tela h1 { font-size: 1.4rem; margin: 0; }
+.ok-selo { width: 62px; height: 62px; border-radius: 50%; background: #1F9D55; color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 2rem; }
+.ok-num { font-size: 1.05em; margin: 0; }
+.ok-tela .chk-totais { width: 100%; max-width: 340px; text-align: left; }
+.ok-linha { margin: 0; font-size: .95em; }
+.ok-tela .bt-principal, .ok-tela .btn-linha { max-width: 340px; }
 
 /* ---------- busca e categorias ---------- */
 .busca-linha { padding: 14px 0 6px; }
