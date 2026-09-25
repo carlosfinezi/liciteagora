@@ -2117,6 +2117,9 @@ alterSafe(db, 'ALTER TABLE users ADD COLUMN menuModo TEXT');
 
 // CRM / contratos: retornam link para OS
 alterSafe(db, 'ALTER TABLE crm_oportunidades ADD COLUMN osId INTEGER');
+// CRM: telefone do card sem cliente cadastrado (par do clienteNomeLivre).
+// Com cliente vinculado, o telefone continua vindo de pessoas.telefone.
+alterSafe(db, 'ALTER TABLE crm_oportunidades ADD COLUMN clienteTelefoneLivre TEXT');
 // CRM: etapa que dispara agendamento (crm_atividade) ao receber um card
 alterSafe(db, 'ALTER TABLE crm_etapas ADD COLUMN geraAgendamento INTEGER NOT NULL DEFAULT 0');
 alterSafe(db, 'ALTER TABLE reservas_estoque ADD COLUMN osId INTEGER');

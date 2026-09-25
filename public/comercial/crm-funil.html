@@ -38,6 +38,7 @@
 .kanban-column h4:hover .col-actions button { opacity:0.85; }
 .col-actions button:hover { opacity:1; background:rgba(255,255,255,0.18); }
 .col-soma { font-size:11px; opacity:0.85; margin-top:2px; }
+.col-mais { flex:0 0 auto; width:100%; justify-content:center; font-size:12px; }
 </style>
 </head>
 <body>
@@ -358,15 +359,58 @@ async function carregar(){
   const v = document.getElementById('fVendedor').value;
   if (q) p.set('q', q);
   if (v) p.set('vendedorId', v);
+  p.set('porEtapa', POR_ETAPA);
+  const geracao = ++geracaoBoard;
   const r = await fetch('/api/crm/oportunidades?'+p);
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
-  renderBoard(d.oportunidades);
+  if (geracao !== geracaoBoard) return;   // um carregar() mais novo já está a caminho
+  renderBoard(d.oportunidades, d.totais);
 }
 
-let etapaCounts = {};
+// Cada coluna chega com os POR_ETAPA primeiros; o resto vem ao rolar até o fim
+// dela. O que está carregado é sempre o começo da coluna, e a reordenação do
+// arrastar depende disso: ela só renumera os cards presentes na tela.
+const POR_ETAPA = 50;
+let geracaoBoard = 0;
+let carregadosEtapa = {};   // etapaId -> quantos cards a coluna já tem na tela
+let carregandoEtapa = {};
+function htmlMais(etapaId){
+  const faltam = (etapaCounts[etapaId] || 0) - (carregadosEtapa[etapaId] || 0);
+  return faltam > 0 ? `<button type="button" class="btn col-mais" onclick="carregarMaisEtapa(${etapaId})">Carregar mais (${faltam})</button>` : '';
+}
+function rolouColuna(el){
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 300) carregarMaisEtapa(Number(el.dataset.etapaId));
+}
+async function carregarMaisEtapa(etapaId){
+  if (carregandoEtapa[etapaId] || (carregadosEtapa[etapaId] || 0) >= (etapaCounts[etapaId] || 0)) return;
+  carregandoEtapa[etapaId] = true;
+  const geracao = geracaoBoard;
+  try {
+    const p = new URLSearchParams({ funilId: funilAtual.id, etapaId, porEtapa: POR_ETAPA, offset: carregadosEtapa[etapaId] || 0 });
+    const q = document.getElementById('fQ').value.trim();
+    const v = document.getElementById('fVendedor').value;
+    if (q) p.set('q', q);
+    if (v) p.set('vendedorId', v);
+    const r = await fetch('/api/crm/oportunidades?'+p);
+    const d = await r.json();
+    if (!d.success) return showAlert(d.error,'error');
+    if (geracao !== geracaoBoard) return;   // o quadro foi refeito enquanto isto vinha
+    const col = document.querySelector(`.kanban-cards[data-etapa-id="${etapaId}"]`);
+    if (!col) return;
+    col.querySelector('.col-mais')?.remove();
+    d.oportunidades.forEach(o => { opsIndex[o.id] = o; });
+    col.insertAdjacentHTML('beforeend', d.oportunidades.map(o=>cardHtml(o)).join('') );
+    carregadosEtapa[etapaId] = (carregadosEtapa[etapaId] || 0) + d.oportunidades.length;
+    if (!d.oportunidades.length) carregadosEtapa[etapaId] = etapaCounts[etapaId] || 0;
+    col.insertAdjacentHTML('beforeend', htmlMais(etapaId));
+  } catch(err){ showAlert('Erro ao carregar: '+err.message, 'error'); }
+  finally { carregandoEtapa[etapaId] = false; }
+}
+
+let etapaCounts = {};   // total REAL da etapa (vem do servidor), não o que está na tela
 let opsIndex = {};   // id -> oportunidade (p/ o modal de agendamento pós-arrasto)
-function renderBoard(ops){
+function renderBoard(ops, totais){
   const board = document.getElementById('board');
   opsIndex = {};
   ops.forEach(o => { opsIndex[o.id] = o; });
@@ -374,22 +418,27 @@ function renderBoard(ops){
   funilAtual.etapas.forEach(e => grupos[e.id] = []);
   ops.forEach(o => { if (grupos[o.etapaId]) grupos[o.etapaId].push(o); });
   etapaCounts = {};
+  carregadosEtapa = {};
+  carregandoEtapa = {};
   board.innerHTML = funilAtual.etapas.map(et => {
     const lista = grupos[et.id] || [];
-    etapaCounts[et.id] = lista.length;
-    const soma = lista.reduce((s,o)=>s+Number(o.valor||0),0);
+    const tot = totais && totais[et.id];
+    etapaCounts[et.id] = tot ? tot.n : lista.length;
+    carregadosEtapa[et.id] = lista.length;
+    const soma = tot ? Number(tot.soma || 0) : lista.reduce((s,o)=>s+Number(o.valor||0),0);
     return `<div class="kanban-column" data-etapa-id="${et.id}" ondragover="colDragOver(event)" ondragleave="colDragLeave(event)" ondrop="colDrop(event, ${et.id})">
       <h4 draggable="true" style="background:${et.cor||'var(--bg-3)'};" ondragstart="colDragStart(event, ${et.id})" ondragend="colDragEnd(event)">
         <div class="col-title"><span class="grip">⠿</span><span class="nome">${et.nome}</span></div>
         <div class="col-actions">
           <button title="Editar etapa" onclick="event.stopPropagation();editarEt(${et.id})">✏️</button>
           <button title="Excluir etapa" onclick="event.stopPropagation();excluirEt(${et.id})">🗑️</button>
-          <span class="col-count">${lista.length}</span>
+          <span class="col-count">${etapaCounts[et.id].toLocaleString('pt-BR')}</span>
         </div>
       </h4>
       <div class="col-soma muted" style="text-align:right;color:var(--text-3);">${fmtBRL(soma)}</div>
-      <div class="kanban-cards" data-etapa-id="${et.id}" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="drop(event)">
+      <div class="kanban-cards" data-etapa-id="${et.id}" onscroll="rolouColuna(this)" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="drop(event)">
         ${lista.map(o=>cardHtml(o)).join('')}
+        ${htmlMais(et.id)}
       </div>
     </div>`;
   }).join('');
@@ -446,7 +495,8 @@ function dragOver(e){
   const dragging = document.querySelector('.op-card.dragging');
   if (!dragging) return;
   const after = getDragAfterElement(container, e.clientY);
-  if (after == null) container.appendChild(dragging);
+  // O botão "Carregar mais" fica sempre por último, abaixo dos cards.
+  if (after == null) container.insertBefore(dragging, container.querySelector('.col-mais'));
   else container.insertBefore(dragging, after);
 }
 // Só remove o realce quando o cursor sai de fato do container — ignora a troca
@@ -897,6 +947,7 @@ async function salvarOp(){
   // Sem cliente cadastrado selecionado: guarda o nome digitado só na oportunidade
   // (não cria cliente novo). Com cliente vinculado, limpa o nome avulso.
   body.clienteNomeLivre = body.clienteId ? null : (document.getElementById('opClienteBusca').value.trim() || null);
+  body.clienteTelefoneLivre = body.clienteId ? null : (document.getElementById('opTelefone').value.trim() || null);
   if (!body.titulo) return showAlert('Informe o título','error');
   try {
     const url = id ? '/api/crm/oportunidades/'+id : '/api/crm/oportunidades';
@@ -904,8 +955,8 @@ async function salvarOp(){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
 
-    // Telefone pertence ao cadastro do cliente: se um cliente foi escolhido e o
-    // número mudou, atualiza a pessoa. Sem cliente selecionado não há onde salvar.
+    // Com cliente escolhido, o telefone pertence ao cadastro: se o número mudou,
+    // atualiza a pessoa. Sem cliente, ele já foi salvo no card (clienteTelefoneLivre).
     const telNovo = document.getElementById('opTelefone').value.trim();
     if (body.clienteId && telNovo !== (_clienteTelOrig||'').trim()) {
       const rp = await fetch('/api/pessoas/'+body.clienteId, {
@@ -914,8 +965,6 @@ async function salvarOp(){
       const dp = await rp.json().catch(()=>({success:false,error:'resposta inválida'}));
       if (!dp.success) showAlert('Oportunidade salva, mas o telefone do cliente não foi atualizado: '+(dp.error||''), 'error');
       else _clienteTelOrig = telNovo;
-    } else if (telNovo && !body.clienteId) {
-      showAlert('Oportunidade salva. Para guardar o telefone, escolha um cliente cadastrado.', 'error');
     }
 
     showAlert(id?'Oportunidade atualizada':'Oportunidade criada');

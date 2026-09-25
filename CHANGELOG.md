@@ -166,6 +166,55 @@ estas mudanças por cima, bancos restaurados do backup de 24/09 17:37 e o
 
 As etapas 19 e 21 passaram na cópia, com 22 e 23 ok.
 
+## 2026-09-24, CRM: leads por nicho e kanban por coluna
+
+### A lista de propensão inteira entrou no CRM, um funil por nicho
+
+A planilha `LEADS_PARA_PROPENSAO_LICITEAGORA` substituiu a
+`LEADS_PARA_TELEFONES_VALIDADOS`. Os 1.000 cards desta, sem nenhuma atividade,
+foram apagados, e entraram as 63.274 empresas com telefone utilizável das
+72.606 da planilha. Ficaram fora 555 sem telefone e 8.777 que repetiam um
+número já incluído. Os 39 setores da planilha foram agrupados em 10 nichos, e
+cada nicho virou um funil com as colunas Leads, Caixa postal, Já tem ERP, Não
+existe e Não disponível: Comércio (19.794), Veículos, máquinas e equipamentos
+(7.434), Alimentação (5.579), Construção e engenharia (5.472), Transporte e
+logística (3.842), Saúde e educação (3.500), Serviços gerais (3.305),
+Comunicação e tecnologia (3.244), Indústria (1.881) e Outros e fora do perfil
+(9.223). Os leads estão na coluna Leads, na ordem da propensão, e o setor
+original segue na descrição do card. O funil "Ligação Licitações" foi excluído
+(soft, como a tela faz).
+
+No caminho, uma distribuição intermediária por setor desfez a classificação de
+4 cards que o usuário `jonata` já tinha arrastado para as colunas de resultado.
+Eles foram devolvidos às mesmas colunas, lidas do `audit_log`, dentro do funil
+do nicho de cada um.
+
+O `scripts/importar-leads-crm.js`, que entra no git agora, fez a importação e
+guarda quem já entrou num controle fora do repositório.
+
+### O kanban mostrava no máximo 1.000 cards somando todas as colunas
+
+`GET /api/crm/oportunidades` tinha um `LIMIT 1000` para o funil inteiro, e a
+tela escrevia no topo da coluna quantos cards tinha recebido. Com menos de
+1.000 cards os dois números coincidiam. Com 63 mil, "Comércio varejista"
+mostrava 27 de 17.364. A rota aceita agora `porEtapa=N`: traz os N primeiros
+de cada etapa e os `totais` reais (quantidade e soma), e com `etapaId` e
+`offset` pagina uma coluna. A tela pede 50 por coluna e carrega mais ao rolar
+até o fim. Sem `porEtapa` a resposta é a antiga.
+
+A reordenação do arrastar só renumera os cards que estão na tela. Ela continua
+certa porque o carregado é sempre o começo da coluna, e para isso a ordem
+ganhou `o.id` como desempate. A suíte de banco descartável e Chrome headless
+confere que a coluna inteira, percorrida página a página depois de um arrastar,
+não repete nem perde card.
+
+### Telefone no card sem cliente cadastrado
+
+Entra junto, porque a rota acima já depende dela, a coluna
+`crm_oportunidades.clienteTelefoneLivre`, criada no `db-schema.js`. O card sem
+cliente guarda o próprio telefone, e a tela deixou de recusar o número quando
+não há cliente escolhido. É nela que a importação de leads grava.
+
 ## 2026-09-24
 
 Três defeitos das recorrências de NFS-e, achados ao preparar a gravação do

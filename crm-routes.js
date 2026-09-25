@@ -394,26 +394,54 @@ function registrarRotasCrm(app, db) {
   app.get('/api/crm/oportunidades', (req, res) => {
     try {
       const { funilId, etapaId, clienteId, vendedorId, status, q } = req.query;
-      let sql = `SELECT o.*, COALESCE(p.razaoSocial, o.clienteNomeLivre) AS clienteNome, p.telefone AS clienteTelefone, u.username AS vendedorNome,
-                        e.nome AS etapaNome, e.cor AS etapaCor, e.tipo AS etapaTipo,
-                        (SELECT COUNT(*) FROM crm_oportunidade_itens i WHERE i.oportunidadeId = o.id) AS itensCount
-                 FROM crm_oportunidades o
+      // porEtapa: o kanban pede os N primeiros de CADA etapa, mais o total real
+      // de cada uma. Sem isso o LIMIT único do funil corta as colunas e o
+      // contador da tela conta só o que chegou. offset pagina uma etapa só.
+      const porEtapa = req.query.porEtapa !== undefined ? Number(req.query.porEtapa) : null;
+      const offset = req.query.offset !== undefined ? Number(req.query.offset) : 0;
+      if (porEtapa !== null && !(Number.isInteger(porEtapa) && porEtapa > 0 && porEtapa <= 500)) {
+        return res.status(400).json({ success: false, error: 'porEtapa deve ser inteiro entre 1 e 500' });
+      }
+      if (!(Number.isInteger(offset) && offset >= 0)) return res.status(400).json({ success: false, error: 'offset inválido' });
+      let where = ' WHERE o.ativo = 1';
+      const params = [];
+      if (funilId)    { where += ' AND o.funilId = ?';    params.push(Number(funilId)); }
+      if (etapaId)    { where += ' AND o.etapaId = ?';    params.push(Number(etapaId)); }
+      if (clienteId)  { where += ' AND o.clienteId = ?';  params.push(Number(clienteId)); }
+      if (vendedorId) { where += ' AND o.vendedorId = ?'; params.push(Number(vendedorId)); }
+      if (status === 'aberta') where += ` AND e.tipo = 'normal'`;
+      if (status === 'ganha')  where += ` AND e.tipo = 'ganho'`;
+      if (status === 'perdida') where += ` AND e.tipo = 'perdido'`;
+      if (q) { where += ' AND (o.titulo LIKE ? OR p.razaoSocial LIKE ? OR o.clienteNomeLivre LIKE ?)'; const like = `%${q}%`; params.push(like, like, like); }
+      const from = ` FROM crm_oportunidades o
                  LEFT JOIN pessoas p ON p.id = o.clienteId
                  LEFT JOIN users u ON u.id = o.vendedorId
-                 JOIN crm_etapas e ON e.id = o.etapaId
-                 WHERE o.ativo = 1`;
-      const params = [];
-      if (funilId)    { sql += ' AND o.funilId = ?';    params.push(Number(funilId)); }
-      if (etapaId)    { sql += ' AND o.etapaId = ?';    params.push(Number(etapaId)); }
-      if (clienteId)  { sql += ' AND o.clienteId = ?';  params.push(Number(clienteId)); }
-      if (vendedorId) { sql += ' AND o.vendedorId = ?'; params.push(Number(vendedorId)); }
-      if (status === 'aberta') sql += ` AND e.tipo = 'normal'`;
-      if (status === 'ganha')  sql += ` AND e.tipo = 'ganho'`;
-      if (status === 'perdida') sql += ` AND e.tipo = 'perdido'`;
-      if (q) { sql += ' AND (o.titulo LIKE ? OR p.razaoSocial LIKE ? OR o.clienteNomeLivre LIKE ?)'; const like = `%${q}%`; params.push(like, like, like); }
-      sql += ' ORDER BY o.ordemManual ASC, o.dataAtualizacao DESC LIMIT 1000';
-      const oportunidades = db.prepare(sql).all(...params);
-      res.json({ success: true, oportunidades });
+                 JOIN crm_etapas e ON e.id = o.etapaId`;
+      const campos = `SELECT o.*, COALESCE(p.razaoSocial, o.clienteNomeLivre) AS clienteNome,
+                        CASE WHEN o.clienteId IS NULL THEN o.clienteTelefoneLivre ELSE p.telefone END AS clienteTelefone, u.username AS vendedorNome,
+                        e.nome AS etapaNome, e.cor AS etapaCor, e.tipo AS etapaTipo,
+                        (SELECT COUNT(*) FROM crm_oportunidade_itens i WHERE i.oportunidadeId = o.id) AS itensCount`;
+      // o.id desempata: a paginação precisa de ordem estável, e a reordenação
+      // do arrastar só renumera o que a tela carregou, que tem de ser o começo
+      // da coluna.
+      const ordem = 'o.ordemManual ASC, o.dataAtualizacao DESC, o.id ASC';
+      if (porEtapa === null) {
+        const oportunidades = db.prepare(`${campos}${from}${where} ORDER BY ${ordem} LIMIT 1000`).all(...params);
+        return res.json({ success: true, oportunidades });
+      }
+      let oportunidades;
+      if (etapaId) {
+        oportunidades = db.prepare(`${campos}${from}${where} ORDER BY ${ordem} LIMIT ? OFFSET ?`).all(...params, porEtapa, offset);
+      } else {
+        oportunidades = db.prepare(`${campos}${from}
+          WHERE o.id IN (SELECT id FROM (SELECT o.id, ROW_NUMBER() OVER (PARTITION BY o.etapaId ORDER BY ${ordem}) AS rn${from}${where}) WHERE rn <= ?)
+          ORDER BY ${ordem}`).all(...params, porEtapa);
+      }
+      const totais = {};
+      for (const t of db.prepare(`SELECT o.etapaId, COUNT(*) AS n, COALESCE(SUM(o.valor), 0) AS soma${from}${where} GROUP BY o.etapaId`).all(...params)) {
+        totais[t.etapaId] = { n: t.n, soma: t.soma };
+      }
+      res.json({ success: true, oportunidades, totais });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -423,7 +451,8 @@ function registrarRotasCrm(app, db) {
     try {
       const op = db.prepare(`
         SELECT o.*, COALESCE(p.razaoSocial, o.clienteNomeLivre) AS clienteNome, p.cpfCnpj AS clienteCpfCnpj,
-               p.email AS clienteEmail, p.telefone AS clienteTelefone,
+               p.email AS clienteEmail,
+               CASE WHEN o.clienteId IS NULL THEN o.clienteTelefoneLivre ELSE p.telefone END AS clienteTelefone,
                u.username AS vendedorNome,
                e.nome AS etapaNome, e.cor AS etapaCor, e.tipo AS etapaTipo,
                f.nome AS funilNome
@@ -456,6 +485,7 @@ function registrarRotasCrm(app, db) {
       if (!titulo) return res.status(400).json({ success: false, error: 'titulo obrigatório' });
       // Cliente avulso só quando NÃO há cliente cadastrado vinculado.
       const clienteNomeLivre = clienteId ? null : ((req.body.clienteNomeLivre || '').trim() || null);
+      const clienteTelefoneLivre = clienteId ? null : ((req.body.clienteTelefoneLivre || '').trim() || null);
 
       // Funil/etapa default
       let fid = funilId;
@@ -477,10 +507,10 @@ function registrarRotasCrm(app, db) {
         const topo = db.prepare('SELECT COALESCE(MIN(ordemManual), 0) - 1 AS o FROM crm_oportunidades WHERE etapaId = ? AND ativo = 1').get(eid).o;
         const r = db.prepare(`
           INSERT INTO crm_oportunidades
-            (funilId, etapaId, clienteId, clienteNomeLivre, vendedorId, titulo, descricao, valor, probabilidade, fonte, dataPrevisaoFechamento, ordemManual)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (funilId, etapaId, clienteId, clienteNomeLivre, clienteTelefoneLivre, vendedorId, titulo, descricao, valor, probabilidade, fonte, dataPrevisaoFechamento, ordemManual)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-          fid, eid, clienteId || null, clienteNomeLivre, vendedorId || (req.user?.id || null),
+          fid, eid, clienteId || null, clienteNomeLivre, clienteTelefoneLivre, vendedorId || (req.user?.id || null),
           titulo, descricao || null, Number(valor) || 0, Number(probabilidade) || 50,
           fonte || null, dataPrevisaoFechamento || null, topo
         );
@@ -507,7 +537,7 @@ function registrarRotasCrm(app, db) {
       const op = db.prepare('SELECT * FROM crm_oportunidades WHERE id = ?').get(req.params.id);
       if (!op) return res.status(404).json({ success: false, error: 'Não encontrada' });
 
-      const camposEditaveis = ['clienteId','clienteNomeLivre','vendedorId','titulo','descricao','valor','probabilidade','fonte','dataPrevisaoFechamento','pedidoId'];
+      const camposEditaveis = ['clienteId','clienteNomeLivre','clienteTelefoneLivre','vendedorId','titulo','descricao','valor','probabilidade','fonte','dataPrevisaoFechamento','pedidoId'];
       const sets = [], vals = [];
       const changed = {};
       for (const c of camposEditaveis) {
