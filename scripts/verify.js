@@ -414,6 +414,12 @@ const suites = [
   // que estourava o proxy com centenas. Roda a emissão real com SEFIN, assinatura
   // e e-mail trocados, e conta quantas mensagens sairiam.
   ['132. recorrencias em lote (test-recorrencia-lote)', 'test-recorrencia-lote.js'],
+  // Restaurante no horário de Marabá. O módulo grava em UTC, e sem converter a
+  // conta das 22h caía no dia seguinte, o sábado à noite contava como domingo e
+  // o pico saía três horas adiantado. As comandas têm valores distintos para a
+  // soma denunciar o dia errado. Confere também a cor do CMV% nas duas tabelas,
+  // que o `td { color: !important }` do app-modern.css apagava.
+  ['134. restaurante no fuso de Maraba (test-restaurante-fuso)', 'test-restaurante-fuso.js'],
 ];
 for (const [rotulo, arq] of suites) {
   passo(rotulo);

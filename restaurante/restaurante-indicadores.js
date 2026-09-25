@@ -19,7 +19,7 @@
  */
 
 const { custoDaFicha } = require('./restaurante-ficha');
-const { msDe } = require('./restaurante-comanda');
+const { msDe, FUSO_LOCAL_SQL } = require('./restaurante-comanda');
 
 function arred(v, casas = 2) {
   const f = Math.pow(10, casas);
@@ -53,7 +53,7 @@ function registrarRotasIndicadores(app, db, gateFlag) {
         SELECT id, tipo, canal, mesaId, numeroPessoas, totalGeral, totalItens,
                abertaEm, fechadaEm
           FROM rest_comandas
-         WHERE status = 'fechada' AND DATE(fechadaEm) BETWEEN DATE(?) AND DATE(?)
+         WHERE status = 'fechada' AND DATE(fechadaEm, '${FUSO_LOCAL_SQL}') BETWEEN DATE(?) AND DATE(?)
       `).all(de, ate);
 
       const faturamento = arred(contas.reduce((s, c) => s + Number(c.totalGeral || 0), 0));
@@ -85,18 +85,18 @@ function registrarRotasIndicadores(app, db, gateFlag) {
 
       // Faturamento por dia da semana e por hora, para dimensionar escala.
       const porDiaSemana = db.prepare(`
-        SELECT CAST(strftime('%w', fechadaEm) AS INTEGER) AS dia,
+        SELECT CAST(strftime('%w', fechadaEm, '${FUSO_LOCAL_SQL}') AS INTEGER) AS dia,
                COUNT(*) AS contas, COALESCE(SUM(totalGeral), 0) AS total
           FROM rest_comandas
-         WHERE status = 'fechada' AND DATE(fechadaEm) BETWEEN DATE(?) AND DATE(?)
+         WHERE status = 'fechada' AND DATE(fechadaEm, '${FUSO_LOCAL_SQL}') BETWEEN DATE(?) AND DATE(?)
          GROUP BY dia ORDER BY dia
       `).all(de, ate);
 
       const porHora = db.prepare(`
-        SELECT CAST(strftime('%H', fechadaEm) AS INTEGER) AS hora,
+        SELECT CAST(strftime('%H', fechadaEm, '${FUSO_LOCAL_SQL}') AS INTEGER) AS hora,
                COUNT(*) AS contas, COALESCE(SUM(totalGeral), 0) AS total
           FROM rest_comandas
-         WHERE status = 'fechada' AND DATE(fechadaEm) BETWEEN DATE(?) AND DATE(?)
+         WHERE status = 'fechada' AND DATE(fechadaEm, '${FUSO_LOCAL_SQL}') BETWEEN DATE(?) AND DATE(?)
          GROUP BY hora ORDER BY hora
       `).all(de, ate);
 
@@ -135,7 +135,7 @@ function registrarRotasIndicadores(app, db, gateFlag) {
           FROM rest_comanda_itens i JOIN rest_comandas c ON c.id = i.comandaId
          WHERE c.status = 'fechada' AND i.status <> 'cancelado'
            AND i.produtoId IS NOT NULL
-           AND DATE(c.fechadaEm) BETWEEN DATE(?) AND DATE(?)
+           AND DATE(c.fechadaEm, '${FUSO_LOCAL_SQL}') BETWEEN DATE(?) AND DATE(?)
          GROUP BY i.produtoId, i.descricao
       `).all(de, ate);
 
@@ -224,7 +224,7 @@ function registrarRotasIndicadores(app, db, gateFlag) {
           JOIN rest_comandas c ON c.id = i.comandaId
           LEFT JOIN users u ON u.id = i.garcomUserId
          WHERE c.status = 'fechada' AND i.status <> 'cancelado'
-           AND DATE(c.fechadaEm) BETWEEN DATE(?) AND DATE(?)
+           AND DATE(c.fechadaEm, '${FUSO_LOCAL_SQL}') BETWEEN DATE(?) AND DATE(?)
          GROUP BY i.garcomUserId ORDER BY vendido DESC
       `).all(de, ate);
       res.json({
@@ -256,7 +256,7 @@ function registrarRotasIndicadores(app, db, gateFlag) {
           JOIN rest_comandas c ON c.id = i.comandaId
           LEFT JOIN rest_mesas m ON m.id = c.mesaId
           LEFT JOIN users u ON u.id = i.garcomUserId
-         WHERE i.status = 'cancelado' AND DATE(i.canceladoEm) BETWEEN DATE(?) AND DATE(?)
+         WHERE i.status = 'cancelado' AND DATE(i.canceladoEm, '${FUSO_LOCAL_SQL}') BETWEEN DATE(?) AND DATE(?)
          ORDER BY i.canceladoEm DESC
       `).all(de, ate);
 

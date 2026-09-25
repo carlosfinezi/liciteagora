@@ -4,6 +4,73 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-25, restaurante no horário de Marabá e CMV% colorido
+
+Achados ao tirar os prints do anúncio de restaurante no tenant `sandbox`.
+
+### O CMV% da lista nunca teve cor
+
+A Ficha Técnica pintava o CMV% (até 35% verde, até 45% amarelo, acima
+vermelho) no próprio `<td>`, e o `td { color: var(--text-1) !important }` do
+`app-modern.css` apagava a cor em toda tabela do sistema. Nenhum tenant viu
+o semáforo na lista, só no detalhe do prato, onde a cor está num `<strong>`.
+Agora o valor vai num `<span>` colorido dentro da célula, na lista da Ficha e
+na coluna CMV% da aba CMV dos Indicadores, que não tinha cor nenhuma. A regra
+do `app-modern.css` não mudou.
+
+### O restaurante lia hora UTC como se fosse de Marabá
+
+O módulo grava tudo em UTC (`agora()` e `CURRENT_TIMESTAMP`), e cortava dia e
+hora direto sobre esse texto. O horário de pico saía três horas adiantado
+(almoço às 13h aparecia como 16h), a conta fechada depois das 21h caía no dia
+seguinte e o sábado à noite contava como domingo. Nos prints, o turno aberto
+às 10:30 aparecia como 13:30.
+
+- `FUSO_LOCAL_SQL = '-3 hours'` em `restaurante-comanda.js` (America/Belem,
+  UTC−3 o ano todo) entra em todo corte de dia e hora: indicadores (período,
+  dia da semana, hora, cardápio, garçons, cancelamentos), gorjetas, acerto do
+  entregador e CMV teórico e real.
+- As telas mostram a hora em Marabá: abertura do turno no Caixa, abertura da
+  comanda no Salão, entrega no Delivery e cancelamento nos Indicadores.
+
+O mesmo defeito, fora do restaurante:
+
+- **Monitor de chat** (`chat-mensagens-routes.js`): os filtros "hoje", 7 e 30
+  dias e o contador de hoje comparavam `dataCaptura` (UTC) com o dia UTC.
+- **WhatsApp** (`whatsapp-adapter.js`): o contador de envios do dia fazia o
+  mesmo. O contador da linha 405, no mesmo arquivo, já convertia.
+- **OS** (`os-routes.js`): o período dos relatórios filtrava `dataAbertura`
+  (UTC) contra a data local da tela, e a contagem de falhas de notificação dos
+  últimos 7 dias usava o dia UTC.
+
+A suíte é a etapa 134 do verify (`test-restaurante-fuso.js`, 13 casos). As
+comandas têm valores distintos para a soma denunciar o dia errado; cortando
+em UTC, 8 casos reprovam.
+
+O verify fechou com 14 problemas em 3.980 s, todos de outras frentes e em
+arquivos fora deste commit: `campanha.html` sem `theme-boot`, o mapa de RBAC
+com 178 prefixos (3 falhas), o menu Configurações com 7 opções (4) e a suíte de
+provisionamento, que grava no `sandbox5` real e colide no CPF (6).
+
+### Pendências declaradas
+
+- **Histórico de turnos fechados com diferença.** A diferença do caixa do
+  restaurante é gravada em `rest_turnos.diferenca`, mas nenhuma tela lista os
+  turnos fechados: ela só aparece na mensagem logo após o fechamento. Não
+  construído, a pedido.
+- **Engenharia de cardápio mistura bebida com prato.** A popularidade média é
+  calculada sobre o cardápio inteiro, e as bebidas, que vendem em unidades
+  muitas vezes maiores, puxam a média e jogam quase todo prato para "Enigma".
+  A regra não foi mudada; as opções estão no relato de 25/09.
+- **Do mesmo padrão, e não mexido:** o scheduler compara `dataPromessa` das OS
+  (data local) com `date('now')` em UTC, então a OS vira "atrasada" três horas
+  antes, às 21h; `movimentacoes_estoque.data` mistura data local (quase tudo)
+  com data e hora UTC (a baixa do restaurante), e a correção depende de
+  escolher um formato único; o evento da farmácia (SNGPC) grava a emissão da
+  NFC-e e merece conferência própria por ser regulatório.
+- `test-os-equipamento.js` e `test-os-notificacoes.js` falham igual com e sem
+  esta mudança (14 e 6 falhas) e não estão no verify.
+
 ## 2026-09-24
 
 Três defeitos das recorrências de NFS-e, achados ao preparar a gravação do

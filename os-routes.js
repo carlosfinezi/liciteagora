@@ -3695,7 +3695,7 @@ function registrarRotasOS(app, db) {
         FROM os_notificacoes_log l LEFT JOIN os_ordens o ON o.id = l.osId
         ORDER BY l.id DESC LIMIT ?`).all(limite);
       const falhas = db.prepare(`SELECT COUNT(*) n FROM os_notificacoes_log
-        WHERE status = 'erro' AND date(data) >= date('now','-7 days')`).get().n;
+        WHERE status = 'erro' AND date(data, '-3 hours') >= date('now', '-3 hours', '-7 days')`).get().n;
       res.json({ success: true, log: rows, falhas7d: falhas });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -3745,8 +3745,10 @@ function registrarRotasOS(app, db) {
     const { de, ate } = req.query;
     const cond = [];
     const params = [];
-    if (de)  { cond.push(`date(o.dataAbertura) >= ?`); params.push(de); }
-    if (ate) { cond.push(`date(o.dataAbertura) <= ?`); params.push(ate); }
+    // dataAbertura é CURRENT_TIMESTAMP (UTC) e o período vem da tela em
+    // data local: a OS aberta depois das 21h caía no dia seguinte.
+    if (de)  { cond.push(`date(o.dataAbertura, '-3 hours') >= ?`); params.push(de); }
+    if (ate) { cond.push(`date(o.dataAbertura, '-3 hours') <= ?`); params.push(ate); }
     return { where: cond.length ? ' AND ' + cond.join(' AND ') : '', params };
   }
 

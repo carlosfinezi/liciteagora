@@ -104,6 +104,23 @@ function showAlert(m, t = 'success') {
 }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function fmt(v, c = 2) { return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c }); }
+// Mesma régua da Ficha Técnica: referência do setor 28% a 35%.
+function corCmv(pct) {
+  if (pct == null) return 'var(--text-3)';
+  if (pct <= 35) return 'var(--success)';
+  if (pct <= 45) return 'var(--warn)';
+  return 'var(--danger)';
+}
+// O módulo grava em UTC (ver agora() em restaurante-comanda.js); quem lê está
+// em Marabá. Sem converter, o turno aberto às 10:30 aparecia como 13:30.
+function horaLocal(ts) {
+  if (!ts) return '';
+  const s = String(ts).trim().replace(' ', 'T');
+  const d = new Date(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z');
+  if (isNaN(d)) return String(ts);
+  return d.toLocaleString('pt-BR', { timeZone: 'America/Belem', day: '2-digit', month: '2-digit',
+    year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
 
 async function api(url) {
   const r = await fetch(url);
@@ -239,7 +256,8 @@ async function carregarCmv() {
       <td style="text-align:right;">R$ ${fmt(i.custoUnitario, 4)}</td>
       <td style="text-align:right;">R$ ${fmt(i.custoTotal)}</td>
       <td style="text-align:right;">R$ ${fmt(i.margem)}</td>
-      <td style="text-align:right;">${i.cmvPct == null ? '—' : fmt(i.cmvPct, 1) + '%'}</td>
+      <td style="text-align:right;"><span style="color:${corCmv(i.cmvPct)};font-weight:600;">
+        ${i.cmvPct == null ? '—' : fmt(i.cmvPct, 1) + '%'}</span></td>
     </tr>`).join('') : '<tr><td colspan="7" class="empty">Sem vendas no período</td></tr>';
   } catch (e) { showAlert(e.message, 'error'); }
 }
@@ -271,7 +289,7 @@ async function carregarCancel() {
           <strong style="color:var(--danger);">R$ ${fmt(d.resumo.valorDepoisDaCozinha)}</strong></div>
       </div>`;
     document.getElementById('tbCancel').innerHTML = d.items.length ? d.items.map(i => `<tr>
-      <td class="muted">${esc(i.canceladoEm)}</td>
+      <td class="muted">${esc(horaLocal(i.canceladoEm))}</td>
       <td>${i.quantidade}× ${esc(i.descricao)}</td>
       <td>${i.mesaNumero ? 'Mesa ' + esc(i.mesaNumero) : '—'}</td>
       <td>${esc(i.garcom || '—')}</td>

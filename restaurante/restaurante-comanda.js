@@ -31,6 +31,16 @@ function agora() {
 }
 
 /**
+ * Deslocamento do horário de Marabá (America/Belem: UTC−3 o ano todo, sem
+ * horário de verão) para usar no SQL sobre o que agora() grava em UTC:
+ * DATE(col, FUSO_LOCAL_SQL) e strftime('%H', col, FUSO_LOCAL_SQL).
+ *
+ * Sem ele, a conta fechada às 22h caía no dia seguinte, o sábado à noite
+ * contava como domingo e o horário de pico saía três horas adiantado.
+ */
+const FUSO_LOCAL_SQL = '-3 hours';
+
+/**
  * Converte um timestamp do módulo em epoch ms.
  *
  * Tudo aqui é gravado em UTC — tanto o CURRENT_TIMESTAMP do SQLite quanto o
@@ -621,6 +631,7 @@ module.exports = {
   agora,
   msDe,
   minutosDesde,
+  FUSO_LOCAL_SQL,
   TIPOS,
   STATUS_ITEM,
 };

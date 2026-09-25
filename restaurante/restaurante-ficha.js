@@ -22,7 +22,7 @@
  * sem isso.
  */
 
-const { agora } = require('./restaurante-comanda');
+const { agora, FUSO_LOCAL_SQL } = require('./restaurante-comanda');
 
 // Profundidade máxima da explosão. Cinco níveis cobrem qualquer cozinha real
 // (prato → molho → base → fundo → tempero); além disso é erro de cadastro.
@@ -405,7 +405,7 @@ function registrarRotasFicha(app, db, gateFlag) {
         SELECT i.produtoId, i.descricao, SUM(i.quantidade) AS qtd, SUM(i.precoTotal) AS receita
           FROM rest_comanda_itens i JOIN rest_comandas c ON c.id = i.comandaId
          WHERE c.status = 'fechada' AND i.status <> 'cancelado'
-           AND DATE(c.fechadaEm) BETWEEN DATE(?) AND DATE(?)
+           AND DATE(c.fechadaEm, '${FUSO_LOCAL_SQL}') BETWEEN DATE(?) AND DATE(?)
          GROUP BY i.produtoId, i.descricao
       `).all(de, ate);
 
@@ -430,7 +430,7 @@ function registrarRotasFicha(app, db, gateFlag) {
         SELECT COALESCE(SUM(quantidade * COALESCE(custoUnitario, 0)), 0) AS total
           FROM movimentacoes_estoque
          WHERE tipo = 'saida' AND origem IN ('comanda', 'producao')
-           AND DATE(data) BETWEEN DATE(?) AND DATE(?)
+           AND DATE(data, '${FUSO_LOCAL_SQL}') BETWEEN DATE(?) AND DATE(?)
       `).get(de, ate);
 
       const cmvReal = Math.round(Number(real.total || 0) * 100) / 100;

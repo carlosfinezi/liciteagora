@@ -150,13 +150,14 @@ function registrarRotasChatMensagens(app, db) {
         }
       }
 
-      // Filtro por data
+      // Filtro por data. dataCaptura é CURRENT_TIMESTAMP (UTC): sem o
+      // '-3 hours' dos dois lados, o "hoje" virava o dia seguinte às 21h.
       if (data === 'hoje') {
-        sql += " AND date(dataCaptura) = date('now')";
+        sql += " AND date(dataCaptura, '-3 hours') = date('now', '-3 hours')";
       } else if (data === '7dias') {
-        sql += " AND date(dataCaptura) >= date('now', '-7 days')";
+        sql += " AND date(dataCaptura, '-3 hours') >= date('now', '-3 hours', '-7 days')";
       } else if (data === '30dias') {
-        sql += " AND date(dataCaptura) >= date('now', '-30 days')";
+        sql += " AND date(dataCaptura, '-3 hours') >= date('now', '-3 hours', '-30 days')";
       }
 
       // Filtro por busca de texto
@@ -277,7 +278,7 @@ function registrarRotasChatMensagens(app, db) {
       const comCnpj = db.prepare('SELECT COUNT(*) as total FROM chat_mensagens WHERE temCnpjFornecedor = 1').get();
       const comPalavras = db.prepare('SELECT COUNT(*) as total FROM chat_mensagens WHERE palavrasChaveEncontradas IS NOT NULL').get();
       const notificadas = db.prepare('SELECT COUNT(*) as total FROM chat_mensagens WHERE notificado = 1').get();
-      const hoje = db.prepare(`SELECT COUNT(*) as total FROM chat_mensagens WHERE date(dataCaptura) = date('now')`).get();
+      const hoje = db.prepare(`SELECT COUNT(*) as total FROM chat_mensagens WHERE date(dataCaptura, '-3 hours') = date('now', '-3 hours')`).get();
 
       res.json({
         success: true,

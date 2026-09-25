@@ -18,7 +18,7 @@
  * nenhum caminho especial.
  */
 
-const { agora, registrarEvento, recalcularTotais } = require('./restaurante-comanda');
+const { agora, registrarEvento, recalcularTotais, FUSO_LOCAL_SQL } = require('./restaurante-comanda');
 
 const STATUS_ENTREGA = ['pendente', 'em-rota', 'entregue', 'cancelada'];
 
@@ -289,7 +289,7 @@ function registrarRotasDelivery(app, db, gateFlag) {
           JOIN rest_comandas c ON c.id = e.comandaId
           LEFT JOIN rest_bairros_taxa b ON b.id = e.bairroId
          WHERE e.entregadorId = ? AND e.status = 'entregue'
-           AND DATE(e.entregueEm) BETWEEN DATE(?) AND DATE(?)
+           AND DATE(e.entregueEm, '${FUSO_LOCAL_SQL}') BETWEEN DATE(?) AND DATE(?)
          ORDER BY e.entregueEm
       `).all(req.params.id, de, ate);
 

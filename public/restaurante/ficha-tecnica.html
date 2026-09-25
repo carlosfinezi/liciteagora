@@ -147,8 +147,8 @@ async function carregar() {
       <td style="text-align:right;">${fmt(f.rendimento, 3)} ${esc(f.unidadeRendimento)}</td>
       <td style="text-align:right;">R$ ${fmt(f.custoPorcao)}</td>
       <td style="text-align:right;">R$ ${fmt(f.precoVenda)}</td>
-      <td style="text-align:right;color:${corCmv(f.cmvPct)};font-weight:600;">
-        ${f.cmvPct == null ? '—' : fmt(f.cmvPct, 1) + '%'}</td>
+      <td style="text-align:right;"><span style="color:${corCmv(f.cmvPct)};font-weight:600;">
+        ${f.cmvPct == null ? '—' : fmt(f.cmvPct, 1) + '%'}</span></td>
       <td>${(f.avisos || []).length ? `<span style="color:var(--warn);">${f.avisos.length} aviso(s)</span>` : ''}</td>
       <td><button class="btn btn-secondary btn-sm" onclick="abrirDetalhe(${f.produtoId})">Abrir</button></td>
     </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhuma ficha cadastrada</td></tr>';

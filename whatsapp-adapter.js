@@ -440,7 +440,7 @@ function registrarRotasWhatsApp(app, db) {
       migrarQueue(db);
       const q = (sql) => { try { return db.prepare(sql).get().n; } catch { return 0; } };
       const hora = q(`SELECT COUNT(*) n FROM whatsapp_queue WHERE status='enviado' AND dataEnvio >= datetime('now','-1 hour')`);
-      const dia = q(`SELECT COUNT(*) n FROM whatsapp_queue WHERE status='enviado' AND date(dataEnvio)=date('now')`);
+      const dia = q(`SELECT COUNT(*) n FROM whatsapp_queue WHERE status='enviado' AND date(dataEnvio, '-3 hours') = date('now', '-3 hours')`);
       const segurados = q(`SELECT COUNT(*) n FROM whatsapp_queue WHERE status='pendente' AND erro LIKE 'segurado:%'`);
       const primeiro = db.prepare(`SELECT MIN(dataEnvio) d FROM whatsapp_queue WHERE status='enviado'`).get().d;
       const dias = primeiro

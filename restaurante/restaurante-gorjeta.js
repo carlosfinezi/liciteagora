@@ -24,7 +24,7 @@
  * lançam item e por isso não aparecem sozinhos — quem monta a lista é o gestor.
  */
 
-const { agora } = require('./restaurante-comanda');
+const { agora, FUSO_LOCAL_SQL } = require('./restaurante-comanda');
 const { repartir } = require('./restaurante-fechamento');
 
 const CRITERIOS = ['igual', 'proporcional-vendas', 'pontos'];
@@ -51,7 +51,7 @@ function apurar(db, de, ate) {
     SELECT id, totalTaxaServico, totalItens
       FROM rest_comandas
      WHERE status = 'fechada' AND totalTaxaServico > 0
-       AND DATE(fechadaEm) BETWEEN DATE(?) AND DATE(?)
+       AND DATE(fechadaEm, '${FUSO_LOCAL_SQL}') BETWEEN DATE(?) AND DATE(?)
   `).all(de, ate);
 
   const totalGorjeta = contas.reduce((s, c) => centavos(c.totalTaxaServico) + s, 0);
@@ -67,7 +67,7 @@ function apurar(db, de, ate) {
       LEFT JOIN users u ON u.id = i.garcomUserId
      WHERE c.status = 'fechada' AND i.status <> 'cancelado'
        AND i.garcomUserId IS NOT NULL
-       AND DATE(c.fechadaEm) BETWEEN DATE(?) AND DATE(?)
+       AND DATE(c.fechadaEm, '${FUSO_LOCAL_SQL}') BETWEEN DATE(?) AND DATE(?)
      GROUP BY i.garcomUserId
      ORDER BY vendido DESC
   `).all(de, ate);
