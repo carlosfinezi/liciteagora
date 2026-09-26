@@ -18,8 +18,9 @@
  * Uso: node scripts/test-locacao-f7.js
  */
 const fs = require('fs');
-const BASE = '/home/carlosfinezi/web/liciteagora.com.br/private';
+const BASE = require('path').join(__dirname, '..');
 const Database = require(BASE + '/node_modules/better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const express = require(BASE + '/node_modules/express');
 
 const { initLocacaoSchema } = require(BASE + '/locacao/locacao-schema');
@@ -27,7 +28,7 @@ const { protegerConfig, setCfg } = require('./locacao-teste-util');
 const { registrarRotasLocacao } = require(BASE + '/locacao/locacao-routes');
 const T = require(BASE + '/locacao/tarifa');
 
-const db = new Database(BASE + '/data/tenants/labfiscal/pncp.db');
+const db = new Database(copiaDoTenant('labfiscal'));
 protegerConfig(db);
 initLocacaoSchema(db);
 

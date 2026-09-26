@@ -2,9 +2,10 @@
 // Teste item 1.2 (códigos alternativos + kits) no tenant lab jaagricola.
 const path = require('path');
 const Database = require('better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const { initSchema } = require('../db-schema');
 
-const db = new Database(path.join(__dirname, '..', 'data', 'tenants', 'jaagricola', 'pncp.db'));
+const db = new Database(copiaDoTenant('jaagricola'));
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = OFF');
 

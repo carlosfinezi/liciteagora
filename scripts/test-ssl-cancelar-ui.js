@@ -22,7 +22,7 @@
  *
  * Uso: node scripts/test-ssl-cancelar-ui.js [--loop N]
  */
-const BASE = '/home/carlosfinezi/web/liciteagora.com.br/private';
+const BASE = require('path').join(__dirname, '..');
 const express = require(BASE + '/node_modules/express');
 const Database = require(BASE + '/node_modules/better-sqlite3');
 const puppeteer = require(BASE + '/node_modules/puppeteer-core');

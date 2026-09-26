@@ -3,9 +3,10 @@
 // Exercita a lógica via SQL direto (mesmas regras dos endpoints).
 const path = require('path');
 const Database = require('better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const { migrarFinanceiroAvancado } = require('../financeiro-avancado-routes');
 
-const db = new Database(path.join(__dirname, '..', 'data', 'tenants', 'jaagricola', 'pncp.db'));
+const db = new Database(copiaDoTenant('jaagricola'));
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = OFF');
 

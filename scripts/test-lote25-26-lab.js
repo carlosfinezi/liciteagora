@@ -2,10 +2,11 @@
 // Teste lote 2.5 (fiscal-ops) + 2.6 (alçadas) no lab jaagricola.
 const path = require('path');
 const Database = require('better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const { migrarFiscalOpsDB, registrarEventoNfe } = require('../fiscal-ops-routes');
 const { migrarGovernancaDB, verificarAlcada } = require('../governanca-routes');
 
-const db = new Database(path.join(__dirname, '..', 'data', 'tenants', 'jaagricola', 'pncp.db'));
+const db = new Database(copiaDoTenant('jaagricola'));
 db.pragma('journal_mode = WAL'); db.pragma('foreign_keys = OFF');
 function assert(c, m){ if(!c){ console.error('FALHOU:', m); process.exit(1);} console.log('OK:', m); }
 

@@ -30,7 +30,10 @@ if (!fs.existsSync(DB_PATH)) {
   process.exit(2);
 }
 
-const db = new Database(DB_PATH);
+// A suíte cria cliente, pedido, reserva e fatura, e não apaga nada: rodando no
+// banco do tenant, deixou 17 pedidos no sandbox5 em duas semanas. Agora roda
+// numa cópia que some no fim do processo.
+const db = new Database(require('./banco-de-teste').copiaDoTenant(SLUG));
 const { registrarRotasPedidos } = require(path.join(RAIZ, 'pedidos-routes'));
 const { registrarRotasProdutos } = require(path.join(RAIZ, 'produtos-routes'));
 const { registrarRotasReservas } = require(path.join(RAIZ, 'reservas-routes'));
@@ -73,6 +76,20 @@ const ator = (n) => { const x = u(n); return { session: { userId: x.id, username
 let ADM, VEND;
 const marca = Date.now().toString().slice(-8);
 
+// CNPJ válido e novo a cada rodada: base aleatória + filial 0001 + os dois
+// dígitos verificadores. O anterior variava só o último dígito, 10 valores, e
+// em 25/09 nove deles já estavam cadastrados: a suíte reprovava com 409.
+function cnpjAleatorio() {
+  const d = Array.from({ length: 8 }, () => Math.floor(Math.random() * 10)).concat([0, 0, 0, 1]);
+  const dv = (nums, pesos) => {
+    const r = nums.reduce((s, n, i) => s + n * pesos[i], 0) % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+  d.push(dv(d, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]));
+  d.push(dv(d, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]));
+  return d.join('');
+}
+
 // ---------- 1. LOGIN / USUÁRIOS ----------
 t('1. usuários e perfis nasceram (login tem base)', () => {
   ADM = ator('admin'); VEND = ator('vendedor');
@@ -95,7 +112,7 @@ let clienteId;
 t('3. criação de CLIENTE pela API', () => {
   const h = achar('/api/pessoas', 'post');
   let out = null, st = 200;
-  h({ body: { cpfCnpj: '1122233300018' + (marca[7] || '1'), razaoSocial: 'Cliente Provisionamento ' + marca, telefone: '11999990000' },
+  h({ body: { cpfCnpj: cnpjAleatorio(), razaoSocial: 'Cliente Provisionamento ' + marca, telefone: '11999990000' },
       params: {}, query: {}, session: ADM.session, user: ADM.user, headers: {}, ip: '127.0.0.1' },
     { json: x => { out = x; }, status: c => { st = c; return { json: x => { out = x; } }; } });
   assert(st === 200 && out.success, `status=${st} ${JSON.stringify(out)}`);

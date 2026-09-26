@@ -5,7 +5,7 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const { migrarEstoqueDB, calcularSaldo, calcularCustoMedio, calcularContextoMovimento, getDepositoPadraoId } = require('../estoque-routes');
 
-const DB = path.join(__dirname, '..', 'data', 'tenants', 'jaagricola', 'pncp.db');
+const DB = require('./banco-de-teste').copiaDoTenant('jaagricola');
 const db = new Database(DB);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = OFF');

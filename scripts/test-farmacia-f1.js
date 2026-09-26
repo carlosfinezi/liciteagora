@@ -15,8 +15,9 @@
  * Uso: node scripts/test-farmacia-f1.js
  */
 const fs = require('fs');
-const BASE = '/home/carlosfinezi/web/liciteagora.com.br/private';
+const BASE = require('path').join(__dirname, '..');
 const Database = require(BASE + '/node_modules/better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const express = require(BASE + '/node_modules/express');
 const XLSX = require(BASE + '/node_modules/xlsx');
 
@@ -28,8 +29,12 @@ const {
   tarjaMaisRestritiva, normalizarTexto,
 } = require(BASE + '/farmacia/cmed-import');
 
-const ARQUIVO_REAL = '/tmp/cmed-pmc.xlsx';
-const db = new Database(BASE + '/data/tenants/labfiscal/pncp.db');
+// O verify roda no serviço com /tmp próprio, e /tmp some no reboot: a cópia
+// estável fica em /var/lib/liciteagora-verify/insumos/. O /tmp continua valendo
+// para quem acabou de baixar pelo comando do cabeçalho.
+const ARQUIVO_REAL = ['/var/lib/liciteagora-verify/insumos/cmed-pmc.xlsx', '/tmp/cmed-pmc.xlsx']
+  .find((p) => fs.existsSync(p)) || '/var/lib/liciteagora-verify/insumos/cmed-pmc.xlsx';
+const db = new Database(copiaDoTenant('labfiscal'));
 
 let ok = 0, fail = 0;
 function assert(cond, msg, extra) {

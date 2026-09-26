@@ -10,11 +10,12 @@
  *
  * Uso: node scripts/test-fiscal-tributacao.js
  */
-const BASE = '/home/carlosfinezi/web/liciteagora.com.br/private';
+const BASE = require('path').join(__dirname, '..');
 const Database = require(BASE + '/node_modules/better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const T = require(BASE + '/fiscal-tributacao');
 
-const DB_PATH = BASE + '/data/tenants/labfiscal/pncp.db';
+const DB_PATH = copiaDoTenant('labfiscal');
 const db = new Database(DB_PATH);
 
 let ok = 0, fail = 0;

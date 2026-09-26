@@ -15,8 +15,9 @@
  * Roda contra `labfiscal`, cria a própria massa e limpa no fim.
  * Uso: node scripts/test-farmacia-f6.js
  */
-const BASE = '/home/carlosfinezi/web/liciteagora.com.br/private';
+const BASE = require('path').join(__dirname, '..');
 const Database = require(BASE + '/node_modules/better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const express = require(BASE + '/node_modules/express');
 
 const { initFarmaciaSchema } = require(BASE + '/farmacia/farmacia-schema');
@@ -24,7 +25,7 @@ const { registrarRotasFarmacia } = require(BASE + '/farmacia/farmacia-routes');
 const { registrarRotasNFCe } = require(BASE + '/nfce-routes');
 const { conferirPmc } = require(BASE + '/farmacia/preco');
 
-const db = new Database(BASE + '/data/tenants/labfiscal/pncp.db');
+const db = new Database(copiaDoTenant('labfiscal'));
 
 let ok = 0, fail = 0;
 function assert(cond, msg, extra) {

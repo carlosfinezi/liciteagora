@@ -12,15 +12,16 @@
  *
  * Uso: node scripts/test-fiscal-diagnostico.js
  */
-const BASE = '/home/carlosfinezi/web/liciteagora.com.br/private';
+const BASE = require('path').join(__dirname, '..');
 const fs = require('fs');
 const express = require(BASE + '/node_modules/express');
 const Database = require(BASE + '/node_modules/better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const puppeteer = require(BASE + '/node_modules/puppeteer-core');
 const { registrarRotasFiscalDiagnostico, gerarDiagnostico } = require(BASE + '/fiscal-diagnostico-routes');
 
 const PORTA = 34125;
-const db = new Database(BASE + '/data/tenants/labfiscal/pncp.db');
+const db = new Database(copiaDoTenant('labfiscal'));
 
 let ok = 0, fail = 0;
 function assert(cond, msg, extra) {

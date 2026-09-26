@@ -14,9 +14,10 @@
  *
  * Uso: node scripts/test-nfe-tributacao-integracao.js
  */
-const BASE = '/home/carlosfinezi/web/liciteagora.com.br/private';
+const BASE = require('path').join(__dirname, '..');
 const fs = require('fs');
 const Database = require(BASE + '/node_modules/better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const { calcularTributacaoItem, validarXmlLocal, corrigirCstIpiZero } = require(BASE + '/nfe-emit-routes');
 
 // O XML montado aqui não é assinado — o validarXmlLocal roda, em produção, DEPOIS
@@ -87,7 +88,7 @@ secao('Regressão — faturas já autorizadas em produção continuam no caminho
 secao('XSD — NF-e de regime normal (CST 20 com redução de base)');
 (async () => {
   const { Make } = await import(BASE + '/node_modules/node-sped-nfe/dist/index.js');
-  const db = new Database(`${BASE}/data/tenants/labfiscal/pncp.db`);
+  const db = new Database(copiaDoTenant('labfiscal'));
 
   // Garante a regra do cenário (o teste do motor a semeia; aqui não dependemos disso).
   db.prepare('DELETE FROM fiscal_regras_trib').run();

@@ -12,14 +12,15 @@
  * Uso: node scripts/test-farmacia-f0.js
  */
 const fs = require('fs');
-const BASE = '/home/carlosfinezi/web/liciteagora.com.br/private';
+const BASE = require('path').join(__dirname, '..');
 const Database = require(BASE + '/node_modules/better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const express = require(BASE + '/node_modules/express');
 
 const { initFarmaciaSchema } = require(BASE + '/farmacia/farmacia-schema');
 const { registrarRotasFarmacia, lerConfig, getFlag } = require(BASE + '/farmacia/farmacia-routes');
 
-const db = new Database(BASE + '/data/tenants/labfiscal/pncp.db');
+const db = new Database(copiaDoTenant('labfiscal'));
 
 let ok = 0, fail = 0;
 function assert(cond, msg, extra) {

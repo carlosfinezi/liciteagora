@@ -12,15 +12,16 @@
  * Uso: node scripts/test-locacao-f0.js
  */
 const fs = require('fs');
-const BASE = '/home/carlosfinezi/web/liciteagora.com.br/private';
+const BASE = require('path').join(__dirname, '..');
 const Database = require(BASE + '/node_modules/better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const express = require(BASE + '/node_modules/express');
 
 const { initLocacaoSchema } = require(BASE + '/locacao/locacao-schema');
 const { protegerConfig } = require('./locacao-teste-util');
 const { registrarRotasLocacao, lerConfig, getFlag } = require(BASE + '/locacao/locacao-routes');
 
-const db = new Database(BASE + '/data/tenants/labfiscal/pncp.db');
+const db = new Database(copiaDoTenant('labfiscal'));
 
 // Devolve toda chave `locacao_*` ao estado original na saída do processo —
 // inclusive se este teste estourar no meio. Ver locacao-teste-util.js.

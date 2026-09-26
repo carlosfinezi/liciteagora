@@ -13,12 +13,13 @@
  *
  * Uso: node scripts/test-camada3-fiscal.js
  */
-const BASE = '/home/carlosfinezi/web/liciteagora.com.br/private';
+const BASE = require('path').join(__dirname, '..');
 const Database = require(BASE + '/node_modules/better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const T = require(BASE + '/fiscal-tributacao');
 const { validarXmlLocal, corrigirCstIpiZero } = require(BASE + '/nfe-emit-routes');
 
-const db = new Database(BASE + '/data/tenants/labfiscal/pncp.db');
+const db = new Database(copiaDoTenant('labfiscal'));
 
 let ok = 0, fail = 0;
 function assert(cond, msg, extra) {

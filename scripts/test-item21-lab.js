@@ -2,9 +2,10 @@
 // Teste item 2.1 CTB-A no lab jaagricola: regras de partida dobrada.
 const path = require('path');
 const Database = require('better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const { migrarContabilidadeDB, gravarLancamento } = require('../contabilidade-routes');
 
-const db = new Database(path.join(__dirname, '..', 'data', 'tenants', 'jaagricola', 'pncp.db'));
+const db = new Database(copiaDoTenant('jaagricola'));
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = OFF');
 

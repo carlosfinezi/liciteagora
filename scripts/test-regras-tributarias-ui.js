@@ -7,14 +7,15 @@
  *
  * Uso: node scripts/test-regras-tributarias-ui.js
  */
-const BASE = '/home/carlosfinezi/web/liciteagora.com.br/private';
+const BASE = require('path').join(__dirname, '..');
 const express = require(BASE + '/node_modules/express');
 const Database = require(BASE + '/node_modules/better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const puppeteer = require(BASE + '/node_modules/puppeteer-core');
 const { registrarRotasFiscalRegras } = require(BASE + '/fiscal-regras-routes');
 
 const PORTA = 34123;
-const db = new Database(BASE + '/data/tenants/labfiscal/pncp.db');
+const db = new Database(copiaDoTenant('labfiscal'));
 
 let ok = 0, fail = 0;
 function assert(cond, msg, extra) {

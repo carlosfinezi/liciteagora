@@ -2,12 +2,13 @@
 // Teste Onda 3 (3.1 + 3.2 + 3.4) no lab jaagricola.
 const path = require('path');
 const Database = require('better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const { migrarPlanejamentoDB } = require('../planejamento-routes');
 const { migrarContabilizacaoDB, EVENTOS } = require('../contabilizacao-routes');
 const { migrarIbsCbsDB } = require('../ibscbs-routes');
 const { gravarLancamento, migrarContabilidadeDB } = require('../contabilidade-routes');
 
-const db = new Database(path.join(__dirname, '..', 'data', 'tenants', 'jaagricola', 'pncp.db'));
+const db = new Database(copiaDoTenant('jaagricola'));
 db.pragma('journal_mode = WAL'); db.pragma('foreign_keys = OFF');
 function assert(c, m){ if(!c){ console.error('FALHOU:', m); process.exit(1);} console.log('OK:', m); }
 

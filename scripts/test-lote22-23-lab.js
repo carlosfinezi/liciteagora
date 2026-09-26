@@ -2,11 +2,12 @@
 // Teste lote 2.2 (requisições) + 2.3 (tabelas de preço + vendas perdidas) no lab.
 const path = require('path');
 const Database = require('better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 const { migrarRequisicoesDB } = require('../requisicoes-routes');
 const { migrarPrecosDB, resolverPreco } = require('../precos-routes');
 const { calcularSaldo, getDepositoPadraoId, calcularContextoMovimento } = require('../estoque-routes');
 
-const db = new Database(path.join(__dirname, '..', 'data', 'tenants', 'jaagricola', 'pncp.db'));
+const db = new Database(copiaDoTenant('jaagricola'));
 db.pragma('journal_mode = WAL'); db.pragma('foreign_keys = OFF');
 function assert(c, m){ if(!c){ console.error('FALHOU:', m); process.exit(1);} console.log('OK:', m); }
 

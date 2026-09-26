@@ -12,15 +12,13 @@ const { execFileSync } = require('child_process');
 const express = require('express');
 const Database = require('better-sqlite3');
 
-const SCHEMA = '/tmp/app-backend-schema.sql';
-if (!fs.existsSync(SCHEMA)) {
-  console.error(`schema ausente: ${SCHEMA}\n  sqlite3 data/tenants/1bit/pncp.db .schema > ${SCHEMA}`);
-  process.exit(2);
-}
+// O texto do schema, tirado do tenant na hora (ver schema-de-tenant.js). Até
+// 25/09 vinha de um /tmp/app-backend-schema.sql gerado à mão, que some no reboot.
+const SCHEMA = require('./schema-de-tenant').lerSchema('/tmp/app-backend-schema.sql');
 const DB = '/tmp/fase1-pedido.db';
 try { fs.unlinkSync(DB); } catch {}
 const db = new Database(DB);
-db.exec(fs.readFileSync(SCHEMA, 'utf8')
+db.exec(SCHEMA
   .split(/;\s*\n/).filter((s) => !/sqlite_sequence/i.test(s)).join(';\n'));
 db.close();
 

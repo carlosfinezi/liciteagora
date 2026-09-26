@@ -17,17 +17,15 @@ const fs = require('fs');
 const express = require('express');
 const Database = require('better-sqlite3');
 
-const SCHEMA = '/tmp/app-backend-schema.sql';
-if (!fs.existsSync(SCHEMA)) {
-  console.error(`schema ausente: ${SCHEMA}\n  sqlite3 data/tenants/1bit/pncp.db .schema > ${SCHEMA}`);
-  process.exit(2);
-}
+// O texto do schema, tirado do tenant na hora (ver schema-de-tenant.js). Até
+// 25/09 vinha de um /tmp/app-backend-schema.sql gerado à mão, que some no reboot.
+const SCHEMA = require('./schema-de-tenant').lerSchema('/tmp/app-backend-schema.sql');
 const DB = '/tmp/app-backend-teste.db';
 try { fs.unlinkSync(DB); } catch {}
 const db = new Database(DB);
 // `.schema` traz sqlite_sequence, que o SQLite recusa recriar ("object name
 // reserved for internal use"). Ela nasce sozinha com o primeiro AUTOINCREMENT.
-db.exec(fs.readFileSync(SCHEMA, 'utf8')
+db.exec(SCHEMA
   .split(/;\s*\n/)
   .filter((s) => !/sqlite_sequence/i.test(s))
   .join(';\n'));
@@ -353,7 +351,7 @@ t('P-N. resolver indisponivel nao vira bypass do restrito (e nao muda o irrestri
   const DB_C = '/tmp/app-backend-teste-sem-tabela.db';
   try { fs.unlinkSync(DB_C); } catch {}
   const dbC = new Database(DB_C);
-  dbC.exec(fs.readFileSync(SCHEMA, 'utf8')
+  dbC.exec(SCHEMA
     .split(/;\s*\n/).filter((s) => !/sqlite_sequence/i.test(s)).join(';\n'));
   dbC.exec('DROP TABLE tabelas_preco');
   dbC.prepare(`INSERT INTO users (id, username, passwordHash, nome, role, ativo, ehVendedor)
@@ -869,7 +867,7 @@ t('J3. dois tenants: pedido de A nao existe em B', () => {
   const DB_B = '/tmp/app-backend-teste-b.db';
   try { fs.unlinkSync(DB_B); } catch {}
   const dbB = new Database(DB_B);
-  dbB.exec(fs.readFileSync(SCHEMA, 'utf8')
+  dbB.exec(SCHEMA
     .split(/;\s*\n/).filter((s) => !/sqlite_sequence/i.test(s)).join(';\n'));
   dbB.prepare("INSERT INTO pessoas (id, cpfCnpj, tipo, razaoSocial, ativo) VALUES (1,'11222333000181','PJ','Cliente B',1)").run();
   dbB.prepare(`INSERT INTO users (id, username, passwordHash, nome, role, ativo, ehVendedor)

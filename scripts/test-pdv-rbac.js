@@ -14,9 +14,10 @@
  */
 const path = require('path');
 const Database = require('better-sqlite3');
+const { copiaDoTenant } = require('./banco-de-teste');
 
 const RAIZ = path.join(__dirname, '..');
-const db = new Database(path.join(RAIZ, 'data', 'tenants', 'sandbox', 'pncp.db'));
+const db = new Database(copiaDoTenant('sandbox'));
 const { acessoDoUsuario, podeVerPath, podeChamarApi } = require(RAIZ + '/perfis-acesso');
 
 let ok = 0, fail = 0;
