@@ -121,21 +121,151 @@ acabou de editar, e o teste de runtime do caminho tocado continua manual.
 
 A saída termina em `FALHOU: N problema(s) em Ns`, com cada falha nomeada.
 
-Linha de base **2026-09-17: nenhuma falha conhecida**. A única que havia, a
-etapa 21 (`test-catalogo-online-ux`), era `title=` no arrastar-para-reordenar
-do `public/catalogo/catalogo-online.html`, proibido nesta base desde a Fase
-3.2.1 porque o balão nativo do navegador aparece por cima do nosso, branco e
-atrasado. Foi corrigida em 17/09 de madrugada, trocando os três `title=` pelo
-`data-dica` que já estava na mesma tag; a suíte volta a passar com 23 ok.
-Qualquer falha agora é regressão nova.
-
-Uma ressalva sobre esta linha de base: ela vale para a etapa 21, conferida
-rodando a suíte sozinha. O verify inteiro não foi refeito depois disso, e
-refazê-lo custa os 35 minutos.
+Linha de base **2026-09-25: uma falha conhecida, a etapa 21**
+(`test-catalogo-online-ux`). Em 21/09 o menu ⚙️ Configurações do Catálogo
+Online ganhou a sétima opção, "Regras fiscais", e a suíte continua esperando 6
+(`test-catalogo-online-ux.js:634`). O menu está certo e a suíte é que ficou
+para trás. Ela está em `FALHAS_CONHECIDAS`, no `verify.js`: reprova igual, mas
+sai marcada como conhecida, e o fim da saída separa as conhecidas das novas.
+Qualquer outra falha é regressão nova. Quando a suíte for atualizada, tire a
+entrada de lá.
 
 `npm run verify:legado` continua existindo e é o `node --check` antigo, em
 torno de 40 segundos. Serve para conferir sintaxe depressa, e não substitui o
 verify.
+
+### Rodar fora da sessão: o `liciteagora-verify.service`
+
+O verify morreu duas vezes junto com a sessão que o rodava (24 e 25/09), e
+quem espera 35 minutos por um aviso perde o resultado quando a conversa acaba.
+Por isso o jeito de rodar o verify inteiro é pelo serviço:
+
+```
+systemctl start --no-block liciteagora-verify     # dispara e volta na hora
+systemctl is-active liciteagora-verify            # "activating" = ainda rodando
+cat /var/lib/liciteagora-verify/ultimo.json       # resultado da última rodada
+tail /var/lib/liciteagora-verify/rodando.log      # a rodada em curso
+```
+
+**Quem dispara não espera: volta depois e lê o `ultimo.json`.** Ele traz o
+`estado` (`concluido` ou `morreu`), o `commit`, quantos arquivos sujos a árvore
+tinha, o tempo de cada etapa, as falhas com `conhecida: true|false` e o
+`falhasNovas`. Enquanto a rodada acontece, o mesmo conteúdo está no
+`rodando.json`, com `estado: rodando`.
+
+- A unit vive em `scripts/liciteagora-verify.service` e é instalada com
+  `install -m 644 scripts/liciteagora-verify.service /etc/systemd/system/ &&
+  systemctl daemon-reload`. Mudou a unit, reinstale.
+- **Roda como carlosfinezi, e não como root, de propósito**: executa código
+  desta árvore, e um serviço root faria o mesmo que o sudo do provisionamento
+  fazia até 24/09.
+- O `scripts/verify-servico.sh` é quem ela chama, e roda também à mão
+  (`VERIFY_SAIDA=/tmp/x scripts/verify-servico.sh --rapido arquivo.js`).
+- **Uma rodada por vez**: o `verify.js` segura a trava
+  `/run/lock/liciteagora-verify.lock` e recusa com código 3 se outra estiver
+  viva, venha ela do serviço, do `npm run verify` ou da mão. Trava de processo
+  morto é assumida sozinha.
+- **O serviço tem `/tmp` próprio (`PrivateTmp=yes`).** Muitas suítes usam nome
+  fixo em `/tmp`, de banco ou de perfil do Chrome, e o que uma rodada como root
+  deixa lá o carlosfinezi não consegue apagar. Na estreia, em 25/09, isso
+  reprovou 53 suítes com `SQLITE_ERROR` e "browser is already running". Pelo
+  mesmo motivo, suíte não pode depender de arquivo feito à mão em `/tmp`: as
+  seis que liam o `/tmp/app-backend-schema.sql` passaram a usar o
+  `lerSchema()` do `schema-de-tenant.js`, como as outras 24. Insumo real que
+  não sai do banco (hoje, só a planilha da CMED da `test-farmacia-f1`) fica em
+  `/var/lib/liciteagora-verify/insumos/`, fora da árvore e do `/tmp`.
+- Uma suíte que passa de 30 min é derrubada e vira falha com nome, em vez de
+  uma rodada que nunca termina.
+
+### Modo rápido, e quando o inteiro continua obrigatório
+
+```
+node scripts/verify.js --rapido                   # os arquivos alterados em relação ao HEAD
+node scripts/verify.js --rapido loja-routes.js    # só os arquivos citados
+```
+
+Roda a sintaxe inteira (segundos) e só as suítes cujo fonte cita o arquivo
+alterado: um `require`, o caminho da tela ou um `readFileSync`. Um script de
+shell, um documento ou uma planilha ficam só com a sintaxe. Arquivo que
+nenhuma suíte cita sai listado como "sem suíte nenhuma", e isso é informação:
+nada no verify testa aquele arquivo.
+
+**O verify inteiro continua obrigatório:**
+
+1. **no fechamento, sempre**, pelo serviço;
+2. **quando mexer em arquivo compartilhado.** Nesses casos o modo rápido se
+   recusa sozinho e roda o inteiro: `db-schema.js`, `route-registry.js`,
+   `perfis-acesso.js`, `perfis-api-map.js`, `role-dispatch.js`, `server.js`,
+   `auth*.js`, `tenant-*.js`, `base-middleware.js`, `pre-auth-routes.js`,
+   `plan-modules.js`, `module-gate.js`, `public/js/menu-config.js`,
+   `public/js/sidebar.js`, `public/app.html`, `public/app.js`,
+   `public/css/app-modern.css`, `public/auth/sw.js`, `package.json` e os
+   próprios `verify.js`, `banco-de-teste.js`, `guarda-dados.js` e
+   `schema-de-tenant.js`. A lista está em `OBRIGA_INTEIRO`, no `verify.js`;
+3. **antes de afirmar que uma mudança não quebrou outra coisa.** O rápido só
+   responde pelas suítes que ele escolheu.
+
+Na árvore de produção, `--rapido` sem arquivos quase sempre vira inteiro,
+porque outras frentes deixam `db-schema.js` e companhia sujos. Para o que é
+seu, cite os arquivos.
+
+### Paralelo
+
+`--paralelo N` roda N suítes ao mesmo tempo. O serviço usa 4.
+
+**Medido em 26/09, com a carga da máquina em torno de 10: 136 etapas em
+1.316s (21,9 min) pelo serviço com 4 trabalhadores**, contra 3.452 a 4.042s
+(57 a 67 min) das rodadas sequenciais de 25/09. O teto é a `fase51`, que
+sozinha leva 13 a 14 min.
+
+- **Grupos por conflito.** Suítes que citam o mesmo arquivo fixo de `/tmp` ou
+  a mesma porta fixa caem no mesmo grupo e rodam em sequência. Em 25/09 eram
+  quatro grupos por `/tmp`, o maior com seis suítes em
+  `/tmp/app-backend-schema.sql`, e nenhuma porta repetida. O `verify.js` lê
+  isso do fonte a cada rodada, e suíte nova não precisa se declarar.
+- **A mais longa primeiro.** A ordem sai do `ultimo.json` anterior, ou da
+  semente em `/var/lib/liciteagora-verify/tempos-semente.json`, tirada da
+  rodada sequencial de 25/09 (3.452s, carga entre 7 e 9). Nela, quatro suítes
+  do catálogo somavam 56% do tempo: `fase51` com 811s, `fase50` com 583s,
+  `publico-49` com 285s e `catalogo-48` com 260s. É a mais longa que decide a
+  duração total com 4 trabalhadores.
+- **Suíte sensível a carga.** A `test-scan-horario` reprovou uma vez sem
+  mensagem enquanto outra bateria de Chrome rodava junto, e passou nas três
+  vezes seguintes. Falha de Chrome sem linha de FALHA agora sai com o fim do
+  stderr.
+
+### Nenhuma suíte escreve em `data/`
+
+Até 25/09, 36 suítes do verify abriam para escrita o banco de produção de um
+tenant interno: 28 no `labfiscal`, 7 no `jaagricola`, uma no `sandbox` e a
+etapa 93 no `sandbox5`. A 36ª, a `test-multideposito-lab`, escapou do
+levantamento feito por busca no código, porque guardava o caminho numa
+variável. Quem a achou foi a guarda, na primeira rodada. A etapa 93 deixou 17 pedidos, 9 clientes e 9 faturas
+no `sandbox5`, e acabou reprovando porque os CNPJs de teste se esgotaram. A
+`test-nfe-tributacao-integracao` fazia `DELETE FROM fiscal_regras_trib` no
+`labfiscal` a cada rodada.
+
+Agora são duas peças:
+
+- **`scripts/banco-de-teste.js`**: `copiaDoTenant(slug)` devolve um
+  `pncp.db` temporário, tirado por `VACUUM INTO` a partir de uma conexão
+  somente leitura, que some no fim do processo. Suíte nova que precise de dado
+  real usa isso.
+- **`scripts/guarda-dados.js`**: o `verify.js` o injeta em cada suíte por
+  `NODE_OPTIONS`, que passa também aos processos filhos. Abrir banco de
+  `data/` sem `readonly`, ou gravar arquivo lá, reprova na hora e nomeia a
+  suíte. Ler continua livre.
+
+**Por que a guarda não compara os bancos antes e depois da rodada:** a
+produção está viva. O `-wal` do `1bit` muda a cada minuto por uso e pelos
+schedulers, e a comparação reprovaria toda rodada sem apontar quem escreveu.
+O limite é o que ela não vê: escrita de processo que não é node, como o
+binário `sqlite3`. As suítes usam o `sqlite3` só com `?mode=ro`.
+
+As 28 suítes que fixavam
+`BASE = '/home/carlosfinezi/web/liciteagora.com.br/private'` passaram a usar
+`path.join(__dirname, '..')`. Antes, rodando numa cópia (um `git worktree`,
+por exemplo), elas testavam o código da produção, e não o da cópia.
 
 ## Rotinas
 

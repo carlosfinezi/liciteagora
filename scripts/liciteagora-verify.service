@@ -1,0 +1,37 @@
+# liciteagora-verify.service — o verify fora da sessão.
+#
+# Instalação (root), e de novo se este arquivo mudar:
+#   install -m 644 scripts/liciteagora-verify.service /etc/systemd/system/
+#   systemctl daemon-reload
+#
+# Uso:
+#   systemctl start --no-block liciteagora-verify     dispara e volta na hora
+#   systemctl is-active liciteagora-verify            "activating" = rodando
+#   /var/lib/liciteagora-verify/ultimo.json           resultado da última
+#   /var/lib/liciteagora-verify/rodando.log           a que está em curso
+#
+# Roda como carlosfinezi, e não como root, de propósito: o serviço executa
+# código desta árvore, que o carlosfinezi edita. Como root, seria a mesma brecha
+# que o sudo do provisionamento tinha até 24/09.
+# Sem [Install]: não sobe no boot, só quando alguém pede.
+
+[Unit]
+Description=Verify do LiciteAgora fora da sessao (scripts/verify-servico.sh)
+
+[Service]
+Type=oneshot
+User=carlosfinezi
+Group=carlosfinezi
+WorkingDirectory=/home/carlosfinezi/web/liciteagora.com.br/private
+ExecStart=/home/carlosfinezi/web/liciteagora.com.br/private/scripts/verify-servico.sh
+StateDirectory=liciteagora-verify
+Environment=VERIFY_SAIDA=/var/lib/liciteagora-verify
+Environment=VERIFY_PARALELO=4
+Nice=10
+TimeoutStartSec=4h
+# /tmp próprio a cada rodada. Muitas suítes usam nome fixo em /tmp (banco,
+# perfil do Chrome), e o que uma rodada como root deixa lá o carlosfinezi não
+# consegue apagar: na estreia, em 25/09, isso reprovou 53 suítes com
+# SQLITE_ERROR e "browser is already running". A trava fica em /run/lock, que
+# este isolamento não alcança.
+PrivateTmp=yes

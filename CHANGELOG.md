@@ -4,6 +4,105 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-26, frentes paradas no git, verify em banco descartável e fora da sessão
+
+### Doze frentes que estavam só em produção entraram no histórico
+
+Um commit por frente, cada um dizendo desde quando aquele estado roda em
+produção, sem mudança de conteúdo: SSL e NicSRS (400cea5, com o
+`test-ssl-reissue-dcv.js` que o verify já listava e faltava no git), sync do
+catálogo PNCP (6935f04), CRM (6f7984e), faturas e Asaas (7a68934), loja e
+catálogo online (04a1e41), modelo de IA por tenant (840e170), pop-up de
+mensagem (94e1fe8), comunicação (5ff051a), agenda e roteiros com o
+`route-registry.js` (186cdda), sniper (b8572d5), hora do scan (03c0bbd) e a
+suíte do PDV (8979b12).
+
+Arquivos compartilhados entraram por trecho, montados no índice sobre o HEAD:
+`db-schema.js`, `menu-config.js`, `route-registry.js`, `perfis-api-map.js`,
+`analise-ia.js` e `CHANGELOG.md`. Antes de cada commit, uma checagem sobre o
+índice conferiu que todo `require` e todo `<script src>` local aponta para
+arquivo que está no git; ao fim, os módulos centrais carregaram num worktree
+limpo do HEAD.
+
+Ficaram fora, por terem sido mexidas hoje por outras sessões: portais BLL e
+BNC, licitações e interesse, shell e tema, comprasnet, electron, a numeração
+dos itens no prompt da IA e os trechos de hoje do `db-schema.js` e do
+`perfis-api-map.js`.
+
+Os dois arquivos abandonados da Fase 3.5 (`public/comunicacao/conversas-nova.html`
+e `public/css/app-modern-v2.css`) saíram da árvore; o documento da auditoria
+já dizia que podiam ser apagados.
+
+### Nenhuma suíte do verify escreve mais em banco de produção
+
+36 suítes abriam para escrita o banco de um tenant interno (28 no labfiscal,
+7 no jaagricola, uma no sandbox e a etapa 93 no sandbox5). A 36ª, a
+`test-multideposito-lab`, guardava o caminho numa variável e escapou da busca
+no código; a guarda a pegou na primeira rodada. A
+`test-nfe-tributacao-integracao` apagava as regras tributárias do labfiscal a
+cada rodada, e a etapa 93 esgotou os próprios CNPJs e passou a reprovar.
+
+- `scripts/banco-de-teste.js`: `copiaDoTenant(slug)`, cópia por `VACUUM INTO`
+  a partir de conexão somente leitura, apagada no fim do processo.
+- `scripts/guarda-dados.js`, injetado pelo `verify.js` em cada suíte: abrir
+  banco de `data/` para escrita, ou gravar arquivo lá, reprova na hora e
+  nomeia a suíte. A comparação dos bancos antes e depois foi descartada
+  porque a produção está viva e reprovaria toda rodada.
+- A etapa 93 gera CNPJ com dígito verificador válido (1.000 de 1.000 aceitos
+  pelo `cnpjValido` do sistema).
+- 28 suítes deixaram de fixar o caminho da produção em `BASE`.
+
+As 36 passaram com a guarda ligada, e os quatro bancos de origem ficaram
+intocados. Seis suítes que liam um `/tmp/app-backend-schema.sql` feito à mão
+passaram a usar o `lerSchema()`, como as outras 24, e a `test-farmacia-f1`
+procura a planilha real da CMED em `/var/lib/liciteagora-verify/insumos/`.
+
+### O verify roda fora da sessão, rápido ou em paralelo
+
+- `liciteagora-verify.service`, como carlosfinezi e não como root, com
+  `rodando.*` e `ultimo.log`/`ultimo.json` em `/var/lib/liciteagora-verify`.
+- Trava contra duas rodadas, com código 3. Na estreia ela recusou o serviço
+  porque outra sessão rodava o `npm run verify`, que é o comportamento pedido.
+- `--rapido`: só as suítes ligadas aos arquivos alterados, com a lista dos
+  compartilhados que obrigam o verify inteiro.
+- `--paralelo N`: grupos por arquivo fixo de `/tmp` e por porta, na ordem da
+  mais longa primeiro.
+- `FALHAS_CONHECIDAS`: a etapa 21 reprova marcada como conhecida (o menu do
+  catálogo tem 7 opções desde 21/09, e a suíte espera 6).
+- Suíte parada há 30 min vira falha com nome. Falha sem linha de FALHA sai
+  com o fim do stderr.
+- `/tmp` próprio no serviço (`PrivateTmp`), com a trava em `/run/lock`. Sem
+  isso, na estreia, 53 suítes reprovaram porque não conseguiam apagar bancos
+  e perfis do Chrome de nome fixo deixados em `/tmp` por rodadas como root.
+
+A rodada final pelo serviço, em 26/09: 136 etapas em 1.316s (21,9 min) com
+4 em paralelo, contra 57 a 67 min no sequencial. Só a etapa 21 reprovou,
+marcada como conhecida.
+
+### Duas correções que a rodada exigiu
+
+- Os três retratos do mapa de RBAC (`test-catalogo-online`, `test-fase321-ux`
+  e `test-sidebar-botoes`) passam de 176 para 178 prefixos, aceitando
+  `/api/roteiros` e `/api/visitas` para `visita` e `crm-funil`, decisão do
+  usuário.
+- `public/comunicacao/campanha.html` ganhou o `theme-boot` antes do CSS, pelo
+  `scripts/inserir-theme-boot.js`. Era a única das 222 telas sem ele, e o tema
+  piscava ao abrir.
+
+### Resíduo apagado
+
+Com backup (`backups/db/2026-09-25-1645`) e transação com contagem esperada:
+
+- **labfiscal, 134 linhas**: 91 de auditoria das suítes de farmácia, 3 notas
+  avulsas de teste de hoje com 3 itens e 2 contas a receber, e 35
+  movimentações do `LAB-FERT-01` ("saldo inicial do teste" e as saídas das
+  notas).
+- **sandbox5, 131 linhas**: tudo o que a etapa 93 criou desde 11/09.
+
+Ficaram, por origem desconhecida: os 6 produtos `REST-*` do labfiscal, com
+comanda e ficha técnica ligadas, que nenhuma suíte cria. Ficou também uma
+rodada da etapa 93 no sandbox6, que não estava no pedido.
+
 ## 2026-09-25, nomes dos quadrantes da engenharia de cardápio
 
 A tela de Indicadores do restaurante deixou de usar o jargão da matriz de

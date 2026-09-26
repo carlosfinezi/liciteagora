@@ -32,7 +32,7 @@
  * ── As suítes funcionais ESTÃO aqui dentro ──────────────────────────────────
  *
  * Até 2026-09-17 este cabeçalho dizia que elas ficavam de fora de propósito, e
- * isso contradizia a lista logo abaixo: das 29 etapas, 3 são de sintaxe e 26
+ * isso contradizia a lista logo abaixo: das 114 etapas, 3 são de sintaxe e 111
  * são suítes funcionais — shell, tema, PWA, RBAC, isolamento multi-tenant,
  * catálogo, pedidos, faturamento e SSL. Elas montam bancos descartáveis e
  * sobem Chrome headless, e são o motivo de a rodada levar ~35 minutos
@@ -53,14 +53,104 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { execFileSync } = require('child_process');
+const os = require('os');
+const { execFileSync, spawn } = require('child_process');
 
 const RAIZ = path.join(__dirname, '..');
 const t0 = Date.now();
 let erros = 0;
 
-const falhar = (msg) => { console.error('  FALHA  ' + msg); erros++; };
-const passo = (txt) => process.stdout.write(('  ' + txt).padEnd(50));
+// ==================== opções ====================
+//   --rapido [arquivos…]  a sintaxe inteira e só as suítes ligadas aos arquivos
+//                         (sem arquivos: os alterados em relação ao HEAD). Arquivo
+//                         compartilhado (ver OBRIGA_INTEIRO) faz a rodada virar inteira.
+//   --paralelo N          N suítes ao mesmo tempo (padrão 1, a ordem de sempre)
+//   --json ARQUIVO        resultado estruturado, gravado no início e no fim
+//   --tempos ARQUIVO      json de uma rodada anterior, para ordenar o paralelo
+const ARGS = process.argv.slice(2);
+const valorDe = (nome) => { const i = ARGS.indexOf(nome); return i >= 0 ? ARGS[i + 1] : undefined; };
+const OPC = {
+  rapido: ARGS.includes('--rapido'),
+  paralelo: Math.max(1, parseInt(valorDe('--paralelo') || '1', 10) || 1),
+  json: valorDe('--json'),
+  tempos: valorDe('--tempos'),
+};
+const ARQS_RAPIDO = [];
+if (OPC.rapido) {
+  for (const a of ARGS.slice(ARGS.indexOf('--rapido') + 1)) { if (a.startsWith('--')) break; ARQS_RAPIDO.push(a); }
+}
+
+/**
+ * Falha conhecida: reprova igual, mas sai marcada, para ninguém confundi-la com
+ * regressão nova. Cada entrada leva data e motivo, e sai daqui quando a suíte
+ * voltar a passar.
+ */
+const FALHAS_CONHECIDAS = {
+  'test-catalogo-online-ux.js': '25/09/2026: o menu de Configurações do catálogo tem 7 opções desde 21/09 '
+    + '(entrou "Regras fiscais") e a suíte espera 6. Ver CLAUDE.md.',
+};
+
+// ==================== trava: uma rodada por vez ====================
+// Duas rodadas juntas disputam Chrome e CPU, e a mais lenta passa a reprovar por
+// prazo. A trava vale para toda porta de entrada: npm, serviço ou à mão. O
+// arquivo é 0666 porque o serviço roda como carlosfinezi e a sessão como root.
+// Fica em /run/lock, e não em /tmp: o serviço tem /tmp próprio (PrivateTmp), e
+// uma trava lá dentro não seria vista pelo `npm run verify` de fora.
+const TRAVA = fs.existsSync('/run/lock') ? '/run/lock/liciteagora-verify.lock'
+  : path.join(os.tmpdir(), 'liciteagora-verify.lock');
+const vivo = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+(function pegarTrava() {
+  try {
+    const fd = fs.openSync(TRAVA, 'wx', 0o666);
+    fs.writeSync(fd, String(process.pid)); fs.closeSync(fd);
+    try { fs.chmodSync(TRAVA, 0o666); } catch (_) { /* dono é outro usuário */ }
+    return;
+  } catch (e) { if (e.code !== 'EEXIST') throw e; }
+  const dono = parseInt(fs.readFileSync(TRAVA, 'utf8'), 10);
+  if (dono && dono !== process.pid && vivo(dono)) {
+    console.error(`verify: outra rodada em andamento (pid ${dono}); trava em ${TRAVA}`);
+    process.exit(3);
+  }
+  fs.writeFileSync(TRAVA, String(process.pid)); // trava de rodada que morreu: assume
+})();
+process.on('exit', () => {
+  try {
+    if (fs.readFileSync(TRAVA, 'utf8').trim() === String(process.pid)) {
+      try { fs.unlinkSync(TRAVA); } catch (_) { fs.writeFileSync(TRAVA, ''); }
+    }
+  } catch (_) { /* já não existe */ }
+});
+const filhos = new Set();
+for (const sinal of ['SIGINT', 'SIGTERM']) {
+  process.on(sinal, () => { for (const f of filhos) f.kill('SIGKILL'); process.exit(130); });
+}
+
+// ==================== resultado estruturado (--json) ====================
+// Gravado no início com estado "rodando" e no fim com "concluido": quem volta
+// depois lê o arquivo, em vez de depender de estar olhando quando acabar.
+const git = (...a) => { try { return execFileSync('git', a, { cwd: RAIZ, encoding: 'utf8' }).trim(); } catch (_) { return null; } };
+const RESULTADO = {
+  estado: 'rodando', pid: process.pid, inicio: new Date().toISOString(), fim: null, segundos: null,
+  commit: git('rev-parse', 'HEAD'),
+  arvoreSuja: (git('status', '--porcelain') || '').split('\n').filter(Boolean).length,
+  modo: OPC.rapido ? 'rapido' : 'inteiro', paralelo: OPC.paralelo,
+  etapas: [], falhas: [], totalFalhas: 0, falhasNovas: 0,
+};
+function gravarJson() {
+  if (!OPC.json) return;
+  const tmp = OPC.json + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(RESULTADO, null, 2));
+  fs.renameSync(tmp, OPC.json);
+}
+gravarJson();
+
+let etapaAtual = '';
+const falhar = (msg, arq) => {
+  console.error('  FALHA  ' + msg); erros++;
+  const conhecida = !!(arq && FALHAS_CONHECIDAS[arq]);
+  RESULTADO.falhas.push({ etapa: etapaAtual, arquivo: arq || null, msg, conhecida });
+};
+const passo = (txt) => { etapaAtual = txt; process.stdout.write(('  ' + txt).padEnd(50)); };
 
 /** Ignorados em toda varredura: dependências e artefatos. */
 const IGNORAR = new Set(['node_modules', '.git', 'dist', 'data', 'backups', 'uploads']);
@@ -408,12 +498,96 @@ const suites = [
   // faturamento que não é dele.
   ['107. contrato-nfse-avulsa (25s)', 'test-contrato-nfse-avulsa.js'],
   ['108. contrato-nfse-ui (22s)', 'test-contrato-nfse-ui.js'],
+  // Dono da conversa. O modo de falha é silencioso e caro: "Minhas" trazendo o
+  // que é de outro faz dois atendentes responderem o mesmo cliente, e nada na
+  // tela denuncia isso.
+  ['110. conversas-dono (1s)', 'test-conversas-dono.js'],
+  // Aviso de mensagem nova. O defeito que importa é avisar na primeira carga:
+  // alarme sobre mensagem de ontem faz a pessoa desligar o aviso para sempre, e
+  // aí o recurso existe sem servir a ninguém.
+  ['111. conversas-aviso (0s)', 'test-conversas-aviso.js'],
+  // Horário de atendimento. É a única porta do webhook que CALA a IA, e os dois
+  // modos de falha são invisíveis: fechar cedo demais responde "estamos
+  // fechados" às duas da tarde; abrir demais promete retorno às três da manhã.
+  ['112. atendimento-horario (0s)', 'test-atendimento-horario.js'],
+  // Base da IA por PDF. Sobe um PDF de verdade e roda o pdftotext de verdade:
+  // com stub, o teste provaria que o stub funciona. O defeito guardado é o
+  // truncar calado, que deixa a IA respondendo com meia informação.
+  ['113. ia-base-pdf (2s)', 'test-ia-base-pdf.js'],
+  // A inbox redesenhada e a separação em duas telas. Sobe Chrome porque o que
+  // está sob teste é o que a pessoa VÊ: marca que aparece em toda linha vira
+  // textura, e contar innerHTML não distingue uma coisa da outra.
+  ['114. conversas-ux (5s)', 'test-conversas-ux.js'],
+  // Pop-up de mensagem nova. O Web Push foi escrito à mão (sem `npm install`), e
+  // os dois modos de falha não dão erro legível: assinatura em DER vira 401 mudo
+  // no servidor de push, e chave pública no formato errado faz o navegador
+  // recusar a inscrição. A suíte verifica a assinatura como o Google verifica.
+  ['115. push-mensagem (1s)', 'test-push-mensagem.js'],
+  // Modelo de IA por tenant. O modo de falha é o pior tipo: a tela mostra o
+  // modelo novo, a requisição sai com o velho, e o 404 do provider continua
+  // igual — ninguém tem como saber que a escolha não valeu. Por isso a suíte
+  // intercepta a chamada e lê o ID que realmente viajou.
+  ['114. modelo de IA por tenant (test-ia-modelo-config)', 'test-ia-modelo-config.js'],
+  // Listas de campanha. O defeito guardado é de leitura, e por isso passava
+  // despercebido: um JOIN interno com `pessoas` escondia os 27.775 contatos
+  // importados do legado, que não são clientes cadastrados. A tela mostrava
+  // três listas vazias e ninguém sabia dizer se o dado tinha sumido.
+  ['116. listas de campanha (test-listas-membros)', 'test-listas-membros.js'],
+  // Tom e limites por botão. A etapa que importa é a A5: tenant que não
+  // escolheu nada precisa receber o prompt exatamente como era, senão a
+  // mudança vaza para os outros dez sem ninguém ter pedido.
+  ['117. tom e limites da IA (test-ia-estilo)', 'test-ia-estilo.js'],
+  // Dor por segmento e modelo da campanha. Os dois modos de falha guardados
+  // aqui são silenciosos: segmento com contato e sem frase manda todo mundo
+  // para a genérica, e frase gravada em chave que `chaveDoRamo` não devolve
+  // nunca é sorteada. Nenhum dos dois dá erro em lugar nenhum.
+  ['118. segmentos da campanha (test-campanha-segmentos)', 'test-campanha-segmentos.js'],
+  // Agendamento de reunião pelo próprio contato. O cálculo dos horários roda com
+  // o relógio fixado por parâmetro: suíte que lê a hora do sistema passa hoje e
+  // reprova num feriado, e aí alguém a desliga em vez de consertá-la.
+  ['119. horarios de reuniao (test-agenda-reuniao)', 'test-agenda-reuniao.js'],
+  // O mesmo agendamento de ponta a ponta. A etapa que importa é a C2: dois
+  // contatos clicando no mesmo horário. Sem o índice único parcial, os dois
+  // saem da tela achando que têm as 10h, e a duplicidade só aparece na hora.
+  ['120. agendamento publico (test-agenda-publica)', 'test-agenda-publica.js'],
+  // Roteiros de venda. A etapa que mais importa é a que prova que o peso pode
+  // mudar amanhã sem reescrever a visita de ontem, e a que recusa roteiro com
+  // variável sem valor: o texto é lido em voz alta na frente do cliente.
+  ['121. roteiros de venda (test-roteiros)', 'test-roteiros.js'],
+  // O registro de visita em campo, medido em viewport de celular: alvo de toque
+  // pequeno faz o vendedor errar a resposta na frente do cliente.
+  ['122. visita em campo (test-visita-campo)', 'test-visita-campo.js'],
+  // Horário do último scan. O SQLite grava CURRENT_TIMESTAMP em UTC, e a tela
+  // lia cru: em -03 isso adiantava o relógio em 3h e anunciava um scan que
+  // ainda não tinha acontecido. A suíte fixa o fuso do navegador, senão
+  // passaria em máquina que já estivesse em UTC, medindo nada.
+  ['129. horario do scan (test-scan-horario)', 'test-scan-horario.js'],
+  // Lacunas do catálogo PNCP. Guarda o incidente de 22/09/2026, em que o
+  // catálogo caiu de ~5.400 publicações por dia útil para 116: a verificação
+  // contava no SQLite congelado enquanto escrevia no Postgres, concluía que
+  // faltava tudo, refazia o download completo a cada rodada e o PNCP passou a
+  // recusar as chamadas. As três guardas — ler no banco certo, contar só o que
+  // gravou, e parar no 429 — são o que o teste exercita.
+  ['130. lacunas do catalogo (test-lacunas-catalogo)', 'test-lacunas-catalogo.js'],
+  // Freios do sync incremental. Ele roda de 5 em 5 minutos e era a única rotina
+  // sem nenhum: cinco retries IMEDIATOS por página recusada, sem cooldown, e
+  // paginação sempre da página 1 rebaixando o dia inteiro. Consumia a cota da
+  // API que a varredura de 45 dias precisa — a única que recompõe dias fora da
+  // janela de dois dias, como o 21/09 que ficou em 5% de cobertura.
+  ['131. freio do sync incremental (test-sync-incremental-freio)', 'test-sync-incremental-freio.js'],
   // Recorrências. Guarda três defeitos que chegavam ao cliente: o e-mail em
   // dobro (a emissão mandava o dela além do da recorrência), a conta nascendo
   // vencida quando executada depois do dia, e o "Executar todas" num POST só,
   // que estourava o proxy com centenas. Roda a emissão real com SEFIN, assinatura
   // e e-mail trocados, e conta quantas mensagens sairiam.
   ['132. recorrencias em lote (test-recorrencia-lote)', 'test-recorrencia-lote.js'],
+  // Vínculo de certificado com contrato. Entra aqui pelo sintoma, que é o pior
+  // que existe: a tela dizia "Certificado atualizado" e o vínculo não mudava.
+  // Eram dois defeitos somados — o corpo do PUT não levava os campos, e
+  // `contratoItemId` estava em SO_GESTAO (aceito) e fora da lista do UPDATE
+  // (descartado). As checagens olham o BANCO depois do PUT, e não a resposta,
+  // porque os dois respondiam `success`.
+  ['133. vinculo de certificado com contrato (test-ssl-vinculo-contrato)', 'test-ssl-vinculo-contrato.js'],
   // Restaurante no horário de Marabá. O módulo grava em UTC, e sem converter a
   // conta das 22h caía no dia seguinte, o sábado à noite contava como domingo e
   // o pico saía três horas adiantado. As comandas têm valores distintos para a
@@ -425,26 +599,188 @@ const suites = [
   // montado para as duas regras discordarem: pela média geral a suíte reprova.
   ['135. engenharia de cardapio por categoria (test-restaurante-engenharia)', 'test-restaurante-engenharia.js'],
 ];
-for (const [rotulo, arq] of suites) {
-  passo(rotulo);
-  const p = path.join(__dirname, arq);
-  if (!fs.existsSync(p)) { console.log('AUSENTE'); falhar(`${arq} não existe`); continue; }
-  try {
-    const saida = execFileSync(process.execPath, [p], { encoding: 'utf8', stdio: 'pipe' });
-    console.log((saida.trim().split('\n').pop() || 'OK').trim());
-  } catch (e) {
-    console.log('');
-    const saida = (e.stdout || '') + (e.stderr || '');
-    saida.split('\n').filter((l) => /FALHA/.test(l)).slice(0, 6).forEach((l) => falhar(l.trim()));
-    if (!/FALHA/.test(saida)) falhar(`${arq}: ${(e.message || '').split('\n')[0]}`);
+// ==================== modo rápido: quais suítes ====================
+/**
+ * Mudança num destes arquivos pode quebrar qualquer tela ou rota, e nenhuma
+ * busca por nome acha isso. O modo rápido não vale para eles: a rodada vira
+ * inteira sozinha, e diz por quê.
+ */
+const OBRIGA_INTEIRO = [
+  /^db-schema\.js$/, /^route-registry\.js$/, /^perfis-(acesso|api-map)\.js$/, /^role-dispatch\.js$/,
+  /^(server|auth|auth-[a-z-]+|base-middleware|pre-auth-routes|tenant-[a-z-]+|plan-modules|module-gate)\.js$/,
+  /^public\/js\/(menu-config|sidebar)\.js$/, /^public\/app\.(html|js)$/, /^public\/css\/app-modern\.css$/,
+  /^public\/auth\/sw\.js$/, /^scripts\/(verify|banco-de-teste|guarda-dados|schema-de-tenant)\.js$/,
+  /^package(-lock)?\.json$/,
+];
+const fonteDe = new Map(); // cache do fonte de cada suíte
+const fonteSuite = (arq) => {
+  if (!fonteDe.has(arq)) {
+    const p = path.join(__dirname, arq);
+    fonteDe.set(arq, fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '');
   }
+  return fonteDe.get(arq);
+};
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Suítes cujo fonte cita o arquivo (require, caminho de tela, readFileSync). */
+function suitesDoArquivo(rel) {
+  const semExt = rel.replace(/\.(js|html|css)$/, '');
+  const base = path.basename(rel), baseSemExt = path.basename(semExt);
+  const padroes = [new RegExp(`[/'"\`]${esc(rel.replace(/^public\//, ''))}['"\`?#)]`)];
+  // Nome curto demais casaria em qualquer lugar ("app", "index"): esses só pelo caminho.
+  if (baseSemExt.length >= 6 && !/^index$/.test(baseSemExt)) {
+    padroes.push(new RegExp(`[/'"\`]${esc(baseSemExt)}(\\.(js|html|css))?['"\`?#)]`));
+  }
+  return suites.filter(([, arq]) => padroes.some((re) => re.test(fonteSuite(arq)))).map(([, arq]) => arq);
 }
 
-// ==================== resultado ====================
-const ms = Date.now() - t0;
-console.log('');
-if (erros) {
-  console.error(`FALHOU: ${erros} problema(s) em ${(ms / 1000).toFixed(1)}s`);
-  process.exit(1);
+let selecionadas = suites;
+if (OPC.rapido) {
+  let alterados = ARQS_RAPIDO.map((a) => path.relative(RAIZ, path.resolve(a)));
+  if (!alterados.length) {
+    alterados = (git('status', '--porcelain', '--untracked-files=all') || '').split('\n').filter(Boolean)
+      .filter((l) => !/^( D|D )/.test(l)).map((l) => l.slice(3).split(' -> ').pop().replace(/^"|"$/g, ''));
+  }
+  const inteiro = alterados.filter((a) => OBRIGA_INTEIRO.some((re) => re.test(a)));
+  if (inteiro.length) {
+    console.log(`\n  modo rápido recusado: ${inteiro.slice(0, 5).join(', ')}${inteiro.length > 5 ? '…' : ''} `
+      + 'é compartilhado por todas as telas. Rodando o verify inteiro.\n');
+    RESULTADO.modo = 'inteiro (rapido recusado)';
+  } else {
+    const escolhidas = new Set(), semSuite = [];
+    for (const a of alterados) {
+      if (!/\.(js|html|css)$/.test(a)) continue; // doc, script de shell, planilha: só a sintaxe acima
+      const propria = suites.find(([, arq]) => `scripts/${arq}` === a);
+      const achadas = propria ? [propria[1]] : suitesDoArquivo(a);
+      if (!achadas.length) semSuite.push(a);
+      achadas.forEach((s) => escolhidas.add(s));
+    }
+    selecionadas = suites.filter(([, arq]) => escolhidas.has(arq));
+    console.log(`\n  modo rápido: ${alterados.length} arquivo(s) alterado(s), ${selecionadas.length} suíte(s) ligada(s)`);
+    if (semSuite.length) console.log(`  sem suíte nenhuma (só a sintaxe cobre): ${semSuite.join(', ')}`);
+    console.log('');
+    RESULTADO.semSuite = semSuite;
+  }
+  RESULTADO.alterados = alterados;
 }
-console.log(`OK: sintaxe válida — raiz, scripts/, public/, telas e shell (${(ms / 1000).toFixed(1)}s)`);
+
+// ==================== execução ====================
+// Cada suíte roda com a guarda de dados: abrir banco de data/ para escrita, ou
+// gravar arquivo lá, reprova na hora e nomeia a suíte (ver guarda-dados.js).
+const GUARDA = path.join(__dirname, 'guarda-dados.js');
+const ENV_SUITE = { ...process.env, NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --require ${GUARDA}`.trim() };
+// Hang vira falha com nome, em vez de uma rodada que nunca termina. A mais
+// lenta medida (fase51) levou 13,5 min com a máquina carregada.
+const PRAZO_SUITE_MS = 30 * 60 * 1000;
+
+function rodarSuite(rotulo, arq) {
+  return new Promise((resolve) => {
+    const r = { rotulo, arq, ms: 0, ok: false, resumo: '', falhas: [] };
+    const p = path.join(__dirname, arq);
+    if (!fs.existsSync(p)) { r.resumo = 'AUSENTE'; r.falhas.push(`${arq} não existe`); return resolve(r); }
+    const ini = Date.now();
+    let out = '', errOut = '', estourou = false;
+    const filho = spawn(process.execPath, [p], { env: ENV_SUITE, cwd: RAIZ, stdio: ['ignore', 'pipe', 'pipe'] });
+    filhos.add(filho);
+    filho.stdout.on('data', (d) => { out += d; });
+    filho.stderr.on('data', (d) => { errOut += d; });
+    const prazo = setTimeout(() => { estourou = true; filho.kill('SIGKILL'); }, PRAZO_SUITE_MS);
+    filho.on('close', (codigo, sinal) => {
+      clearTimeout(prazo); filhos.delete(filho);
+      r.ms = Date.now() - ini;
+      r.resumo = (out.trim().split('\n').pop() || 'OK').trim();
+      if (codigo === 0) { r.ok = true; return resolve(r); }
+      const saida = out + '\n' + errOut;
+      r.falhas = saida.split('\n').filter((l) => /FALHA/.test(l)).slice(0, 6).map((l) => l.trim());
+      if (estourou) r.falhas.push(`${arq}: passou do prazo de ${PRAZO_SUITE_MS / 60000} min`);
+      else if (!r.falhas.length) {
+        // Sem linha de FALHA, o motivo costuma estar no fim do stderr (exceção, timeout do Chrome).
+        const cauda = errOut.trim().split('\n').filter(Boolean).slice(-3).map((l) => l.trim().slice(0, 160)).join(' | ');
+        r.falhas.push(`${arq}: saiu com ${sinal || 'código ' + codigo}${cauda ? ' — ' + cauda : ''}`);
+      }
+      resolve(r);
+    });
+    filho.on('error', (e) => { clearTimeout(prazo); filhos.delete(filho); r.falhas.push(`${arq}: ${e.message}`); resolve(r); });
+  });
+}
+
+/** No sequencial o rótulo já saiu antes da suíte rodar; no paralelo, sai aqui. */
+function registrar(r, emParalelo) {
+  const conhecida = FALHAS_CONHECIDAS[r.arq];
+  if (emParalelo) process.stdout.write(('  ' + r.rotulo).padEnd(50));
+  etapaAtual = r.rotulo;
+  console.log(r.ok ? `${r.resumo}${emParalelo ? ` (${Math.round(r.ms / 1000)}s)` : ''}`
+    : (r.resumo === 'AUSENTE' ? 'AUSENTE' : `${conhecida ? '(falha conhecida) ' : ''}`));
+  for (const f of r.falhas) falhar(f, r.arq);
+  if (!r.ok && conhecida) console.error(`         conhecida: ${conhecida}`);
+  RESULTADO.etapas.push({ rotulo: r.rotulo, arquivo: r.arq, segundos: Math.round(r.ms / 100) / 10, ok: r.ok });
+  gravarJson();
+}
+
+/**
+ * Grupos para o paralelo: suítes que citam o mesmo arquivo fixo de /tmp ou a
+ * mesma porta fixa rodam em sequência, no mesmo trabalhador. Em 25/09 eram
+ * quatro grupos por /tmp (o maior, seis suítes em /tmp/app-backend-schema.sql)
+ * e nenhuma porta repetida. Descoberto no fonte a cada rodada, e não numa lista
+ * à mão, para que suíte nova não precise lembrar de se declarar.
+ */
+function agrupar(lista) {
+  const pai = lista.map((_, i) => i);
+  const raiz = (i) => (pai[i] === i ? i : (pai[i] = raiz(pai[i])));
+  const dono = new Map();
+  lista.forEach(([, arq], i) => {
+    const src = fonteSuite(arq);
+    const fichas = [...src.matchAll(/'(\/tmp\/[A-Za-z0-9._-]+)'/g)].map((m) => m[1])
+      .concat([...src.matchAll(/\.listen\(\s*(\d{3,5})/g)].map((m) => 'porta:' + m[1]));
+    for (const f of fichas) {
+      if (dono.has(f)) pai[raiz(i)] = raiz(dono.get(f)); else dono.set(f, i);
+    }
+  });
+  const grupos = new Map();
+  lista.forEach((s, i) => { const r = raiz(i); if (!grupos.has(r)) grupos.set(r, []); grupos.get(r).push(s); });
+  return [...grupos.values()];
+}
+
+async function rodarTodas(lista) {
+  if (OPC.paralelo <= 1) {
+    for (const [rotulo, arq] of lista) { passo(rotulo); registrar(await rodarSuite(rotulo, arq), false); }
+    return;
+  }
+  // Mais longo primeiro, pelos tempos da rodada anterior: o que decide a duração
+  // total é a suíte mais longa começar cedo, e não no fim da fila.
+  const tempo = new Map();
+  try {
+    for (const e of JSON.parse(fs.readFileSync(OPC.tempos, 'utf8')).etapas || []) tempo.set(e.arquivo, e.segundos || 0);
+  } catch (_) { /* sem rodada anterior: ordem declarada */ }
+  const fila = agrupar(lista).map((g) => ({ g, peso: g.reduce((s, [, a]) => s + (tempo.get(a) || 0), 0) }))
+    .sort((a, b) => b.peso - a.peso).map((x) => x.g);
+  console.log(`  ${lista.length} suítes em ${fila.length} grupos, ${OPC.paralelo} por vez\n`);
+  const trabalhador = async () => {
+    for (let g = fila.shift(); g; g = fila.shift()) {
+      for (const [rotulo, arq] of g) registrar(await rodarSuite(rotulo, arq), true);
+    }
+  };
+  await Promise.all(Array.from({ length: OPC.paralelo }, trabalhador));
+}
+
+(async () => {
+  await rodarTodas(selecionadas);
+
+  // ==================== resultado ====================
+  const ms = Date.now() - t0;
+  const conhecidas = RESULTADO.falhas.filter((f) => f.conhecida).length;
+  RESULTADO.estado = 'concluido';
+  RESULTADO.fim = new Date().toISOString();
+  RESULTADO.segundos = Math.round(ms / 100) / 10;
+  RESULTADO.totalFalhas = erros;
+  RESULTADO.falhasNovas = erros - conhecidas;
+  RESULTADO.codigo = erros ? 1 : 0;
+  gravarJson();
+  console.log('');
+  if (erros) {
+    console.error(`FALHOU: ${erros} problema(s) em ${(ms / 1000).toFixed(1)}s`
+      + (conhecidas ? ` (${conhecidas} conhecida(s), ${erros - conhecidas} nova(s))` : ''));
+    process.exit(1);
+  }
+  console.log(`OK: sintaxe válida — raiz, scripts/, public/, telas e shell (${(ms / 1000).toFixed(1)}s)`);
+})();
