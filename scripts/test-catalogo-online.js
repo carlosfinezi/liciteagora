@@ -150,8 +150,9 @@ t('C. RBAC fail-closed: as paginas novas podem chamar as APIs que usam', () => {
   assert(lista('/api/produtos').includes("'loja'"), 'a central não pode chamar /api/produtos');
 
   // Nada de ampliar acesso alheio de carona (o gerador do mapa já fez isso uma
-  // vez — ver relatório 44 §11).
-  assert((mapa.match(/^\s*'\/api\//gm) || []).length === 176, 'o total de prefixos do mapa mudou');
+  // vez — ver relatório 44 §11). 178 desde 2026-09-26: `/api/roteiros` e
+  // `/api/visitas`, para `visita` e `crm-funil`, aceitos pelo usuário.
+  assert((mapa.match(/^\s*'\/api\//gm) || []).length === 178, 'o total de prefixos do mapa mudou');
   assert((mapa.match(/pedidos-pdv/g) || []).length === 3, 'pedidos-pdv ganhou acesso a mais APIs');
   assert(mapa.includes('/api/orcamento-publico'), 'o link público do orçamento saiu dos liberados');
 });

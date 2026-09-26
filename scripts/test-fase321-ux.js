@@ -104,7 +104,10 @@ t('C. RBAC inalterado: mapa de API e itens de menu iguais', () => {
   // 176 desde 2026-09-12: `/api/orcamento-publico` entrou em LIBERADOS, para o
   // link público do orçamento. Única rota pública nova; a interna
   // `/api/pedidos/*` continua exigindo sessão.
-  assert((mapa.match(/^\s*'\/api\//gm) || []).length === 176, 'o mapa de API mudou');
+  // 178 desde 2026-09-26: `/api/roteiros` e `/api/visitas`, para as páginas
+  // `visita` e `crm-funil` (roteiros de venda e visita em campo, de 18/09).
+  // Aceitos pelo usuário ao fechar a frente da agenda e dos roteiros.
+  assert((mapa.match(/^\s*'\/api\//gm) || []).length === 178, 'o mapa de API mudou');
   const { menuConfig } = require(path.join(PUB, 'js/menu-config.js'));
   // Piso, não igualdade: o total sobe quando uma tela legítima é acrescentada
   // (Categorias entrou na Fase 44). O risco coberto aqui é PERDER um item — a

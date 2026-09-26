@@ -311,7 +311,10 @@ t('N. nenhuma API nova foi liberada', () => {
   // link público do orçamento. É a ÚNICA rota pública nova, e ela não abre o
   // painel — devolve um recorte de UM orçamento, identificado por token de 64
   // hex. A rota interna `/api/pedidos/*` segue exigindo sessão.
-  assert(prefixos === 176, `o mapa de API mudou: ${prefixos} prefixos (eram 176)`);
+  // 178 desde 2026-09-26: `/api/roteiros` e `/api/visitas`, para as páginas
+  // `visita` e `crm-funil` (roteiros de venda e visita em campo, de 18/09).
+  // Aceitos pelo usuário ao fechar a frente da agenda e dos roteiros.
+  assert(prefixos === 178, `o mapa de API mudou: ${prefixos} prefixos (eram 178)`);
 });
 
 t('O. nenhuma pagina nova ganhou acesso', () => {
