@@ -45,6 +45,9 @@ const br = (iso) => iso.split('-').reverse().join('/');
 db.prepare("INSERT OR IGNORE INTO depositos (id, nome, tipo, padrao, ativo) VALUES (1, 'Loja', 'interno', 1, 1)").run();
 const forn = db.prepare(`INSERT INTO pessoas (cpfCnpj, tipo, razaoSocial, nomeFantasia, ativo, categorias)
   VALUES ('11222333000181', 'PJ', 'DISTRIBUIDORA DE ALIMENTOS ESTRELA DO NORTE LTDA', 'Estrela do Norte', 1, '["fornecedor"]')`).run().lastInsertRowid;
+// Nome fantasia do tamanho dos de verdade: é ele que empurra a tabela para fora da tela
+const fornLongo = db.prepare(`INSERT INTO pessoas (cpfCnpj, tipo, razaoSocial, nomeFantasia, ativo, categorias)
+  VALUES ('44555666000181', 'PJ', 'CUIDAR DISTRIBUIDORA DE HIGIENE E PERFUMARIA LTDA', 'Cuidar Higiene e Perfumaria', 1, '["fornecedor"]')`).run().lastInsertRowid;
 function produto(sku, descricao, o = {}) {
   return db.prepare(`INSERT INTO produtos (sku, descricao, unidade, precoCusto, precoVenda, estoqueMinimo, estoqueMaximo,
     rastreiaLote, fornecedorId, ativo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`)
@@ -81,6 +84,10 @@ const lote = (num, val, saldo) => db.prepare(`INSERT INTO lotes (produtoId, nume
   .run(IOGURTE, num, dia(-40), val, saldo, forn).lastInsertRowid;
 lote('260901-1A', dia(-1), 5); lote('260915-2B', dia(0), 3); lote('260920-3C', dia(5), 2);
 lote('260925-4D', dia(20), 1); lote('260926-5E', dia(60), 4); lote('260910-6F', dia(10), 0);
+// Um lote do fornecedor de nome longo, vencido há 13 dias: o selo mais largo que existe
+db.prepare(`INSERT INTO lotes (produtoId, numero, dataFabricacao, dataValidade, quantidadeInicial, saldoAtual, custoUnitario,
+  fornecedorId, ativo, depositoId) VALUES (?, '260902-9H', ?, ?, 24, 11, 12.34, ?, 1, 1)`).run(IOGURTE, dia(-60), dia(-13), fornLongo);
+db.prepare('UPDATE produtos SET fornecedorId = ? WHERE id IN (?, ?)').run(fornLongo, ACUCAR, CHICLETE);
 mov(IOGURTE, 'entrada', 15, dia(-40));
 
 // ---------- rotas ----------
@@ -145,13 +152,13 @@ t('A5. a lista informa se o tenant tem reserva e rastreio', async () => {
 t('B1. validade conta pela data de Marabá: ontem é vencido, hoje vence hoje', async () => {
   const r = await chamar('/api/lotes', { comSaldo: '1' });
   assert(r.hoje === HOJE, `hoje da API ${r.hoje}, esperado ${HOJE}`);
-  assert(r.resumo.vencidos === 1, 'vencidos: ' + r.resumo.vencidos);
+  assert(r.resumo.vencidos === 2, 'vencidos (ontem e há 13 dias): ' + r.resumo.vencidos);
   assert(r.resumo.vencendo30 === 3, 'vencendo em 30 dias (hoje, 5 e 20): ' + r.resumo.vencendo30);
 });
 t('B2. os cartões contam todos os lotes, e não a lista filtrada', async () => {
   const r = await chamar('/api/lotes', { comSaldo: '1', vencendoDias: '30' });
   assert(r.lotes.length === 3, 'lista filtrada: ' + r.lotes.map(l => l.numero).join(', '));
-  assert(r.resumo.total === 6 && r.resumo.comSaldo === 5 && r.resumo.vencidos === 1 && r.resumo.vencendo30 === 3,
+  assert(r.resumo.total === 7 && r.resumo.comSaldo === 6 && r.resumo.vencidos === 2 && r.resumo.vencendo30 === 3,
     'resumo: ' + JSON.stringify(r.resumo));
 });
 t('B3. o filtro de 30 dias não traz o lote vencido', async () => {
@@ -159,12 +166,12 @@ t('B3. o filtro de 30 dias não traz o lote vencido', async () => {
   assert(!r.lotes.some(l => l.dataValidade < HOJE), 'veio vencido: ' + r.lotes.map(l => l.dataValidade).join(', '));
 });
 t('B4. a busca de lotes acha pelo nome e pelo código do produto', async () => {
-  assert((await chamar('/api/lotes', { q: 'iogurte' })).lotes.length === 6, 'por nome');
-  assert((await chamar('/api/lotes', { q: '10011' })).lotes.length === 6, 'por código');
+  assert((await chamar('/api/lotes', { q: 'iogurte' })).lotes.length === 7, 'por nome');
+  assert((await chamar('/api/lotes', { q: '10011' })).lotes.length === 7, 'por código');
   assert((await chamar('/api/lotes', { q: 'vassoura' })).lotes.length === 0, 'produto sem lote');
 });
 t('B5. o fornecedor aparece pelo nome fantasia', async () => {
-  const l = (await chamar('/api/lotes')).lotes[0];
+  const l = (await chamar('/api/lotes')).lotes.find(x => x.numero === '260901-1A');
   assert(l.fornecedorNome === 'Estrela do Norte', 'fornecedor: ' + l.fornecedorNome);
 });
 
@@ -182,12 +189,14 @@ t('C2. nem a tela nem a rota assumem o grupo 14 e a TerraMaster', () => {
 // ---------- telas ----------
 const CHROME = ['/opt/google/chrome/chrome', '/usr/bin/google-chrome-stable', '/usr/bin/google-chrome'].find(p => fs.existsSync(p));
 let browser, srv, base;
-async function abrir(tela, largura = 1180) {
+async function abrir(tela, largura = 1190) {
   if (!browser) {
     const w = express();
     montar(w);
     w.use('/api', (q, r) => r.json({ success: true, itens: [], depositos: [], pontos: [], produtos: [], porMes: [], porProduto: [] }));
-    w.get('/__e', (q, r) => r.type('html').send(`<!doctype html><meta charset="utf-8"><style>html,body{margin:0;height:100%}
+    // O pai se declara shell, como o app.html: a tela não desenha o próprio
+    // menu e fica com a largura que tem no sistema de verdade.
+    w.get('/__e', (q, r) => r.type('html').send(`<!doctype html><meta charset="utf-8"><script>window.__liciteShell = true;</script><style>html,body{margin:0;height:100%}
       iframe{border:0;width:${q.query.w}px;height:100%;display:block}</style><iframe id="tela" src="${q.query.t}"></iframe>`));
     w.use(express.static(PUB));
     srv = await new Promise(res => { const s = http.createServer(w).listen(0, '127.0.0.1', () => res(s)); });
@@ -212,6 +221,10 @@ const cortes = (frame, sel) => frame.evaluate((sel) => {
   const wrap = document.querySelector(sel);
   const out = [];
   if (wrap.scrollWidth > wrap.clientWidth + 1) out.push(`rolagem horizontal: ${wrap.scrollWidth} > ${wrap.clientWidth}`);
+  // O .tbl-wrap recorta o que passa da borda sem mostrar barra: a tabela
+  // tem de caber nele, ou a última coluna some sem aviso.
+  const larg = wrap.querySelector('table').getBoundingClientRect().width;
+  if (larg > wrap.clientWidth + 1) out.push(`tabela mais larga que a tela: ${Math.round(larg)} > ${wrap.clientWidth}`);
   const medir = (el) => {
     if (el.offsetParent === null) return;
     const r = document.createRange(); r.selectNodeContents(el);
@@ -287,7 +300,7 @@ t('E1. Lotes: cartões sobre todos os lotes, validade por data, laranja até 7 d
     placeholder: document.getElementById('filtProduto').placeholder,
     texto: document.body.innerText,
   }));
-  assert(JSON.stringify(r.cartoes) === JSON.stringify(['Total de lotes=6', 'Com saldo=5', 'Vencendo em 30d=3', 'Vencidos=1']),
+  assert(JSON.stringify(r.cartoes) === JSON.stringify(['Total de lotes=7', 'Com saldo=6', 'Vencendo em 30d=3', 'Vencidos=2']),
     'cartões com filtro de 30 dias: ' + r.cartoes.join(', '));
   const hoje = r.selos.find(s => s[1].includes('vence hoje'));
   const cinco = r.selos.find(s => s[1].includes('em 5 dias'));
@@ -303,7 +316,7 @@ t('E1. Lotes: cartões sobre todos os lotes, validade por data, laranja até 7 d
 t('E2. Lotes: vencido ontem sai vermelho como vencido, e a busca filtra pelo nome', async () => {
   const { frame } = await abrir('/estoque/lotes.html');
   const selo = await frame.evaluate(() => [...document.querySelectorAll('#tb .badge')].map(b => [b.className, b.textContent.trim()]));
-  const ontem = selo.find(s => s[1].includes('vencido'));
+  const ontem = selo.find(s => /há 1 dia/.test(s[1]));
   assert(ontem && /cancelado/.test(ontem[0]) && /há 1 dia/.test(ontem[1]), 'lote de ontem: ' + JSON.stringify(ontem));
   await frame.type('#filtProduto', 'vassoura');
   await new Promise(r => setTimeout(r, 1500));

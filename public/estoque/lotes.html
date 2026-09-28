@@ -13,7 +13,10 @@
      com reticências; o conteúdo que chega depois saía cortado. */
   .tbl-nao-corta td { white-space: nowrap; }
   .tbl-nao-corta th { white-space: normal; }
-  .tbl-nao-corta td.col-produto { white-space: normal; min-width: 220px; }
+  .tbl-nao-corta td.col-produto { white-space: normal; min-width: 200px; }
+  /* Com o fornecedor e a validade inteiros, a folga padrão de 14px por lado
+     empurrava a última coluna para fora da tela a 1440px de janela. */
+  .tbl-nao-corta th, .tbl-nao-corta td { padding-left: 8px; padding-right: 8px; }
   /* Validade: vencido em vermelho, até 7 dias em laranja, até 30 em âmbar */
   .badge.vence-7d { background: #7c2d1260; color: #fb923c; border-color: #c2410c; }
   [data-theme="claro"] .badge.vence-7d { background: #ffedd5; color: #c2410c; border-color: #fdba74; }

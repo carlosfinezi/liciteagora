@@ -50,7 +50,10 @@ inteiro.
 - **Nada cortado em Lotes, Estoque e Sugestão.** O nome do produto quebra
   linha; o resto aparece inteiro. As três tabelas deixaram o `grid.js`, que
   mede as colunas uma vez só, com a linha "Carregando…" na tabela, e travava a
-  largura com reticências. Perdem o ajuste de largura por arraste.
+  largura com reticências. Perdem o ajuste de largura por arraste. A folga
+  das células caiu de 14 para 8 px por lado: com o fornecedor e a validade
+  inteiros, a tabela passava de 1.128 px e o `.tbl-wrap` escondia a última
+  coluna sem barra de rolagem. A suíte mede com a largura do shell a 1440 px.
 - **Listas de produto em ordem de português** (`ordem-pt.js`): "Água" perto
   do A e "Óleo" perto do O, em 20 consultas de 13 arquivos. É SQL puro, e não
   função registrada na conexão, para não quebrar quem abre o banco por fora.
