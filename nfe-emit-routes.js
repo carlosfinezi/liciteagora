@@ -13,6 +13,9 @@ const { montarNFeProc } = require('./nfe-proc');
 const { cancelarFaturaLocal } = require('./fatura-cancelamento');
 const { tPagFromForma } = require('./meio-pagamento');
 const { execSync } = require('child_process');
+// O pfx é aberto em memória, sem os arquivos em /tmp que o pacote `pem` gravava
+// (ver cert-memoria.js). Precisa valer antes do primeiro `new Tools`.
+require('./cert-memoria').instalar();
 const fs = require('fs');
 const path = require('path');
 
@@ -305,6 +308,62 @@ async function getTools(db, estab = null) {
     { mod: '55', tpAmb: cfg.tpAmb, UF: ufRoteamento, versao: '4.00', CNPJ: cnpjLimpo },
     { pfx: cert.pfx, senha: cert.senha }
   );
+}
+
+/**
+ * Status do serviço da SEFAZ que AUTORIZA as notas deste emitente.
+ *
+ * Em produção, PA e os demais estados atendidos pela SVRS são roteados como
+ * UF "SVRS" (getTools), e o `sefazStatus` da biblioteca monta o `cUF` a partir
+ * dessa UF de roteamento, que não tem código IBGE: o pedido sai sem cUF, reprova
+ * na validação do próprio XML ("Expected is cUF") e o /api/nfe/status
+ * respondia 500 para todo tenant do PA. Pior: a biblioteca rejeita a promessa e
+ * segue abrindo a conexão com o certificado mesmo assim.
+ *
+ * Aqui, quando o roteamento é SVRS, a consulta vai ao endereço de status da
+ * SVRS (o mesmo mapa da biblioteca que a emissão usa) com o cUF da UF REAL do
+ * emitente, e o certificado aberto em memória (cert-memoria.js). Nos outros
+ * casos segue o `sefazStatus` da biblioteca, que já funcionava.
+ */
+async function consultarStatusSefaz(db, estab = null) {
+  const cfg = db.prepare('SELECT * FROM nfe_config WHERE id = 1').get();
+  const f = carregarEmitente(db, estab);
+  if (!(cfg.tpAmb === 1 && UF_ROTEIA_SVRS.has(f.uf))) {
+    const tools = await getTools(db, estab);
+    const r = await tools.sefazStatus();
+    return typeof r === 'string' ? r : JSON.stringify(r);
+  }
+  const { pathToFileURL } = require('url');
+  const ws = (await import(pathToFileURL(path.join(__dirname,
+    'node_modules/node-sped-nfe/dist/utils/webservices/mod55.js')).href)).default;
+  const url = ws.eventos('SVRS').producao.NFeStatusServico;
+  const cert = carregarCert(db, estab);
+  const { key, cert: certPem, ca } = require('./cert-memoria').lerPkcs12EmMemoria(cert.pfx, cert.senha);
+  const xml = '<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" '
+    + 'xmlns:nfe="http://www.portalfiscal.inf.br/nfe/wsdl/NFeStatusServico4"><soap:Body><nfe:nfeDadosMsg>'
+    + '<consStatServ versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe">'
+    + `<tpAmb>1</tpAmb><cUF>${codigoUF(f.uf)}</cUF><xServ>STATUS</xServ></consStatServ>`
+    + '</nfe:nfeDadosMsg></soap:Body></soap:Envelope>';
+  return new Promise((resolve, reject) => {
+    const req = require('https').request(url, {
+      method: 'POST', key, cert: certPem, ca,
+      // Mesma escolha da biblioteca em toda chamada à SEFAZ: as cadeias das
+      // SEFAZ não estão no repositório de CAs do sistema.
+      rejectUnauthorized: false,
+      headers: {
+        'Content-Type': 'application/soap+xml; charset=utf-8',
+        'Content-Length': Buffer.byteLength(xml, 'utf8'),
+        SOAPAction: 'http://www.portalfiscal.inf.br/nfe/wsdl/NfeStatusServico4/nfeStatusServicoNF',
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => resolve(data));
+    });
+    req.setTimeout(30000, () => { req.destroy(new Error('A SEFAZ não respondeu em 30 s')); });
+    req.on('error', reject);
+    req.end(xml);
+  });
 }
 
 // Extrai dados do XML de retorno da SEFAZ (strings simples)
@@ -1033,9 +1092,7 @@ function registrarRotas(app, db) {
   // --- STATUS SEFAZ ---
   app.get('/api/nfe/status', async (req, res) => {
     try {
-      const tools = await getTools(db);
-      const resp = await tools.sefazStatus();
-      const str = typeof resp === 'string' ? resp : JSON.stringify(resp);
+      const str = await consultarStatusSefaz(db);
       res.json({
         success: true,
         cStat: tag(str, 'cStat'),
@@ -1231,7 +1288,7 @@ function registrarRotas(app, db) {
   });
 }
 
-module.exports = { registrarRotasNfeEmit: registrarRotas, getTools, emitirNFe, resolverEstab, carregarEmitente, carregarCert, serieAtual, avancarSerie, migrar,
+module.exports = { registrarRotasNfeEmit: registrarRotas, getTools, consultarStatusSefaz, emitirNFe, resolverEstab, carregarEmitente, carregarCert, serieAtual, avancarSerie, migrar,
   // Exportadas para o teste de regressão (scripts/test-nfe-tributacao-integracao.js):
   // é por elas que se prova que uma nota do Simples continua tomando o caminho antigo.
   calcularTributacaoItem, validarXmlLocal, corrigirCstIpiZero };

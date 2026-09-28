@@ -14,6 +14,7 @@ const crypto = require('crypto');
 const Database = require('better-sqlite3');
 const forge = require('node-forge');
 const { decifrarSenha, cifrada } = require('../cert-senha');
+require('../cert-memoria').instalar();
 
 const abre = (pfxB64, senha) => {
   try {
@@ -33,10 +34,10 @@ const abre = (pfxB64, senha) => {
     let senha = null;
     try { senha = decifrarSenha(c.senhaCriptografada, c.certificadoBase64); } catch (e) { console.log(`${slug}: decifra falhou: ${e.message}`); }
     const hash = senha == null ? '-' : crypto.createHash('sha256').update(senha).digest('hex').slice(0, 12);
-    // Status com a UF real do emitente: o getTools de produção roteia o PA
-    // como "SVRS", que a lib não sabe converter em cUF, e o sefazStatus dele
-    // quebra na validação do próprio pedido (defeito anterior, fora daqui).
-    // Qualquer cStat devolvido prova o TLS mútuo com o certificado aberto.
+    // A consulta real é a mesma do /api/nfe/status (consultarStatusSefaz:
+    // SVRS com o cUF da UF real). O controle com senha errada vai pela
+    // biblioteca com a UF real, que aceita a senha como parâmetro. Qualquer
+    // cStat devolvido prova o TLS mútuo com o certificado aberto.
     const { Tools } = await import('node-sped-nfe');
     const { carregarEmitente } = require('../nfe-emit-routes');
     const status = async (senhaUsada) => {
@@ -49,7 +50,14 @@ const abre = (pfxB64, senha) => {
         return { cStat: (r.match(/<cStat>(\d+)</) || [])[1] || '?', xMotivo: (r.match(/<xMotivo>([^<]+)</) || [])[1] || '' };
       } catch (e) { return { cStat: 'ERRO', xMotivo: String((e && e.message) || e).slice(0, 120) }; }
     };
-    const real = senha == null ? { cStat: 'ERRO', xMotivo: 'sem senha' } : await status(senha);
+    let real;
+    if (senha == null) real = { cStat: 'ERRO', xMotivo: 'sem senha' };
+    else {
+      try {
+        const r = await require('../nfe-emit-routes').consultarStatusSefaz(db);
+        real = { cStat: (r.match(/<cStat>(\d+)</) || [])[1] || '?', xMotivo: (r.match(/<xMotivo>([^<]+)</) || [])[1] || '' };
+      } catch (e) { real = { cStat: 'ERRO', xMotivo: String((e && e.message) || e).slice(0, 120) }; }
+    }
     const errada = await status('senha-errada-de-controle');
     const cStat = real.cStat, xMotivo = real.xMotivo;
     db.close();

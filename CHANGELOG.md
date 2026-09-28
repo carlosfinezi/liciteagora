@@ -4,6 +4,36 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-28, certificado em memória e status da SEFAZ no PA
+
+### O pfx e a senha deixaram de passar por /tmp
+
+A node-sped-nfe abre o certificado pelo pacote `pem`, que roda o `openssl`
+gravando o pfx, a senha e a chave privada já aberta em `/tmp`, com permissão
+644, e só os apaga no callback. Se o processo sai antes, os arquivos ficam:
+em 27/09 sobraram quatro, de testes desta frente, com o pfx e a senha do 1bit
+e do produtosbomgosto. O conteúdo deles foi zerado.
+
+`cert-memoria.js` troca o `readPkcs12` do `pem` por uma leitura com o
+node-forge, instalada ao carregar o `nfe-emit-routes.js` e o `nfce-routes.js`.
+A biblioteca recebe o mesmo `{ key, cert, ca }`, sem arquivo e sem processo.
+Medido com `inotifywait` no `/tmp`, na mesma consulta à SEFAZ: três arquivos
+criados pelo jeito antigo, nenhum pelo novo. Com `strace`, o único `openssl`
+aberto é o `openssl version` que o `pem` roda ao carregar.
+
+### /api/nfe/status responde para o PA
+
+Em produção o PA é roteado como UF "SVRS", e o `sefazStatus` da biblioteca
+monta o `cUF` por essa UF, que não tem código: o pedido reprovava na validação
+do próprio XML e a rota respondia 500. `consultarStatusSefaz` manda o status à
+SVRS com o cUF da UF real e o certificado em memória. No 1bit e no
+produtosbomgosto: cStat 107, "Serviço em Operação". A biblioteca, quando a
+validação reprova, segue abrindo a conexão mesmo assim, e foi isso que deixou
+as sobras de 27/09.
+
+Suíte: etapa 136 (`test-cert-senha.js`) ganhou cinco casos; a instalação, o
+status e a escolha do titular foram sabotados numa cópia e reprovaram.
+
 ## 2026-09-27, senha do certificado cifrada, tenant floricultura e a loja sem a marca do ERP
 
 ### A senha do certificado A1 deixou de ficar em base64

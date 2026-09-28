@@ -34,6 +34,9 @@
 const { codigoUF, gerarCNF } = require('./nfe-ibge');
 const { montarNFeProc } = require('./nfe-proc');
 const { resolverEstab, serieAtual, avancarSerie } = require('./nfe-emit-routes');
+// O pfx é aberto em memória, sem os arquivos em /tmp que o pacote `pem` gravava
+// (ver cert-memoria.js). Precisa valer antes do primeiro `new Tools`.
+require('./cert-memoria').instalar();
 const { erroMeioPorCpfCnpj } = require('./meios-pagamento');
 const { getEstabelecimentoAtivo } = require('./estabelecimentos-routes');
 const { parsePrazo, vencimentosDoPrazo, dividirValor } = require('./prazo-pagamento');

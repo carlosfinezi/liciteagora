@@ -134,5 +134,92 @@ ok('POST /api/certificado grava cifrado e responde o titular', () => {
   assert.strictEqual(cs.decifrarSenha(s, pfxA), SENHA);
 });
 
-console.log(falhas ? `\nFALHOU: ${falhas}` : '\nTudo certo');
-process.exit(falhas ? 1 : 0);
+// ─── Certificado em memória (cert-memoria.js) ─────────────────────────────
+// O pacote `pem`, que a node-sped-nfe usa, gravava o pfx, a senha e a chave
+// aberta em /tmp (0644) a cada consulta à SEFAZ. Estes casos reprovam se a
+// leitura voltar a tocar em disco ou a abrir processo.
+console.log('Certificado em memória');
+const cm = require('../cert-memoria');
+const nodeCrypto = require('crypto');
+function pfxComCadeia(senha) {
+  const ca = forge.pki.rsa.generateKeyPair(1024), fim = forge.pki.rsa.generateKeyPair(1024);
+  const mk = (pub, serial, cn) => { const c = forge.pki.createCertificate(); c.publicKey = pub; c.serialNumber = serial;
+    c.validity.notBefore = new Date(); c.validity.notAfter = new Date(Date.now() + 864e5 * 30);
+    c.setSubject([{ name: 'commonName', value: cn }]); return c; };
+  const cCa = mk(ca.publicKey, '0a', 'AC TESTE'); cCa.setIssuer(cCa.subject.attributes); cCa.sign(ca.privateKey);
+  const cFim = mk(fim.publicKey, '0b', 'EMPRESA C'); cFim.setIssuer(cCa.subject.attributes); cFim.sign(ca.privateKey);
+  // A cadeia vem ANTES do titular de propósito: a leitura precisa achá-lo pela chave, não pela posição.
+  const p12 = forge.pkcs12.toPkcs12Asn1(fim.privateKey, [cCa, cFim], senha, { algorithm: '3des' });
+  return Buffer.from(forge.asn1.toDer(p12).getBytes(), 'binary');
+}
+ok('a chave e o certificado lidos em memória batem, e o TLS os aceita', () => {
+  const r = cm.lerPkcs12EmMemoria(Buffer.from(pfxA, 'base64'), SENHA);
+  assert.ok(/BEGIN RSA PRIVATE KEY/.test(r.key), 'chave fora do formato PKCS#1 que o pem entregava');
+  assert.ok(new nodeCrypto.X509Certificate(r.cert).checkPrivateKey(nodeCrypto.createPrivateKey(r.key)), 'chave não corresponde ao certificado');
+  require('tls').createSecureContext({ key: r.key, cert: r.cert });
+});
+ok('com cadeia, o titular é achado pela chave e o resto vira ca', () => {
+  const r = cm.lerPkcs12EmMemoria(pfxComCadeia('x1'), 'x1');
+  assert.ok(new nodeCrypto.X509Certificate(r.cert).subject.includes('EMPRESA C'), 'pegou o certificado errado como titular');
+  assert.strictEqual(r.ca.length, 1);
+});
+ok('senha errada falha', () => {
+  assert.throws(() => cm.lerPkcs12EmMemoria(Buffer.from(pfxA, 'base64'), 'errada'));
+});
+
+const assincronos = [];
+const okAsync = (nome, fn) => assincronos.push([nome, fn]);
+okAsync('pem.readPkcs12 instalado não grava arquivo nem abre processo', async () => {
+  cm.instalar();
+  const fs = require('fs'), cp = require('child_process');
+  const orig = { w: fs.writeFileSync, wa: fs.writeFile, s: cp.spawn, e: cp.execFile };
+  const toques = [];
+  fs.writeFileSync = (...a) => { toques.push('writeFileSync ' + a[0]); return orig.w.apply(fs, a); };
+  fs.writeFile = (...a) => { toques.push('writeFile ' + a[0]); return orig.wa.apply(fs, a); };
+  cp.spawn = (...a) => { toques.push('spawn ' + a[0]); return orig.s.apply(cp, a); };
+  cp.execFile = (...a) => { toques.push('execFile ' + a[0]); return orig.e.apply(cp, a); };
+  try {
+    const r = await new Promise((res, rej) => require('pem').readPkcs12(Buffer.from(pfxA, 'base64'), { p12Password: SENHA },
+      (e, v) => (e ? rej(e) : res(v))));
+    assert.ok(r.key && r.cert, 'não devolveu chave e certificado');
+    const errada = await new Promise((res) => require('pem').readPkcs12(Buffer.from(pfxA, 'base64'), { p12Password: 'x' }, (e) => res(e)));
+    assert.ok(errada, 'senha errada não devolveu erro');
+  } finally { fs.writeFileSync = orig.w; fs.writeFile = orig.wa; cp.spawn = orig.s; cp.execFile = orig.e; }
+  assert.deepStrictEqual(toques, [], 'tocou em disco ou abriu processo: ' + toques.join(', '));
+});
+okAsync('status do PA em produção vai à SVRS com o cUF 15 e o certificado em memória', async () => {
+  const db = novoBanco();
+  db.exec(`CREATE TABLE nfe_config (id INTEGER PRIMARY KEY, tpAmb INTEGER);
+    INSERT INTO nfe_config VALUES (1, 1);
+    CREATE TABLE fornecedor (id INTEGER PRIMARY KEY, cnpj TEXT, uf TEXT, inscricaoEstadual TEXT);
+    INSERT INTO fornecedor VALUES (1, '11222333000181', 'PA', '150000000')`);
+  cs.migrarSenhas(db);
+  const https = require('https');
+  const orig = https.request;
+  let visto = null;
+  https.request = (url, opts, cb) => {
+    visto = { url, opts, corpo: '' };
+    const { EventEmitter } = require('events');
+    const req = new EventEmitter();
+    req.setTimeout = () => req;
+    req.end = (b) => { visto.corpo = String(b); const res = new EventEmitter(); cb(res);
+      res.emit('data', '<retConsStatServ><cStat>107</cStat><cUF>15</cUF></retConsStatServ>'); res.emit('end'); };
+    return req;
+  };
+  try {
+    const r = await require('../nfe-emit-routes').consultarStatusSefaz(db);
+    assert.ok(/<cStat>107/.test(r));
+  } finally { https.request = orig; }
+  assert.strictEqual(visto.url, 'https://nfe.svrs.rs.gov.br/ws/NfeStatusServico/NfeStatusServico4.asmx');
+  assert.ok(/<cUF>15<\/cUF>/.test(visto.corpo), 'cUF do PA ausente: ' + visto.corpo);
+  assert.ok(/<tpAmb>1<\/tpAmb>/.test(visto.corpo));
+  assert.ok(visto.opts.key && visto.opts.cert && !visto.opts.pfx, 'certificado não foi em memória');
+});
+
+(async () => {
+  for (const [nome, fn] of assincronos) {
+    try { await fn(); console.log('  ok  ' + nome); } catch (e) { falhas++; console.log('FALHA ' + nome + ': ' + e.message); }
+  }
+  console.log(falhas ? `\nFALHOU: ${falhas}` : '\nTudo certo');
+  process.exit(falhas ? 1 : 0);
+})();

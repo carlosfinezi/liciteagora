@@ -117,6 +117,17 @@ sozinho entregava o pfx e a senha que o abre.
   como root, somente leitura (faz uma consulta de status à SEFAZ e um
   controle com senha errada, que tem de falhar).
 
+**O pfx é aberto em memória, sem arquivo** (`cert-memoria.js`, desde
+28/09/2026). A node-sped-nfe abre o certificado com o `pem.readPkcs12`, e o
+pacote `pem` rodava o `openssl` gravando o pfx, a senha e a chave privada
+aberta em `/tmp`, com permissão 644, apagando só no callback. Em 27/09 sobraram
+quatro desses arquivos, de um processo que saiu antes do callback. O
+`cert-memoria.instalar()`, chamado ao carregar o `nfe-emit-routes.js` e o
+`nfce-routes.js`, troca esse `readPkcs12` por uma leitura com o node-forge. Não
+abre processo nem toca em disco. Código novo que crie `Tools` da biblioteca
+fora desses dois módulos precisa chamar `instalar()` antes. O `/proc` está com
+`hidepid=invisible`: outro usuário não enxerga o processo do servidor.
+
 **Se a chave se perder:** toda senha já migrada fica ilegível. A NF-e, a
 NFC-e, a NFS-e, o PDF assinado e o certificado entregue ao Electron passam a
 falhar com "LICITEAGORA_CHAVE_CERT ausente" ou erro de decifra, em todos os
