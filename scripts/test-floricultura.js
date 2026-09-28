@@ -362,6 +362,27 @@ t('H2. ligada: / vai para a loja, /login para o login, ícone do ERP não é ser
   assert(r4.loc === '/uploads/loja/favicon-x.png', `ícone → ${r4.loc}`);
   const r5 = res(); vitrineAntesDoLogin(req(db, '/manifest.webmanifest'), r5, () => { throw new Error('serviu o do ERP'); });
   assert(r5.st === 404, 'manifest do ERP servido ao visitante');
+  for (const sw of ['/sw.js', '/pwa.js']) {
+    const r6 = res(); vitrineAntesDoLogin(req(db, sw), r6, () => { throw new Error(`serviu ${sw} do ERP`); });
+    assert(r6.st === 404, `${sw} do ERP servido ao visitante`);
+  }
+  let logado = 0;
+  vitrineAntesDoLogin(req(db, '/sw.js', { session: { userId: 1 } }), res(), () => logado++);
+  assert(logado === 1, 'o dono logado perdeu o service worker');
+  // O navegador busca o manifest SEM cookie: o que prova que é o dono é a
+  // página que pediu (uma tela do ERP), não a sessão.
+  const host = 'floricultura.local';
+  let doErp = 0;
+  for (const [arq, referer] of [['/manifest.webmanifest', `https://${host}/app.html`], ['/icone-192.png', `https://${host}/manifest.webmanifest`],
+                                ['/favicon.svg', `https://${host}/login.html`]]) {
+    vitrineAntesDoLogin(req(db, arq, { headers: { host, referer } }), res(), () => doErp++);
+  }
+  vitrineAntesDoLogin(req(db, '/sw.js', { headers: { host, 'service-worker': 'script' } }), res(), () => doErp++);
+  assert(doErp === 4, `telas do ERP sem os próprios ícones/manifest/SW: ${doErp} de 4`);
+  for (const referer of [`https://${host}/loja/`, 'https://outro-site.com/app.html']) {
+    const r7 = res(); vitrineAntesDoLogin(req(db, '/manifest.webmanifest', { headers: { host, referer } }), r7, () => { throw new Error(`serviu o manifest para ${referer}`); });
+    assert(r7.st === 404, `manifest com referer ${referer}: ${r7.st}`);
+  }
 });
 t('H3. ligada: caminho desconhecido recebe o 404 da loja; logado e API passam', () => {
   const db = montar(); db.prepare('UPDATE loja_config SET paginaInicial = 1').run();

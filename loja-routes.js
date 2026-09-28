@@ -2599,8 +2599,9 @@ function registrarRotasLojaAdmin(app, db) {
  * um existe porque a peça seguinte, sozinha, mostraria o ERP:
  *
  *  - `vitrineAntesDoLogin`, antes do static de public/auth: `/` vai para a
- *    loja, `/login` para o login, e o favicon, os ícones e o manifest do ERP
- *    deixam de ser servidos ao visitante (sai o favicon da loja, ou nada).
+ *    loja, `/login` para o login, e o favicon, os ícones, o manifest e o
+ *    service worker do ERP deixam de ser servidos ao visitante (sai o favicon
+ *    da loja, ou nada).
  *  - `vitrineNaBarreira`, logo antes do requireAuth: o que chegaria ao
  *    redirecionamento para /login.html recebe o 404 da loja.
  *  - `responderLojaFechada`, na suspensão do tenant: a vitrine fecha com o
@@ -2643,6 +2644,24 @@ function esquecerVitrine(req) {
 
 const logado = (req) => !!(req.session && req.session.userId);
 const ICONES_DO_ERP = /^\/(favicon\.(ico|svg)|apple-touch-icon\.png|icone-[a-z0-9-]+\.(png|svg))$/i;
+const PWA_DO_ERP = new Set(['/manifest.webmanifest', '/sw.js', '/pwa.js']);
+
+/* Pedido feito POR uma página do ERP, e não pela loja nem digitado.
+ *
+ * A sessão não basta para saber isso: o navegador busca o manifest (e os
+ * ícones que ele lista) SEM mandar cookie, então o dono logado chega aqui
+ * igual a um visitante. Medido em 27/09: `/manifest.webmanifest` com
+ * `Referer: /app.html` e sem cookie. O que distingue é quem pediu: uma tela do
+ * ERP no mesmo endereço, ou o navegador atualizando o próprio service worker
+ * (cabeçalho `Service-Worker: script`). A loja nunca referencia esses
+ * arquivos, então nada dela passa por aqui. */
+function pedidoDoErp(req) {
+  if (req.headers['service-worker'] === 'script') return true;
+  try {
+    const r = new URL(req.headers.referer || '');
+    return r.host === req.headers.host && !/^\/loja(\/|$)/.test(r.pathname);
+  } catch { return false; }
+}
 
 function vitrineAntesDoLogin(req, res, next) {
   if (req.method !== 'GET' && req.method !== 'HEAD') return next();
@@ -2651,8 +2670,13 @@ function vitrineAntesDoLogin(req, res, next) {
   const p = req.path;
   if (p === '/') return res.redirect(302, '/loja/');
   if (p === '/login') return res.redirect(302, '/login.html');
-  if (ICONES_DO_ERP.test(p)) return v.faviconPath ? res.redirect(302, v.faviconPath) : res.status(404).end();
-  if (p === '/manifest.webmanifest') return res.status(404).end();
+  // Ícones, manifest e service worker do ERP: só para as telas do ERP (o
+  // login do dono e o shell). Para o visitante, o ícone da loja ou nada.
+  if (ICONES_DO_ERP.test(p) || PWA_DO_ERP.has(p)) {
+    if (pedidoDoErp(req)) return next();
+    if (ICONES_DO_ERP.test(p) && v.faviconPath) return res.redirect(302, v.faviconPath);
+    return res.status(404).end();
+  }
   next();
 }
 

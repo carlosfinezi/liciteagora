@@ -45,6 +45,11 @@ visitante que abre o endereço vai para a loja; caminho desconhecido recebe um
 dono entra por `/login`, e logado o `/` volta a ser o painel. Tenant suspenso
 mostra a loja fechada, com o nome e as cores dela, sem slug nem cobrança.
 
+Ícone, manifest e service worker do ERP continuam servidos às telas do ERP
+(login e shell), reconhecidas pela página que pediu: o navegador busca o
+manifest SEM cookie, e na primeira versão o dono logado recebia 404 nele,
+achado na prova no navegador depois do restart (commit seguinte ao b6bb88d).
+
 Para isso o static de `public/auth` (login, ícones, service worker) passou a
 ser montado depois da sessão, e não antes do middleware de tenant
 (`base-middleware.servirTelaDeLogin`, chamado pelo `auth-pipeline`). Host
