@@ -125,6 +125,9 @@
         <div class="consumidor-row">
           <div><label>CPF/CNPJ</label><input type="text" id="iCpf" placeholder="000.000.000-00" oninput="atualizarConsumidorDebounced()"></div>
           <div><label>Nome</label><input type="text" id="iNome" placeholder="(opcional)"></div>
+          <div><label>E-mail</label><input type="email" id="iEmail" placeholder="(opcional)"></div>
+          <div style="display:flex;align-items:flex-end;"><label style="display:flex;gap:6px;align-items:center;margin:0 0 6px;font-size:.85em;color:var(--text-1);">
+            <input type="checkbox" id="iPromocoes" style="width:auto;"> Aceita receber promoções</label></div>
         </div>
         <div style="font-size:0.78em;color:var(--text-2);margin-top:6px;">Obrigatório acima de R$ 200 — e em qualquer valor quando a natureza gera conta a receber.</div>
 
@@ -237,7 +240,9 @@ function renderSugestoes(produtos, pessoas, clientePrimeiro){
       const pj = JSON.stringify(p).replace(/'/g,"&#39;");
       return `<div class="item" onclick='adicionar(${pj});document.getElementById("inpBusca").value="";document.getElementById("sugestoes").style.display="none";document.getElementById("inpBusca").focus();'>
         <div class="nome">${escape(p.descricao)}<br><span class="sku">SKU: ${escape(p.sku||'')}${p.codigoBarras?' · EAN: '+escape(p.codigoBarras):''}</span></div>
-        <div class="preco">R$ ${fmt(p.precoVenda)}</div>
+        <div class="preco">${p.precoPromocional != null
+          ? `R$ ${fmt(p.precoPromocional)} <s style="color:var(--text-3);font-weight:400;">R$ ${fmt(p.precoVenda)}</s>`
+          : `R$ ${fmt(p.precoVenda)}`}</div>
       </div>`;
     }).join('')}
   ` : '';
@@ -267,7 +272,8 @@ function adicionar(p){
   } else {
     carrinho.push({
       produtoId: p.id, sku: p.sku, descricao: p.descricao, unidade: p.unidade || 'UN',
-      quantidade: 1, precoUnitario: Number(p.precoVenda) || 0,
+      // Promoção vigente vence o preço do cadastro, como na loja.
+      quantidade: 1, precoUnitario: Number(p.precoPromocional ?? p.precoVenda) || 0,
       ncm: p.ncm, cfop: p.cfop || '5102', codigoBarras: p.codigoBarras
     });
   }
@@ -469,7 +475,9 @@ async function finalizar(){
     valorDesconto: desc,
     pagamentos: [{ tPag: tPagSel, valor: tot }],
     consumidorCpfCnpj: cpf || null,
-    consumidorNome: val('iNome').trim() || null
+    consumidorNome: val('iNome').trim() || null,
+    consumidorEmail: val('iEmail').trim() || null,
+    aceitePromocoes: document.getElementById('iPromocoes').checked
   };
 
   const btn = document.getElementById('btnFinalizar');

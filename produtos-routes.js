@@ -387,7 +387,18 @@ function registrarRotasProdutos(app, db) {
         JOIN produtos p ON p.id = k.produtoFilhoId
         WHERE k.produtoPaiId = ?
         ORDER BY p.descricao`).all(req.params.id);
-      res.json({ success: true, itens });
+      /* Custo do kit = soma do custo atual de cada componente vezes a
+         quantidade na composição. É o custo que a venda vai gravar, porque a
+         saída é dos componentes (reservas e NFC-e). */
+      const { custoAtualDe } = require('./estoque-routes');
+      let custoTotal = 0;
+      for (const it of itens) {
+        it.custoUnitario = Math.round(custoAtualDe(db, it.produtoFilhoId) * 10000) / 10000;
+        it.custoNoKit = Math.round(it.custoUnitario * Number(it.quantidade) * 100) / 100;
+        custoTotal += it.custoNoKit;
+      }
+      res.json({ success: true, itens, custoTotal: Math.round(custoTotal * 100) / 100,
+                 semCusto: itens.filter(i => !(i.custoUnitario > 0)).map(i => i.descricao) });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }

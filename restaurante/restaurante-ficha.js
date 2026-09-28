@@ -185,6 +185,30 @@ function baixarEstoqueDoItem(db, comandaItem, { profundidade = 0, visitados = ne
 }
 
 /**
+ * Insumo das opções escolhidas no item (a embalagem, o molho à parte): cada
+ * opção com `insumoProdutoId` baixa esse produto, na quantidade da opção vezes
+ * a do item. Até 2026-09-27 o insumo era cadastrado na opção e ninguém o lia.
+ */
+function baixarInsumosDasOpcoes(db, comandaItem) {
+  if (!comandaItem.id || !comandaItem.produtoId) return 0;
+  const opcoes = db.prepare(`SELECT o.insumoProdutoId, o.quantidadeInsumo, o.nome
+      FROM rest_comanda_item_opcoes io JOIN rest_opcoes o ON o.id = io.opcaoId
+     WHERE io.comandaItemId = ? AND o.insumoProdutoId IS NOT NULL AND o.quantidadeInsumo > 0`)
+    .all(comandaItem.id);
+  const insMov = db.prepare(`
+    INSERT INTO movimentacoes_estoque (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data)
+    VALUES (?, 'saida', ?, ?, 'comanda', ?, ?, ?)
+  `);
+  const qtdVendida = Number(comandaItem.quantidade || 1);
+  for (const o of opcoes) {
+    insMov.run(o.insumoProdutoId, Math.round(Number(o.quantidadeInsumo) * qtdVendida * 10000) / 10000,
+      custoUnitarioInsumo(db, o.insumoProdutoId), comandaItem.comandaId,
+      `Opção ${o.nome}: ${comandaItem.descricao}`, agora());
+  }
+  return opcoes.length;
+}
+
+/**
  * Baixa toda a comanda. Idempotente por comanda: se já houve baixa, não repete
  * — fechar a mesma conta duas vezes zeraria o estoque sem venda nenhuma.
  */
@@ -200,7 +224,10 @@ function baixarEstoqueComanda(db, comandaId) {
 
   let movimentos = 0;
   const tx = db.transaction(() => {
-    for (const it of itens) movimentos += baixarEstoqueDoItem(db, it).movimentos;
+    for (const it of itens) {
+      movimentos += baixarEstoqueDoItem(db, it).movimentos;
+      movimentos += baixarInsumosDasOpcoes(db, it);
+    }
   });
   tx();
   return { jaBaixado: false, movimentos };

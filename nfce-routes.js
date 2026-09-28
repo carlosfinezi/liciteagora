@@ -152,27 +152,45 @@ function aplicarEfeitosDaNatureza(db, { nfceId, numero, natureza, politica, pess
   }
 
   if (Number(natureza.movimentaEstoque)) {
-    const { resolverDeposito } = require('./estoque-routes');
+    const { resolverDeposito, contextoDeSaida } = require('./estoque-routes');
+    // Toda saída leva o custo (custoMedioAnterior) e o saldo depois dela: sem
+    // isso o relatório de lucro do balcão cairia no custo de hoje, e não no da
+    // data da venda.
     const insMov = db.prepare(`
       INSERT INTO movimentacoes_estoque
-        (produtoId, tipo, quantidade, origem, origemId, observacao, data, depositoId, loteId)
-      VALUES (?, 'saida', ?, 'nfce', ?, ?, ?, ?, ?)`);
+        (produtoId, tipo, quantidade, origem, origemId, observacao, data, depositoId, loteId,
+         custoMedioAnterior, custoMedioPosterior, saldoPosterior)
+      VALUES (?, 'saida', ?, 'nfce', ?, ?, ?, ?, ?, ?, ?, ?)`);
+    const sair = (produtoId, qtd, obs, loteId) => {
+      const ctx = contextoDeSaida(db, produtoId, qtd);
+      insMov.run(produtoId, qtd, nfceId, obs, dataEmissao, resolverDeposito(db, { produtoId }), loteId,
+        ctx.custoMedioAnterior, ctx.custoMedioPosterior, ctx.saldoPosterior);
+    };
+    const tipoDe = db.prepare('SELECT tipoProduto, descricao FROM produtos WHERE id = ?');
+    const componentesDe = db.prepare('SELECT produtoFilhoId, quantidade FROM produto_kit_itens WHERE produtoPaiId = ?');
     itens.forEach((it, i) => {
       if (!it.produtoId) return;
-      const deposito = resolverDeposito(db, { produtoId: it.produtoId });
+      // Kit não tem saldo próprio: sai cada componente, na proporção da
+      // composição. Mesma regra do pedido (reservas-routes.explodirItensPedido).
+      const prod = tipoDe.get(it.produtoId);
+      if (prod && prod.tipoProduto === 'kit') {
+        for (const c of componentesDe.all(it.produtoId)) {
+          sair(c.produtoFilhoId, Number(it.quantidade) * Number(c.quantidade),
+            `Saída pela NFC-e ${numero} · componente de ${prod.descricao}`, null);
+        }
+        return;
+      }
       const alocacoes = lotesDaVenda?.[i]?.alocacoes || [];
       if (!alocacoes.length) {
         // Produto que não rastreia lote (ou módulo Farmácia desligado):
         // uma movimentação, sem lote — comportamento histórico do PDV.
-        insMov.run(it.produtoId, Number(it.quantidade), nfceId,
-          `Saída pela NFC-e ${numero}`, dataEmissao, deposito, null);
+        sair(it.produtoId, Number(it.quantidade), `Saída pela NFC-e ${numero}`, null);
         return;
       }
       // Uma movimentação por lote, para o saldo por lote continuar fechando —
       // é isso que a ANVISA compara no SNGPC.
       for (const a of alocacoes) {
-        insMov.run(it.produtoId, Number(a.quantidade), nfceId,
-          `Saída pela NFC-e ${numero} · lote ${a.numero}`, dataEmissao, deposito, a.loteId);
+        sair(it.produtoId, Number(a.quantidade), `Saída pela NFC-e ${numero} · lote ${a.numero}`, a.loteId);
       }
     });
 
@@ -288,7 +306,7 @@ function carregarCert(db, estab = null) {
   if (!cert) throw new Error('Certificado digital não cadastrado');
   return {
     pfx: Buffer.from(cert.certificadoBase64, 'base64'),
-    senha: Buffer.from(cert.senhaCriptografada, 'base64').toString('utf-8')
+    senha: require('./cert-senha').decifrarSenha(cert.senhaCriptografada, cert.certificadoBase64)
   };
 }
 
@@ -706,6 +724,13 @@ function registrarRotas(app, db) {
 
   // Busca de produto para PDV (inclui código de barras, exclusivo do NFC-e)
   app.get('/api/nfce/produtos/buscar', (req, res) => {
+    // Promoção vigente (tabela de preço com vigência) vale no balcão como vale
+    // na loja: `precoPromocional` vem junto, e a tela o usa no lugar do cheio.
+    const { precoPromocional } = require('./precos-routes');
+    const comPromo = (p) => {
+      const promo = precoPromocional(db, p.id, 1);
+      return promo ? { ...p, precoPromocional: promo.preco, promocao: promo.tabelaNome } : p;
+    };
     try {
       const q = (req.query.q || '').trim();
       if (!q) return res.json({ success: true, produtos: [] });
@@ -713,7 +738,7 @@ function registrarRotas(app, db) {
       // Primeiro tenta match exato por código de barras ou SKU (caso de leitor de código)
       const exato = db.prepare(`SELECT id, sku, descricao, unidade, precoVenda, codigoBarras, ncm, cfopPadrao AS cfop
         FROM produtos WHERE ativo = 1 AND (codigoBarras = ? OR sku = ?) LIMIT 1`).get(q, q);
-      if (exato) return res.json({ success: true, produtos: [exato], matchExato: true });
+      if (exato) return res.json({ success: true, produtos: [comPromo(exato)], matchExato: true });
 
       // Com o módulo Farmácia ligado, o balcão também busca por PRINCÍPIO ATIVO
       // e o resultado vem com tarja, PMC e lista da 344 — sem isso o balconista
@@ -731,14 +756,14 @@ function registrarRotas(app, db) {
                                  OR p.codigoBarras LIKE ? OR LOWER(s.substancia) LIKE ?
                                  OR s.ean LIKE ?)
           ORDER BY p.descricao ASC LIMIT 20`).all(like, like, `%${q}%`, like, `%${q}%`);
-        return res.json({ success: true, produtos, farmacia: true });
+        return res.json({ success: true, produtos: produtos.map(comPromo), farmacia: true });
       }
 
       const produtos = db.prepare(`SELECT id, sku, descricao, unidade, precoVenda, codigoBarras, ncm, cfopPadrao AS cfop
         FROM produtos
         WHERE ativo = 1 AND (LOWER(sku) LIKE ? OR LOWER(descricao) LIKE ? OR codigoBarras LIKE ?)
         ORDER BY descricao ASC LIMIT 20`).all(like, like, `%${q}%`);
-      res.json({ success: true, produtos });
+      res.json({ success: true, produtos: produtos.map(comPromo) });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
@@ -847,7 +872,18 @@ function registrarRotas(app, db) {
       // Multi-loja: carimba o estabelecimento ativo da sessão no PDV (NULL = matriz).
       const _e = getEstabelecimentoAtivo(db, req);
       if (_e && !_e.matriz) payload.estabelecimentoId = _e.id;
+      const { lerEmail, contatoDoBalcao } = require('./contato-marketing');
+      const email = lerEmail(payload.consumidorEmail);
+      if (email === false) return res.status(400).json({ success: false, error: 'E-mail do consumidor inválido' });
       const r = await emitirNFCe(db, payload);
+      // Contato para promoções: só com a nota autorizada, e sem mexer em quem
+      // é o destinatário nem em quem recebe a conta a receber.
+      if (r && (r.cStat === '100' || r.cStat === '150')) {
+        try {
+          contatoDoBalcao(db, { cpfCnpj: payload.consumidorCpfCnpj, nome: payload.consumidorNome,
+                                email, aceite: !!payload.aceitePromocoes });
+        } catch (e) { console.error('[pdv/finalizar] contato de marketing:', e.message); }
+      }
       res.json({ success: true, modelo: '65', ...r });
     } catch (err) {
       console.error('[pdv/finalizar]', err);

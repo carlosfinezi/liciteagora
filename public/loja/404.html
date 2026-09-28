@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0E6B63">
+<!-- Servida pelo loja-routes.vitrineNaBarreira quando a loja é a página
+     inicial do tenant: o visitante que erra o endereço recebe esta página, e
+     não o login do ERP. Os caminhos são absolutos porque ela responde em
+     qualquer URL. -->
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Poppins:wght@500;700&display=swap">
+<title>Página não encontrada</title>
+<style>
+:root { --primaria: #0E6B63; --primaria-texto: #fff; --ground: #F7F8F8; --ink: #14201F; --ink-2: #5A6A68;
+  --raio: 10px; --fonte: Inter, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; --fonte-titulo: var(--fonte); }
+[hidden] { display: none !important; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; text-align: center; padding: 24px;
+  background: var(--ground); color: var(--ink); font-family: var(--fonte); }
+img { width: 88px; height: 88px; border-radius: 50%; object-fit: cover; }
+.nome { font-family: var(--fonte-titulo); font-size: 1.3em; font-weight: 700; margin: 12px 0 28px; }
+h1 { font-family: var(--fonte-titulo); font-size: 1.6em; margin: 0 0 20px; }
+a { display: inline-block; background: var(--primaria); color: var(--primaria-texto); text-decoration: none;
+  font-weight: 600; padding: 12px 22px; border-radius: var(--raio); }
+</style>
+</head>
+<body>
+<main>
+  <img id="logo" alt="" hidden>
+  <div class="nome" id="nome"></div>
+  <h1>Página não encontrada</h1>
+  <a href="/loja/">Ir para a loja</a>
+</main>
+<script src="/loja/tema.js"></script>
+<script>
+fetch('/loja/api/config').then((r) => r.json()).then((cfg) => {
+  if (!cfg || !cfg.success) return;
+  const l = cfg.loja;
+  aplicarTema(l.tema);
+  aplicarFavicon(l.favicon);
+  document.title = 'Página não encontrada · ' + l.nome;
+  document.getElementById('nome').textContent = l.nome;
+  if (l.logo) { const i = document.getElementById('logo'); i.src = l.logo; i.hidden = false; }
+}).catch(() => {});
+</script>
+</body>
+</html>

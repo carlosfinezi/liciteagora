@@ -64,6 +64,7 @@
     <button class="tab" data-tab="abc" onclick="switchTab('abc')">Curva ABC</button>
     <button class="tab" data-tab="giro" onclick="switchTab('giro')">Giro & Cobertura</button>
     <button class="tab" data-tab="cmv" onclick="switchTab('cmv')">CMV</button>
+    <button class="tab" data-tab="lucro" onclick="switchTab('lucro')">Lucro por produto</button>
   </div>
 
   <!-- ============= VALORIZAÇÃO ============= -->
@@ -168,6 +169,34 @@
       </div>
     </div>
   </div>
+
+  <div class="tab-content" id="tab-lucro" style="display:none;">
+    <div class="toolbar">
+      <label style="color:var(--text-2);font-size:0.85em;">De</label>
+      <input type="date" id="lucroInicio" onchange="carregarLucro()" style="width:auto;">
+      <label style="color:var(--text-2);font-size:0.85em;">até</label>
+      <input type="date" id="lucroFim" onchange="carregarLucro()" style="width:auto;">
+    </div>
+    <div class="kpi-grid" id="kpisLucro"></div>
+    <div class="chart-wrap">
+      <h3>Por produto</h3>
+      <div class="muted" id="lucroNota" style="font-size:.85em;margin-bottom:8px;"></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>SKU</th><th>Descrição</th>
+            <th style="text-align:right;">Qtd</th>
+            <th style="text-align:right;">Vendido</th>
+            <th style="text-align:right;">Custo</th>
+            <th style="text-align:right;">Lucro</th>
+            <th style="text-align:right;">Margem</th>
+            <th>Onde vendeu</th>
+          </tr></thead>
+          <tbody id="tbLucro"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </main></div>
 
 <div id="toasts"></div>
@@ -189,9 +218,10 @@ function switchTab(t){
   if (t==='abc' && !dadosCarregados.abc) carregarAbc();
   if (t==='giro' && !dadosCarregados.giro) carregarGiro();
   if (t==='cmv' && !dadosCarregados.cmv) carregarCmv();
+  if (t==='lucro' && !dadosCarregados.lucro) carregarLucro();
 }
 
-const dadosCarregados = { valorizacao: false, abc: false, giro: false, cmv: false };
+const dadosCarregados = { valorizacao: false, abc: false, giro: false, cmv: false, lucro: false };
 // Guarda a última resposta de cada aba para o CSV sair exatamente com o que
 // está na tela — exportar refazendo a consulta arrisca divergir do que o
 // usuário está vendo.
@@ -262,6 +292,9 @@ function exportarAba(){
   } else if (aba === 'giro') {
     baixarCsv('giro-cobertura', ['SKU','Descrição','Saldo atual','Custo médio','Valor em estoque','Saída período','Giro','Cobertura (dias)','Dias sem saída','Parado'],
       d.itens.map(i => [i.sku, i.descricao, num(i.saldoAtual), num(i.custoMedio), num(i.valorEstoque), num(i.qtdSaidaPeriodo), num(i.giro), num(i.coberturaDias), i.diasSemSaida ?? '', i.parado ? 'sim' : 'não']));
+  } else if (aba === 'lucro') {
+    baixarCsv('lucro-por-produto', ['SKU','Descrição','Qtd','Vendido','Custo','Lucro','Margem %','Custo estimado'],
+      d.produtos.map(p => [p.sku, p.descricao, num(p.quantidade), num(p.receita), num(p.custo), num(p.lucro), num(p.margem), p.estimado ? 'sim' : 'não']));
   } else {
     baixarCsv('cmv', ['SKU','Descrição','Qtd vendida','CMV'],
       d.porProduto.map(p => [p.sku, p.descricao, num(p.qtdSaida), num(p.cmv)]));
@@ -515,6 +548,49 @@ async function carregarCmv(){
   }).join('') || '<tr><td colspan="5" class="empty">Sem saídas no período</td></tr>';
 
   dadosCarregados.cmv = true;
+}
+
+// ======== LUCRO POR PRODUTO ========
+// Receita do pedido, da loja e do balcão contra o custo que cada venda tirou
+// do estoque. O depósito não se aplica aqui: a venda é da empresa inteira.
+const ROTULO_CANAL = { pedido: 'Pedido', loja: 'Loja', balcao: 'Balcão' };
+const escL = t => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+async function carregarLucro(){
+  let inicio = document.getElementById('lucroInicio').value;
+  let fim = document.getElementById('lucroFim').value;
+  if (!inicio || !fim) {
+    const now = new Date();
+    inicio = inicio || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+    fim = fim || new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10);
+    document.getElementById('lucroInicio').value = inicio;
+    document.getElementById('lucroFim').value = fim;
+  }
+  const r = await fetch(`/api/estoque/lucro?inicio=${inicio}&fim=${fim}`);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error, 'error');
+  ultimo.lucro = d;
+
+  const t = d.totais;
+  const canais = Object.entries(d.canais).map(([k, c]) => `${ROTULO_CANAL[k] || k}: R$ ${fmt(c.lucro)}`).join(' · ');
+  document.getElementById('kpisLucro').innerHTML = `
+    <div class="kpi"><div class="label">Vendido</div><div class="value">R$ ${fmt(t.receita)}</div><small class="muted">${inicio} a ${fim}</small></div>
+    <div class="kpi"><div class="label">Custo</div><div class="value">R$ ${fmt(t.custo)}</div></div>
+    <div class="kpi ${t.lucro >= 0 ? 'success' : 'danger'}"><div class="label">Lucro</div><div class="value">R$ ${fmt(t.lucro)}</div><small class="muted">${canais}</small></div>
+    <div class="kpi"><div class="label">Margem</div><div class="value">${t.margem == null ? '-' : fmt(t.margem) + '%'}</div></div>`;
+  document.getElementById('lucroNota').textContent = d.estimados
+    ? `${d.estimados} produto(s) com custo estimado pelo custo atual (venda ainda sem saída de estoque), marcados com *.` : '';
+  document.getElementById('tbLucro').innerHTML = d.produtos.map(p => `<tr>
+      <td class="mono">${escL(p.sku)}</td>
+      <td>${escL(p.descricao)}${p.kit ? ' <small class="muted">(kit)</small>' : ''}${p.estimado ? ' *' : ''}</td>
+      <td style="text-align:right;">${fmt(p.quantidade)}</td>
+      <td style="text-align:right;">R$ ${fmt(p.receita)}</td>
+      <td style="text-align:right;">R$ ${fmt(p.custo)}</td>
+      <td style="text-align:right;font-weight:600;${p.lucro < 0 ? 'color:var(--danger);' : ''}">R$ ${fmt(p.lucro)}</td>
+      <td style="text-align:right;">${p.margem == null ? '-' : fmt(p.margem) + '%'}</td>
+      <td>${Object.keys(p.canais).map(k => ROTULO_CANAL[k] || k).join(', ')}</td>
+    </tr>`).join('') || '<tr><td colspan="8" class="empty">Nenhuma venda no período</td></tr>';
+  dadosCarregados.lucro = true;
 }
 
 // Inicial

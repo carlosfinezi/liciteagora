@@ -1373,12 +1373,15 @@ function registrarRotasPedidos(app, db) {
           for (const it of itens) {
             if (!it.produtoId) continue;
             if (itensComReserva.has(it.id)) continue;  // já processado via reserva
+            const ctx = require('./estoque-routes').contextoDeSaida(db, it.produtoId, Number(it.quantidade));
             db.prepare(`INSERT INTO movimentacoes_estoque
-                        (produtoId, tipo, quantidade, origem, origemId, observacao, data, depositoId)
-                        VALUES (?, 'saida', ?, 'pedido', ?, ?, ?, ?)`)
+                        (produtoId, tipo, quantidade, origem, origemId, observacao, data, depositoId,
+                         custoMedioAnterior, custoMedioPosterior, saldoPosterior)
+                        VALUES (?, 'saida', ?, 'pedido', ?, ?, ?, ?, ?, ?, ?)`)
               .run(it.produtoId, Number(it.quantidade), ped.id,
                    `Saída pelo pedido ${ped.numero} (sem reserva)`, dataEntrega,
-                   resolverDeposito(db, { depositoId: ped.depositoId, pedidoId: ped.id, produtoId: it.produtoId }));
+                   resolverDeposito(db, { depositoId: ped.depositoId, pedidoId: ped.id, produtoId: it.produtoId }),
+                   ctx.custoMedioAnterior, ctx.custoMedioPosterior, ctx.saldoPosterior);
           }
         }
 

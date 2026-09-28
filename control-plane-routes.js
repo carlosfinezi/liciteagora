@@ -176,6 +176,71 @@ function requireSuperAdmin(controlDb) {
   };
 }
 
+// Criação de tenant: o que a rota do painel faz, fora dela, para que o
+// scripts/criar-tenant.js siga exatamente o mesmo caminho. Devolve
+// { erro, status } na recusa, ou { tenant, tempPassword, apiKey }.
+// O vhost fica com quem chama (spawnProvisionVhost), como antes.
+function criarTenant(manager, { slug, name, ownerEmail, plan = 'basic', trialDays = 14, planoId, actor }) {
+  if (!slug || !name) return { erro: 'slug e name obrigatórios', status: 400 };
+  if (!manager.isValidSlug(slug)) {
+    return { erro: 'slug inválido (use a-z, 0-9, hífens, 2–32 chars)', status: 400 };
+  }
+  if (manager.getTenantBySlug(slug)) return { erro: 'slug já existe', status: 409 };
+
+  // Resolve status: se planoId aponta para TRIAL → TRIAL; senão usa trialDays legado.
+  let status;
+  if (planoId) {
+    const plano = manager.getPlano(Number(planoId));
+    if (!plano) return { erro: 'planoId não existe', status: 400 };
+    status = plano.tipo === 'TRIAL' ? 'TRIAL' : 'ACTIVE';
+  } else {
+    status = trialDays > 0 ? 'TRIAL' : 'ACTIVE';
+  }
+  const tenant = manager.createTenant({
+    slug, name, ownerEmail: ownerEmail || null, plan, status, trialDays,
+    planoId: planoId ? Number(planoId) : null,
+    actor,
+  });
+
+  const tenantDb = manager.getDb(slug);
+  // Aplica migrations de TODOS os *-routes.js no DB novo. Re-registra
+  // rotas num app throwaway só para executar os db.exec/seed que
+  // vivem no escopo de registro de cada módulo. Sem isso, o tenant
+  // teria só as tabelas de db-schema.js — ~40 tabelas a mais ficariam
+  // de fora (contas_a_receber, comissoes, cte, etc.).
+  applyRouteMigrations(tenantDb, tenant);
+  const tempPassword = crypto.randomBytes(9).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 12);
+  const hash = bcrypt.hashSync(tempPassword, 10);
+  tenantDb.prepare(
+    "INSERT OR REPLACE INTO users (username, passwordHash, nome, role, ativo) VALUES (?, ?, ?, 'admin', 1)"
+  ).run('admin', hash, 'Administrador');
+
+  // Também garante um api_key do tenant (usado pelo Electron).
+  let apiKeyRow = tenantDb.prepare("SELECT valor FROM config WHERE chave = 'api_key'").get();
+  if (!apiKeyRow) {
+    const apiKey = crypto.randomBytes(32).toString('hex');
+    tenantDb.prepare(
+      'INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)'
+    ).run('api_key', apiKey);
+    apiKeyRow = { valor: apiKey };
+  }
+  return { tenant, tempPassword, apiKey: apiKeyRow.valor };
+}
+
+// Liga ou desliga uma feature do tenant (`<key>_enabled` no config dele).
+function ligarFeature(manager, slug, key, enabled, actor) {
+  if (!key || !FEATURES.find(f => f.key === key)) {
+    return { erro: `feature inválida (use uma de: ${FEATURES.map(f => f.key).join(', ')})`, status: 400 };
+  }
+  const tenant = manager.getTenantBySlug(slug);
+  if (!tenant) return { erro: 'tenant não existe', status: 404 };
+  manager.getDb(slug).prepare(
+    'INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)'
+  ).run(key + '_enabled', enabled ? '1' : '0');
+  manager.audit({ tenantId: tenant.id, action: 'SET_FEATURE', actor, payload: { key, enabled: !!enabled } });
+  return { ok: true };
+}
+
 function registerControlPlaneRoutes(app, { controlDb, manager }) {
   if (!controlDb || !manager) {
     throw new Error('control-plane-routes: controlDb e manager são obrigatórios');
@@ -385,19 +450,8 @@ function registerControlPlaneRoutes(app, { controlDb, manager }) {
     console.trace('[features-patch] stack');
     try {
       const { key, enabled } = req.body || {};
-      if (!key || !FEATURES.find(f => f.key === key)) {
-        return res.status(400).json({ error: `feature inválida (use uma de: ${FEATURES.map(f => f.key).join(', ')})` });
-      }
-      const tenant = manager.getTenantBySlug(req.params.slug);
-      if (!tenant) return res.status(404).json({ error: 'tenant não existe' });
-      const tenantDb = manager.getDb(req.params.slug);
-      tenantDb.prepare(
-        'INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)'
-      ).run(key + '_enabled', enabled ? '1' : '0');
-      manager.audit({
-        tenantId: tenant.id, action: 'SET_FEATURE', actor: req.superAdmin.email,
-        payload: { key, enabled: !!enabled },
-      });
+      const r = ligarFeature(manager, req.params.slug, key, enabled, req.superAdmin.email);
+      if (r.erro) return res.status(r.status).json({ error: r.erro });
       res.json({ success: true, key, enabled: !!enabled });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -542,51 +596,8 @@ function registerControlPlaneRoutes(app, { controlDb, manager }) {
   app.post('/api/admin/tenants', protect, (req, res) => {
     try {
       const { slug, name, ownerEmail, plan = 'basic', trialDays = 14, planoId } = req.body || {};
-      if (!slug || !name) return res.status(400).json({ error: 'slug e name obrigatórios' });
-      if (!manager.isValidSlug(slug)) {
-        return res.status(400).json({ error: 'slug inválido (use a-z, 0-9, hífens, 2–32 chars)' });
-      }
-      if (manager.getTenantBySlug(slug)) {
-        return res.status(409).json({ error: 'slug já existe' });
-      }
-
-      // Resolve status: se planoId aponta para TRIAL → TRIAL; senão usa trialDays legado.
-      let status;
-      if (planoId) {
-        const plano = manager.getPlano(Number(planoId));
-        if (!plano) return res.status(400).json({ error: 'planoId não existe' });
-        status = plano.tipo === 'TRIAL' ? 'TRIAL' : 'ACTIVE';
-      } else {
-        status = trialDays > 0 ? 'TRIAL' : 'ACTIVE';
-      }
-      const tenant = manager.createTenant({
-        slug, name, ownerEmail: ownerEmail || null, plan, status, trialDays,
-        planoId: planoId ? Number(planoId) : null,
-        actor: req.superAdmin.email,
-      });
-
-      const tenantDb = manager.getDb(slug);
-      // Aplica migrations de TODOS os *-routes.js no DB novo. Re-registra
-      // rotas num app throwaway só para executar os db.exec/seed que
-      // vivem no escopo de registro de cada módulo. Sem isso, o tenant
-      // teria só as tabelas de db-schema.js — ~40 tabelas a mais ficariam
-      // de fora (contas_a_receber, comissoes, cte, etc.).
-      applyRouteMigrations(tenantDb, tenant);
-      const tempPassword = crypto.randomBytes(9).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 12);
-      const hash = bcrypt.hashSync(tempPassword, 10);
-      tenantDb.prepare(
-        "INSERT OR REPLACE INTO users (username, passwordHash, nome, role, ativo) VALUES (?, ?, ?, 'admin', 1)"
-      ).run('admin', hash, 'Administrador');
-
-      // Também garante um api_key do tenant (usado pelo Electron).
-      let apiKeyRow = tenantDb.prepare("SELECT valor FROM config WHERE chave = 'api_key'").get();
-      if (!apiKeyRow) {
-        const apiKey = crypto.randomBytes(32).toString('hex');
-        tenantDb.prepare(
-          'INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)'
-        ).run('api_key', apiKey);
-        apiKeyRow = { valor: apiKey };
-      }
+      const r = criarTenant(manager, { slug, name, ownerEmail, plan, trialDays, planoId, actor: req.superAdmin.email });
+      if (r.erro) return res.status(r.status).json({ error: r.erro });
 
       // Dispara provisionamento de vhost + SSL em background — não
       // bloqueia a resposta; UI consulta GET /api/admin/tenants para
@@ -595,10 +606,10 @@ function registerControlPlaneRoutes(app, { controlDb, manager }) {
       spawnProvisionVhost(slug, manager);
 
       res.status(201).json({
-        tenant,
+        tenant: r.tenant,
         loginUrl: `https://${slug}.liciteagora.app/`,
-        ownerCredentials: { username: 'admin', password: tempPassword },
-        apiKey: apiKeyRow.valor,
+        ownerCredentials: { username: 'admin', password: r.tempPassword },
+        apiKey: r.apiKey,
         provisioning: true,
       });
     } catch (err) {
@@ -700,4 +711,4 @@ function registerControlPlaneRoutes(app, { controlDb, manager }) {
   console.log('[ControlPlane] Rotas /api/admin/* registradas');
 }
 
-module.exports = { registerControlPlaneRoutes, ADMIN_HOST, spawnProvisionVhost, applyRouteMigrations };
+module.exports = { registerControlPlaneRoutes, ADMIN_HOST, spawnProvisionVhost, applyRouteMigrations, criarTenant, ligarFeature, PROVISION_SCRIPT };

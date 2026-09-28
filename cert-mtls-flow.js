@@ -22,7 +22,7 @@ function loadCert() {
   const db = new Database(path.join(__dirname, 'data', 'tenants', TENANT, 'pncp.db'), { readonly: true });
   const c = db.prepare('SELECT certificadoBase64, senhaCriptografada FROM certificado_digital WHERE id=1').get();
   db.close();
-  return { pfx: Buffer.from(c.certificadoBase64, 'base64'), passphrase: Buffer.from(c.senhaCriptografada, 'base64').toString() };
+  return { pfx: Buffer.from(c.certificadoBase64, 'base64'), passphrase: require('./cert-senha').decifrarSenha(c.senhaCriptografada, c.certificadoBase64) };
 }
 const CERT = loadCert();
 

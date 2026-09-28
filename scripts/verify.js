@@ -598,6 +598,16 @@ const suites = [
   // bebida puxava a popularidade e todo prato virava "enigma". O cenário é
   // montado para as duas regras discordarem: pela média geral a suíte reprova.
   ['135. engenharia de cardapio por categoria (test-restaurante-engenharia)', 'test-restaurante-engenharia.js'],
+  // Senha do certificado A1 cifrada. Até 27/09 era base64, e o pncp.db sozinho
+  // entregava o pfx e a senha que o abre. A suíte prova que o banco não abre o
+  // pfx, que sem a chave a leitura falha em vez de devolver vazio, e que a
+  // senha de uma linha não serve para o certificado de outra.
+  ['136. senha do certificado cifrada (test-cert-senha)', 'test-cert-senha.js'],
+  // Loja de floricultura ponta a ponta: kit na loja e no balcão, insumo das
+  // opções baixando estoque, custo em toda saída, lucro por produto, aceite
+  // de promoções, promoção para o visitante e a loja como página inicial. Cada
+  // bloco foi sabotado em 27/09 e reprovou; um verde aqui prova alguma coisa.
+  ['137. loja de floricultura (test-floricultura)', 'test-floricultura.js'],
 ];
 // ==================== modo rápido: quais suítes ====================
 /**

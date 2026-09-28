@@ -11,12 +11,17 @@
 //   1. initAuthAndSession(app, db)           -> cria admin inicial,
 //      rotaciona sessionSecret, gera apiKey, instala session middleware.
 //      Retorna { apiKey }.
+//   1b. vitrineAntesDoLogin + servirTelaDeLogin -> com a loja como página
+//      inicial, `/` vai para a loja e o visitante não recebe os ícones do
+//      ERP; depois, o static público de public/auth (login, PWA, admin).
 //   2. registrarRotasAuthPublicas(app, db)   -> POST /api/login (com
 //      rate limit SEC-03), POST /api/logout. Publicas.
 //   3. registerPreAuthRoutes(app, db, { apiKey }) -> Portal do Cliente,
 //      download publico do Browser, auto-login Comprasnet, Electron
 //      remoto. Fica ANTES da barreira, preservando a ordem portal >
 //      download > comprasnet > electron.
+//   3b. vitrineNaBarreira -> com a loja como página inicial, o visitante que
+//      cairia no redirecionamento para o login recebe o 404 da loja.
 //   4. installAuthBarrier(app, db, { apiKey }) -> app.use(requireAuth)
 //      -- tudo abaixo exige sessao valida ou X-Api-Key.
 //   5. registrarRotasAuthProtegidas(app, db, { apiKey }) -> /api/change-password,
@@ -45,6 +50,12 @@ const { registerLandingRoutes } = require('./landing-routes');
 function installAuthPipeline(app, db, { controlDb = null, tenantManager = null } = {}) {
   const { apiKey } = initAuthAndSession(app, db, { controlDb });
 
+  // A loja como página inicial decide antes do static do login (ver
+  // loja-routes.js e base-middleware.servirTelaDeLogin).
+  const { vitrineAntesDoLogin, vitrineNaBarreira } = require('./loja-routes');
+  app.use(vitrineAntesDoLogin);
+  require('./base-middleware').servirTelaDeLogin(app);
+
   registrarRotasAuthPublicas(app, db);
   registerPreAuthRoutes(app, db, { apiKey });
 
@@ -54,6 +65,9 @@ function installAuthPipeline(app, db, { controlDb = null, tenantManager = null }
     registerLandingRoutes(app, { controlDb, tenantManager });
   }
 
+  // O que ainda não foi atendido iria para o login do ERP: com a loja como
+  // página inicial, o visitante recebe o 404 da loja.
+  app.use(vitrineNaBarreira);
   installAuthBarrier(app, db, { apiKey });
 
   registrarRotasAuthProtegidas(app, db, { apiKey });

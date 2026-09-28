@@ -121,6 +121,16 @@
   </section>
 
   <section class="card" style="margin-bottom:16px;">
+    <h2 style="margin:0 0 14px;font-size:1.02em;">Endereço do site</h2>
+    <div class="linha-check">
+      <input type="checkbox" id="paginaInicial">
+      <label for="paginaInicial" style="font-weight:500;color:var(--text-1);">
+        Abrir o catálogo em <strong id="enderecoRaiz"></strong></label>
+    </div>
+    <p class="dica" style="margin:6px 0 0;">A equipe entra no sistema por <span id="enderecoLogin"></span>.</p>
+  </section>
+
+  <section class="card" style="margin-bottom:16px;">
     <h2 style="margin:0 0 14px;font-size:1.02em;">Endereço</h2>
     <div class="grade-form">
       <div class="campo largo">
@@ -235,6 +245,9 @@ async function carregar() {
     $('facebook').value = i.facebook || '';
     $('endereco').value = i.endereco || '';
     $('mostrarEndereco').checked = !!i.mostrarEndereco;
+    $('paginaInicial').checked = !!i.paginaInicial;
+    $('enderecoRaiz').textContent = d.enderecoRaiz || '';
+    $('enderecoLogin').textContent = (d.enderecoRaiz || '/') + 'login';
 
     // Diz o que a vitrine usaria se o campo ficar vazio — em vez de deixar o
     // lojista achando que o dado sumiu.
@@ -267,6 +280,7 @@ async function salvar() {
         email: $('email').value, whatsapp: $('whatsapp').value, telefone: $('telefone').value,
         instagram: $('instagram').value, facebook: $('facebook').value,
         endereco: $('endereco').value, mostrarEndereco: $('mostrarEndereco').checked,
+        paginaInicial: $('paginaInicial').checked,
         horarios: colherHorarios(),
       }),
     });

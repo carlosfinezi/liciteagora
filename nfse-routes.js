@@ -68,7 +68,7 @@ function carregarCertificado(db, estab = null) {
   }
 
   const p12Buffer = Buffer.from(cert.certificadoBase64, 'base64');
-  const senha = Buffer.from(cert.senhaCriptografada, 'base64').toString();
+  const senha = require('./cert-senha').decifrarSenha(cert.senhaCriptografada, cert.certificadoBase64);
 
   return { p12Buffer, senha, titular: cert.titular, validade: cert.validade };
 }

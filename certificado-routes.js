@@ -11,12 +11,11 @@
 // A validação do .pfx usa node-forge para extrair CN (titular) e notAfter
 // (validade), rejeita certificados expirados e senhas erradas.
 //
-// IMPORTANTE: a senha é "criptografada" com Buffer.toString('base64') — isto
-// é obfuscação, não criptografia real (a chave para decifrar está no próprio
-// processo). Foi assim no monolito original, mantido 1:1. Endurecer a
-// proteção de senha é uma onda de segurança separada — não é escopo aqui.
+// A senha é gravada cifrada por cert-senha.js (AES-256-GCM, chave fora do
+// banco). Até 2026-09-27 era só base64.
 
 const forge = require('node-forge');
+const { cifrarSenha } = require('./cert-senha');
 const { getEstabelecimentoAtivo } = require('./estabelecimentos-routes');
 
 // Determina como localizar/gravar o certificado do estabelecimento ativo.
@@ -90,8 +89,7 @@ function registrarRotasCertificado(app, db) {
         return res.status(400).json({ success: false, error: 'Certificado expirado!' });
       }
 
-      // Criptografar a senha antes de salvar (simples, pode ser melhorado)
-      const senhaCripto = Buffer.from(senha).toString('base64');
+      const senhaCripto = cifrarSenha(senha, certificado);
 
       const alvo = alvoCertificado(db, req);
       if (alvo.usarLegado) {

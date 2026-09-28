@@ -139,7 +139,8 @@ function cardHtml(p) {
     <div class="card-foto">${foto
       ? `<img src="${esc(foto)}" alt="${esc(p.descricao)}" loading="lazy">`
       : '<span class="sem-foto">sem foto</span>'}
-      ${p.destaque ? '<span class="selo">★</span>' : ''}</div>
+      ${p.destaque ? '<span class="selo">★</span>' : ''}
+      ${p.precoAnterior ? '<span class="selo-oferta">Oferta</span>' : ''}</div>
     <div class="card-txt">
       <h3>${esc(p.descricao)}</h3>
       ${p.marca ? `<p class="marca">${esc(p.marca)}</p>` : ''}
@@ -167,7 +168,14 @@ function pintarHome() {
   }
 
   const secoes = [];
-  // Destaques primeiro — e só quando existem. Seção vazia é ruído.
+  // Ofertas no topo: é a promoção vigente (tabela de preço com vigência), a
+  // mesma que dá o preço riscado. Sem oferta, a seção não existe.
+  const ofertas = lista.filter((p) => p.precoAnterior);
+  if (ofertas.length) {
+    secoes.push(`<section class="secao" id="sec-ofertas">
+      <h2>Ofertas</h2><div class="grade">${ofertas.map(cardHtml).join('')}</div></section>`);
+  }
+  // Destaques depois das ofertas — e só quando existem. Seção vazia é ruído.
   const destaques = lista.filter((p) => p.destaque);
   if (destaques.length) {
     secoes.push(`<section class="secao" id="sec-destaques">
@@ -191,6 +199,7 @@ function pintarCategorias() {
   const nav = $('navCats');
   const temDestaque = PRODUTOS.some((p) => p.destaque);
   const itens = [];
+  if (PRODUTOS.some((p) => p.precoAnterior)) itens.push('<button data-ir="sec-ofertas">Ofertas</button>');
   if (temDestaque) itens.push('<button data-ir="sec-destaques">Destaques</button>');
   for (const c of CATEGORIAS) itens.push(`<button data-ir="sec-${encodeURIComponent(c)}">${esc(c)}</button>`);
   nav.innerHTML = itens.join('');
@@ -489,6 +498,13 @@ async function pintarCheckout() {
           <label for="chkDoc">CPF ou CNPJ <span class="chk-op-txt">(opcional)</span></label>
           <input id="chkDoc" type="text" inputmode="numeric" maxlength="20" placeholder="Só se quiser na nota">
         </div>
+        <div class="chk-campo">
+          <label for="chkEmail">E-mail <span class="chk-op-txt">(opcional)</span></label>
+          <input id="chkEmail" type="email" autocomplete="email" maxlength="120" placeholder="voce@email.com">
+        </div>
+        <label class="chk-check">
+          <input type="checkbox" id="chkPromocoes"> Quero receber as promoções da loja
+        </label>
       </section>
 
       <section class="chk-bloco" id="chkEndereco" hidden>
@@ -649,7 +665,8 @@ function corpoDoPedido() {
   const v = (id) => { const el = $(id); return el ? el.value.trim() : ''; };
   const corpo = {
     idempotencyKey: chaveDaTentativa(),
-    cliente: { nome: v('chkNome'), telefone: v('chkTelefone'), cpfCnpj: v('chkDoc') || null },
+    cliente: { nome: v('chkNome'), telefone: v('chkTelefone'), cpfCnpj: v('chkDoc') || null,
+               email: v('chkEmail') || null, aceitePromocoes: !!($('chkPromocoes') && $('chkPromocoes').checked) },
     atendimento: CHECKOUT.atendimento,
     pagamento: CHECKOUT.pagamento,
     observacao: v('chkObs') || null,
@@ -920,7 +937,7 @@ function pintarRodape(redes) {
   $('rodRedesCol').hidden = !redes.length;
 
   const ano = new Date().getFullYear();
-  $('rodCopy').textContent = `© ${ano} ${LOJA.nome || ''}`.trim();
+  $('rodCopy').textContent = LOJA.rodape || `© ${ano} ${LOJA.nome || ''}`.trim();
 }
 
 /* ===================== painel Informações ================================== */
@@ -1067,7 +1084,9 @@ async function carregar() {
   }
   LOJA = cfg.loja;
   aplicarTema(LOJA.tema);
+  aplicarFavicon(LOJA.favicon);
   document.title = LOJA.nome;
+  if (LOJA.tema && LOJA.tema.faixaTexto) { $('faixa').textContent = LOJA.tema.faixaTexto; $('faixa').hidden = false; }
   $('nomeLoja').textContent = LOJA.nome;
   $('descLoja').textContent = LOJA.descricao || '';
   if (LOJA.logo) { const el = $('logo'); el.src = LOJA.logo; el.alt = LOJA.nome; el.hidden = false;

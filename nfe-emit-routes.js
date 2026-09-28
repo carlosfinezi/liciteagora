@@ -257,7 +257,7 @@ function carregarCert(db, estab = null) {
   if (!cert) throw new Error('Certificado digital não cadastrado');
   return {
     pfx: Buffer.from(cert.certificadoBase64, 'base64'),
-    senha: Buffer.from(cert.senhaCriptografada, 'base64').toString('utf-8')
+    senha: require('./cert-senha').decifrarSenha(cert.senhaCriptografada, cert.certificadoBase64)
   };
 }
 

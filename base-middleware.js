@@ -37,8 +37,20 @@ function applyBaseMiddleware(app) {
   app.use(cors({ origin: _corsAllow, credentials: true }));
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ limit: '10mb', extended: true }));
-  // Login page (publico, antes do auth)
+}
+
+/* Tela de login, favicons, manifest e service worker do ERP: públicos, na
+   raiz, antes da barreira de autenticação.
+
+   Até 2026-09-27 isto era montado junto do resto, ANTES do middleware de
+   tenant. Saiu daqui porque a loja pode ser a página inicial do tenant, e aí
+   o visitante não pode receber o favicon nem o manifest do ERP: quem decide
+   isso precisa saber o tenant e a sessão, que ainda não existiam naquele
+   ponto. Agora o auth-pipeline chama esta função depois da sessão e da
+   vitrine (loja-routes.vitrineAntesDoLogin). Host desconhecido, que antes
+   recebia a tela de login, recebe o 404 do middleware de tenant. */
+function servirTelaDeLogin(app) {
   app.use(express.static(path.join(__dirname, 'public', 'auth')));
 }
 
-module.exports = { applyBaseMiddleware };
+module.exports = { applyBaseMiddleware, servirTelaDeLogin };

@@ -362,13 +362,17 @@ function registrarRotas(app, db) {
           // pedido (que baixa no /entregar consumindo reservas_estoque).
           const insMov = db.prepare(`
             INSERT INTO movimentacoes_estoque
-              (produtoId, tipo, quantidade, origem, origemId, observacao, data, depositoId)
-            VALUES (?, 'saida', ?, 'nf_avulsa', ?, ?, ?, ?)`);
+              (produtoId, tipo, quantidade, origem, origemId, observacao, data, depositoId,
+               custoMedioAnterior, custoMedioPosterior, saldoPosterior)
+            VALUES (?, 'saida', ?, 'nf_avulsa', ?, ?, ?, ?, ?, ?, ?)`);
+          const { contextoDeSaida } = require('./estoque-routes');
           for (const it of nota.itens) {
             if (!it.produtoId) continue;
+            const ctx = contextoDeSaida(db, it.produtoId, Number(it.quantidade));
             insMov.run(it.produtoId, Number(it.quantidade), id,
               `Saída pela NF avulsa ${nota.numero}`, nota.dataEmissao,
-              resolverDeposito(db, { produtoId: it.produtoId }));
+              resolverDeposito(db, { produtoId: it.produtoId }),
+              ctx.custoMedioAnterior, ctx.custoMedioPosterior, ctx.saldoPosterior);
           }
         }
       })();

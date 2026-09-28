@@ -137,7 +137,7 @@ function runInBootContext(fn) {
 // opts:
 //   manager     — createTenantManager() instance
 //   onUnknown   — (req,res) → void. Default: 404 HTML neutro.
-//   onSuspended — (req,res,tenant) → void. Default: 402 "pagamento pendente".
+//   onSuspended — (req,res,tenant,padrao) → void. Default: 402 "pagamento pendente".
 //   allowWithoutTenant — (req) => bool. Retorne true para bypass (ex.:
 //                                        rotas /admin/*, /health, ACME challenge).
 function createTenantMiddleware({
@@ -187,7 +187,9 @@ function createTenantMiddleware({
         return doneUnknown(req, res);
       }
       if (tenant.status === 'SUSPENDED' || tenant.status === 'CANCELLED') {
-        return doneSuspended(req, res, tenant);
+        // O padrão vai junto: quem personaliza pode responder só uma parte
+        // (a vitrine da loja) e devolver o resto à mensagem de sempre.
+        return doneSuspended(req, res, tenant, defaultOnSuspended);
       }
       let db;
       try {

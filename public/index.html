@@ -10,7 +10,7 @@
 </head>
 <body>
 <div class="layout">
-<main class="main-content">
+<main class="main-content aguardando-features">
 
   <div class="page-header">
     <div>
@@ -23,46 +23,46 @@
   </div>
 
   <div class="kpi-grid">
-    <div class="kpi" id="kpiParticipacoes">
+    <div class="kpi" id="kpiParticipacoes" data-feature="licitacoes">
       <div class="label">Participações ativas</div>
       <div class="value">—</div>
     </div>
-    <div class="kpi" id="kpiDisputas">
+    <div class="kpi" id="kpiDisputas" data-feature="operacional">
       <div class="label">Disputas em andamento</div>
       <div class="value">—</div>
     </div>
-    <div class="kpi" id="kpiSessoesHoje">
+    <div class="kpi" id="kpiSessoesHoje" data-feature="licitacoes">
       <div class="label">Sessões hoje</div>
       <div class="value">—</div>
     </div>
-    <div class="kpi" id="kpiMensagens">
+    <div class="kpi" id="kpiMensagens" data-feature="operacional">
       <div class="label">Mensagens não lidas</div>
       <div class="value">—</div>
     </div>
-    <div class="kpi" id="kpiSaldo">
+    <div class="kpi" id="kpiSaldo" data-feature="financeiro">
       <div class="label">Saldo total</div>
       <div class="value">—</div>
     </div>
-    <div class="kpi" id="kpiCobertura">
+    <div class="kpi" id="kpiCobertura" data-feature="licitacoes">
       <div class="label">Cobertura futura</div>
       <div class="value">—</div>
     </div>
   </div>
 
   <div class="dash-row">
-    <section class="card">
+    <section class="card" data-feature="licitacoes">
       <h3>Status Comprasnet</h3>
       <div id="statusComprasnet"><div class="dash-empty">Carregando…</div></div>
     </section>
 
-    <section class="card">
+    <section class="card" data-feature="financeiro">
       <h3>Financeiro · próximos 7 dias</h3>
       <div id="statusFinanceiro"><div class="dash-empty">Carregando…</div></div>
     </section>
   </div>
 
   <div class="dash-row">
-    <section class="card">
+    <section class="card" data-feature="licitacoes">
       <h3>Agenda de hoje</h3>
       <div id="agendaHoje"><div class="dash-empty">Carregando…</div></div>
     </section>
@@ -70,14 +70,17 @@
     <section class="card">
       <h3>Atalhos</h3>
       <div class="dash-shortcuts">
-        <a href="/licitacoes/consulta.html" class="btn btn-secondary">🔍 Buscar licitação</a>
-        <a href="/operacional/propostas-api.html" class="btn btn-secondary">📝 Nova proposta</a>
-        <a href="/operacional/lances.html" class="btn btn-secondary">🎯 Lances automáticos</a>
-        <a href="/licitacoes/agenda.html" class="btn btn-secondary">📅 Agenda completa</a>
-        <a href="/comercial/pedidos.html" class="btn btn-secondary">🧾 Novo pedido</a>
-        <a href="/financeiro/contas-a-receber.html" class="btn btn-secondary">📥 A receber</a>
-        <a href="/financeiro/contas-a-pagar.html" class="btn btn-secondary">📤 A pagar</a>
-        <a href="/operacional/comprasnet-monitor.html" class="btn btn-secondary">💬 Chat</a>
+        <a href="/licitacoes/consulta.html" class="btn btn-secondary" data-feature="licitacoes">🔍 Buscar licitação</a>
+        <a href="/operacional/propostas-api.html" class="btn btn-secondary" data-feature="operacional">📝 Nova proposta</a>
+        <a href="/operacional/lances.html" class="btn btn-secondary" data-feature="operacional">🎯 Lances automáticos</a>
+        <a href="/licitacoes/agenda.html" class="btn btn-secondary" data-feature="licitacoes">📅 Agenda completa</a>
+        <a href="/varejo/pdv.html" class="btn btn-secondary" data-feature="varejo">🛒 PDV</a>
+        <a href="/comercial/pedidos.html" class="btn btn-secondary" data-feature="comercial">🧾 Novo pedido</a>
+        <a href="/catalogo/produtos.html" class="btn btn-secondary" data-feature="produtos">📦 Produtos</a>
+        <a href="/catalogo/catalogo-online.html" class="btn btn-secondary" data-feature="produtos">🛍️ Catálogo Online</a>
+        <a href="/financeiro/contas-a-receber.html" class="btn btn-secondary" data-feature="financeiro">📥 A receber</a>
+        <a href="/financeiro/contas-a-pagar.html" class="btn btn-secondary" data-feature="financeiro">📤 A pagar</a>
+        <a href="/operacional/comprasnet-monitor.html" class="btn btn-secondary" data-feature="operacional">💬 Chat</a>
       </div>
     </section>
   </div>
@@ -93,6 +96,10 @@
     margin-bottom: 20px;
   }
   .card { padding: 16px 18px; }
+  [data-feature].feature-off, .dash-row.vazia { display: none !important; }
+  /* Até saber os módulos, nada condicional aparece: sem isso o Comprasnet
+     piscaria na tela de quem não tem licitações. */
+  .aguardando-features [data-feature] { visibility: hidden; }
   .card h3 { margin: 0 0 12px 0; }
   .dash-shortcuts { display: flex; flex-wrap: wrap; gap: 8px; }
   .dash-shortcuts .btn { text-decoration: none; }
@@ -154,14 +161,35 @@ function setKpi(id, value, modifier) {
 
 const hojeIso = () => new Date().toISOString().slice(0, 10);
 
+/* Cada bloco declara o módulo de que depende (data-feature). Tenant sem
+   licitações não vê Comprasnet, PNCP nem atalho de licitação, e a tela nem
+   chama a API desses blocos. Se /api/features/status falhar, mostra tudo:
+   esconder o painel inteiro por um erro de leitura seria pior. */
+let FEATURES = null;
+const ligado = (f) => !FEATURES || FEATURES[f] === true;
+
+async function carregarFeatures() {
+  const d = await jget('/api/features/status');
+  FEATURES = d && d.features ? d.features : null;
+  document.querySelectorAll('[data-feature]').forEach(el => {
+    el.classList.toggle('feature-off', !ligado(el.dataset.feature));
+  });
+  document.querySelector('main').classList.remove('aguardando-features');
+  // Linha sem nenhum card visível some junto, para não sobrar buraco.
+  document.querySelectorAll('.dash-row').forEach(row => {
+    row.classList.toggle('vazia', [...row.children].every(c => c.classList.contains('feature-off')));
+  });
+}
+
 async function carregarKpis() {
+  const lic = ligado('licitacoes'), op = ligado('operacional');
   const [parts, disp, ag, msg, fin, sync] = await Promise.all([
-    jget('/api/proposta/participacoes?situacao=ativas'),
-    jget('/api/sniper/disputas-ativas'),
-    jget('/api/agenda?dataIni=' + hojeIso() + '&dataFim=' + hojeIso()),
-    jget('/api/chat/nao-lidas'),
-    jget('/api/contas-financeiras/resumo'),
-    jget('/api/sync/status')
+    lic ? jget('/api/proposta/participacoes?situacao=ativas') : null,
+    op ? jget('/api/sniper/disputas-ativas') : null,
+    lic ? jget('/api/agenda?dataIni=' + hojeIso() + '&dataFim=' + hojeIso()) : null,
+    op ? jget('/api/chat/nao-lidas') : null,
+    ligado('financeiro') ? jget('/api/contas-financeiras/resumo') : null,
+    lic ? jget('/api/sync/status') : null
   ]);
 
   if (parts) {
@@ -274,11 +302,12 @@ async function atualizar() {
   const btn = document.getElementById('btnAtualizar');
   if (btn) { btn.disabled = true; btn.textContent = '↻ Atualizando…'; }
   try {
+    if (!FEATURES) await carregarFeatures();
     await Promise.all([
       carregarKpis(),
-      carregarStatusComprasnet(),
-      carregarFinanceiro(),
-      carregarAgenda()
+      ligado('licitacoes') ? carregarStatusComprasnet() : null,
+      ligado('financeiro') ? carregarFinanceiro() : null,
+      ligado('licitacoes') ? carregarAgenda() : null
     ]);
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '↻ Atualizar'; }

@@ -4,6 +4,84 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-27, senha do certificado cifrada, tenant floricultura e a loja sem a marca do ERP
+
+### A senha do certificado A1 deixou de ficar em base64
+
+`cert-senha.js` cifra a senha com AES-256-GCM, amarrada ao próprio pfx: a
+senha de uma linha copiada para outra não decifra. A chave fica em
+`/etc/liciteagora/chave-certificado.env` (root, 600), entregue às duas units
+por um drop-in `EnvironmentFile=-`, e não vai no backup dos bancos. As senhas
+existentes migram no boot de cada tenant (`db-schema.js`); os sete pontos que
+liam a senha (NF-e, NFC-e, NFS-e, PDF assinado, Electron e os dois scripts de
+mTLS) passaram a decifrar. Gravar senha sem a chave é recusado. O que fazer se
+a chave se perder está no CLAUDE.md. Suíte: etapa 136 (`test-cert-senha.js`).
+
+A prova nos tenants que emitem de verdade é `scripts/provar-cert-senha.js`,
+somente leitura: consulta de status à SEFAZ com a senha decifrada e um
+controle com senha errada, que precisa falhar. De passagem, o
+`/api/nfe/status` de produção quebra para o PA: o `getTools` roteia como
+"SVRS", que a biblioteca não converte em cUF. Não mexido.
+
+### Tenant floricultura
+
+Criado por `scripts/criar-tenant.js`, que segue o caminho da rota do painel
+(`criarTenant` e `ligarFeature` saíram da rota para funções exportadas, sem
+mudar o que a rota faz) e roda a cópia root do provisionamento. Plano
+Vitalício/Interno, com produtos, varejo, fiscal, comercial, financeiro e
+comunicação. `https://floricultura.liciteagora.app/`, vhost e Let's Encrypt
+prontos.
+
+O painel e a tela de Status passaram a respeitar os módulos: sem licitações,
+some tudo que é Comprasnet, PNCP e agenda, e a tela nem chama essas APIs. O
+painel ganhou atalhos de PDV, Produtos e Catálogo Online, cada um com o seu
+módulo.
+
+### A loja como página inicial, sem nada do ERP para o cliente
+
+Com "Abrir o catálogo no endereço" ligado (Informações da empresa), o
+visitante que abre o endereço vai para a loja; caminho desconhecido recebe um
+404 com a cara da loja; favicon, ícones e manifest do ERP não são servidos. O
+dono entra por `/login`, e logado o `/` volta a ser o painel. Tenant suspenso
+mostra a loja fechada, com o nome e as cores dela, sem slug nem cobrança.
+
+Para isso o static de `public/auth` (login, ícones, service worker) passou a
+ser montado depois da sessão, e não antes do middleware de tenant
+(`base-middleware.servirTelaDeLogin`, chamado pelo `auth-pipeline`). Host
+desconhecido, que recebia a tela de login, recebe o 404 do tenant.
+
+Tema da vitrine: cor secundária, cor da barra do navegador, fundo suave,
+fonte amigável, fonte dos títulos (elegante, clássica, manuscrita, moderna),
+faixa de aviso no topo, texto do rodapé e ícone da aba.
+
+### Buquê pronto, opções que baixam estoque, custo e lucro
+
+- Kit na loja rende o mínimo entre os componentes; antes aparecia "sob
+  consulta". No balcão, a NFC-e do kit baixa cada componente. A tela do kit
+  mostra o custo somado e a margem.
+- A opção com insumo baixa o insumo, na loja e na comanda. As escolhas ficam
+  em `pedido_item_opcoes` (tabela nova), com o insumo copiado no momento da
+  compra. O cadastro de grupos e opções saiu do restaurante e está na tela do
+  produto, com o grupo de texto livre (mensagem do cartão).
+- Toda saída grava o custo em `custoMedioAnterior`: NFC-e, NF avulsa e pedido
+  sem reserva não gravavam nenhum. Sem média, vale o custo da última entrada
+  ou o do cadastro (`estoque-routes.contextoDeSaida`).
+- Relatório "Lucro por produto" em Estoque › Análises: vendido, custo e lucro
+  por produto e período, juntando pedido, loja e balcão, com o custo que cada
+  venda tirou do estoque. Venda sem saída sai estimada e marcada.
+
+### Clientes e promoções
+
+- Checkout da loja e PDV pedem e-mail (opcional) e o aceite de promoções, que
+  vai para os campos de LGPD com data e origem. Não marcar não descadastra.
+- Promoção é a tabela de preço geral, vigente e com vigência definida
+  (`precos-routes.precoPromocional`). Vale para o visitante da loja e no PDV;
+  tabela sem vigência continua sendo só do cliente vinculado. A vitrine ganhou
+  a seção e o selo de Ofertas.
+
+Suíte: etapa 137 (`test-floricultura.js`), 28 casos. Cada bloco foi sabotado
+numa cópia do código em `/tmp` e reprovou.
+
 ## 2026-09-26, frentes paradas no git, verify em banco descartável e fora da sessão
 
 ### Doze frentes que estavam só em produção entraram no histórico

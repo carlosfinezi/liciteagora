@@ -463,6 +463,42 @@ function calcularContextoMovimento(db, produtoId, tipo, quantidade, custoUnitari
 }
 
 /**
+ * Contexto de uma SAÍDA, com o custo dela sempre preenchido quando existe
+ * algum custo conhecido.
+ *
+ * Numa saída o custo mora em `custoMedioAnterior` (os relatórios de CMV leem
+ * `COALESCE(custoMedioAnterior, custoUnitario, ...)`), e `custoUnitario` fica
+ * vazio de propósito: o estorno recria a entrada com ele, e uma entrada com
+ * custo recalcularia a média (ver saidaDeSerieComEquipamento).
+ *
+ * Produto que nunca teve entrada com custo não tem média. Aí vale a mesma
+ * cascata do `sqlCustoAtual`: última entrada com custo e, por fim, o custo do
+ * cadastro. Só `custoMedioAnterior` recebe o recuo; `custoMedioPosterior`
+ * continua o que a média diz, para não inventar média a partir do cadastro.
+ */
+function contextoDeSaida(db, produtoId, quantidade) {
+  const ctx = calcularContextoMovimento(db, produtoId, 'saida', quantidade, null);
+  if (ctx.custoMedioAnterior == null) {
+    const recuo = custoAtualDe(db, produtoId);
+    if (recuo > 0) ctx.custoMedioAnterior = recuo;
+  }
+  return ctx;
+}
+
+/** Custo unitário de hoje, pela cascata do `sqlCustoAtual`: média, última
+ *  entrada com custo, custo do cadastro. Zero quando nada disso existe. */
+function custoAtualDe(db, produtoId) {
+  const media = calcularCustoMedio(db, produtoId);
+  if (media > 0) return media;
+  const ent = db.prepare(`SELECT custoUnitario FROM movimentacoes_estoque
+    WHERE produtoId = ? AND tipo = 'entrada' AND custoUnitario > 0
+    ORDER BY date(data) DESC, id DESC LIMIT 1`).get(produtoId);
+  if (ent && Number(ent.custoUnitario) > 0) return Number(ent.custoUnitario);
+  const cad = db.prepare('SELECT precoCusto FROM produtos WHERE id = ?').get(produtoId);
+  return (cad && Number(cad.precoCusto) > 0) ? Number(cad.precoCusto) : 0;
+}
+
+/**
  * Atualiza saldoAtual de um lote após movimentação.
  */
 function atualizarSaldoLote(db, loteId, delta) {
@@ -751,6 +787,20 @@ function registrarRotasEstoque(app, db) {
   });
 
   // ==================== CMV (Custo Mercadoria Vendida) ====================
+
+  /* Vendido × custo × lucro por produto e período (pedido, loja e balcão).
+     A regra de onde sai cada custo mora em lucro-produtos.js. */
+  app.get('/api/estoque/lucro', (req, res) => {
+    try {
+      const data = /^\d{4}-\d{2}-\d{2}$/;
+      const { inicio, fim } = req.query;
+      if (!data.test(String(inicio || '')) || !data.test(String(fim || ''))) {
+        return res.status(400).json({ success: false, error: 'inicio e fim (AAAA-MM-DD) obrigatórios' });
+      }
+      if (inicio > fim) return res.status(400).json({ success: false, error: 'O início vem depois do fim' });
+      res.json({ success: true, ...require('./lucro-produtos').relatorioLucro(db, { inicio, fim }) });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
 
   app.get('/api/estoque/cmv', (req, res) => {
     try {
@@ -1225,4 +1275,4 @@ function registrarRotasEstoque(app, db) {
 }
 
 module.exports = {
-  sqlCustoAtual, registrarRotasEstoque, migrarEstoqueDB, calcularSaldo, saldoPorEstabelecimento, calcularCustoMedio, calcularContextoMovimento, getDepositoPadraoId, resolverDeposito };
+  sqlCustoAtual, registrarRotasEstoque, migrarEstoqueDB, calcularSaldo, saldoPorEstabelecimento, calcularCustoMedio, calcularContextoMovimento, contextoDeSaida, custoAtualDe, getDepositoPadraoId, resolverDeposito };

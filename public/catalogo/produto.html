@@ -488,10 +488,11 @@
       <small class="muted" style="display:block;margin-bottom:8px;">Kit não tem saldo próprio: a reserva e a baixa de estoque acontecem nos componentes. Salve a composição com o botão abaixo.</small>
       <div class="tbl-wrap">
         <table>
-          <thead><tr><th>Componente</th><th style="width:130px;">Qtd por kit</th><th style="width:40px;"></th></tr></thead>
+          <thead><tr><th>Componente</th><th style="width:130px;">Qtd por kit</th><th style="width:110px;text-align:right;">Custo unit.</th><th style="width:110px;text-align:right;">No kit</th><th style="width:40px;"></th></tr></thead>
           <tbody id="tbKit"></tbody>
         </table>
       </div>
+      <div id="kitCusto" class="muted" style="margin-top:8px;font-size:.92em;"></div>
       <div class="form-row" style="margin-top:10px;">
         <div class="form-group full-width"><label>Adicionar componente</label>
           <select id="novoComponente"><option value="">— selecione —</option></select>
@@ -500,6 +501,18 @@
         <div class="form-group" style="align-self:flex-end;"><button class="btn btn-secondary" type="button" onclick="addComponente()">+ Adicionar</button></div>
       </div>
       <div style="margin-top:10px;"><button class="btn btn-primary btn-sm" type="button" onclick="salvarKit()">Salvar composição</button></div>
+    </div>
+  </details>
+
+  <details class="sec" id="secPers" style="display:none;">
+    <summary>Personalizações na loja</summary>
+    <div class="sec-body">
+      <small class="muted" style="display:block;margin-bottom:8px;">Escolhas que o cliente faz ao comprar pela loja: tamanho, embalagem, fita, mensagem do cartão. A opção com insumo tira esse produto do estoque quando é escolhida.</small>
+      <div id="persGrupos"></div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-primary btn-sm" type="button" onclick="salvarPersProduto()">Salvar personalizações deste produto</button>
+        <button class="btn btn-secondary btn-sm" type="button" onclick="novoGrupoPers()">+ Novo grupo</button>
+      </div>
     </div>
   </details>
 
@@ -1171,8 +1184,9 @@ async function carregarCodigosEKit(){
   ).join('') : '<tr><td colspan="4" class="empty">Nenhum código alternativo</td></tr>';
 
   const rk = await fetch(`/api/produtos/${id}/kit`); const dk = await rk.json();
-  kitItens = (dk.itens||[]).map(i => ({ produtoFilhoId: i.produtoFilhoId, quantidade: i.quantidade, sku: i.sku, descricao: i.descricao }));
+  kitItens = (dk.itens||[]).map(i => ({ produtoFilhoId: i.produtoFilhoId, quantidade: i.quantidade, sku: i.sku, descricao: i.descricao, custoUnitario: i.custoUnitario || 0 }));
   renderKit();
+  carregarPers();
 
   try {
     const rf = await fetch('/api/fornecedores'); const df = await rf.json();
@@ -1183,7 +1197,8 @@ async function carregarCodigosEKit(){
     const rp = await fetch('/api/produtos'); const dp = await rp.json();
     document.getElementById('novoComponente').innerHTML = '<option value="">— selecione —</option>' +
       (dp.produtos||[]).filter(x => String(x.id) !== String(id) && x.tipoProduto !== 'kit')
-        .map(x=>`<option value="${x.id}" data-sku="${x.sku}" data-desc="${(x.descricao||'').replace(/"/g,'&quot;')}">${x.sku} — ${x.descricao}</option>`).join('');
+        .map(x=>`<option value="${x.id}" data-sku="${x.sku}" data-desc="${(x.descricao||'').replace(/"/g,'&quot;')}" data-custo="${Number(x.precoCusto)||0}">${x.sku} — ${x.descricao}</option>`).join('');
+    PRODUTOS_INSUMO = (dp.produtos||[]).filter(x => x.tipoProduto !== 'kit');
   } catch {}
 }
 
@@ -1210,13 +1225,27 @@ async function rmCodigo(codigoId){
   carregarCodigosEKit();
 }
 
+const brlK = (n) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
 function renderKit(){
   const tb = document.getElementById('tbKit');
   tb.innerHTML = kitItens.length ? kitItens.map((k,i) =>
     `<tr><td>${k.sku} — ${k.descricao}</td>
-     <td><input type="number" min="0.001" step="any" value="${k.quantidade}" style="width:110px;" onchange="kitItens[${i}].quantidade=Number(this.value)"></td>
+     <td><input type="number" min="0.001" step="any" value="${k.quantidade}" style="width:110px;" onchange="kitItens[${i}].quantidade=Number(this.value);renderKit()"></td>
+     <td style="text-align:right;">${k.custoUnitario > 0 ? brlK(k.custoUnitario) : '<span class="muted">sem custo</span>'}</td>
+     <td style="text-align:right;">${brlK((k.custoUnitario || 0) * (Number(k.quantidade) || 0))}</td>
      <td><button class="btn btn-ghost btn-sm" type="button" onclick="kitItens.splice(${i},1);renderKit()">×</button></td></tr>`
-  ).join('') : '<tr><td colspan="3" class="empty">Sem componentes — produto comum</td></tr>';
+  ).join('') : '<tr><td colspan="5" class="empty">Sem componentes — produto comum</td></tr>';
+  // Custo somado na hora, com as quantidades da tela; o servidor calcula o
+  // mesmo ao carregar. A margem é sobre o preço de venda deste cadastro.
+  const el = document.getElementById('kitCusto');
+  if (!kitItens.length) { el.textContent = ''; return; }
+  const custo = kitItens.reduce((a, k) => a + (k.custoUnitario || 0) * (Number(k.quantidade) || 0), 0);
+  const venda = Number(val('precoVenda')) || 0;
+  const semCusto = kitItens.filter(k => !(k.custoUnitario > 0)).map(k => k.descricao);
+  el.innerHTML = `Custo do kit: <strong>${brlK(custo)}</strong>`
+    + (venda > 0 ? ` · venda ${brlK(venda)} · lucro ${brlK(venda - custo)} (${(((venda - custo) / venda) * 100).toFixed(1)}%)` : '')
+    + (semCusto.length ? `<br>Sem custo cadastrado: ${semCusto.map(d => String(d).replace(/[<>&]/g, '')).join(', ')}` : '');
 }
 
 function addComponente(){
@@ -1225,7 +1254,9 @@ function addComponente(){
   if (!sel.value) return showAlert('Selecione o componente','error');
   const qtd = Number(document.getElementById('novoComponenteQtd').value) || 1;
   if (kitItens.some(k => String(k.produtoFilhoId) === sel.value)) return showAlert('Componente já está no kit','error');
-  kitItens.push({ produtoFilhoId: Number(sel.value), quantidade: qtd, sku: opt.dataset.sku, descricao: opt.dataset.desc });
+  // Custo provisório pelo cadastro; ao salvar, o servidor devolve o custo médio.
+  kitItens.push({ produtoFilhoId: Number(sel.value), quantidade: qtd, sku: opt.dataset.sku, descricao: opt.dataset.desc,
+                  custoUnitario: Number(opt.dataset.custo) || 0 });
   renderKit();
 }
 
@@ -1239,6 +1270,125 @@ async function salvarKit(){
   if (!d.success) return showAlert(d.error,'error');
   showAlert(d.ehKit ? 'Composição salva — produto marcado como kit' : 'Composição removida — produto comum');
   carregarCodigosEKit();
+}
+
+// ==================== PERSONALIZAÇÕES NA LOJA ====================
+let PRODUTOS_INSUMO = [];
+let PERS = { grupos: [], doProduto: [] };
+const escP = (t) => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+async function apiP(url, opt) {
+  const r = await fetch(url, opt);
+  const d = await r.json().catch(() => null);
+  if (!r.ok || !d || !d.success) throw new Error((d && d.error) || 'Não foi possível concluir.');
+  return d;
+}
+const jsonP = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+async function carregarPers() {
+  const id = val('prodId') || prodIdUrl;
+  if (!id) return;
+  document.getElementById('secPers').style.display = '';
+  try {
+    const [g, p] = await Promise.all([apiP('/api/loja/opcoes/grupos'), apiP(`/api/loja/opcoes/produto/${id}`)]);
+    PERS.grupos = g.grupos; PERS.doProduto = p.grupoIds;
+    renderPers();
+  } catch (e) { document.getElementById('persGrupos').innerHTML = `<div class="muted">${escP(e.message)}</div>`; }
+}
+
+function renderPers() {
+  const box = document.getElementById('persGrupos');
+  if (!PERS.grupos.length) { box.innerHTML = '<div class="muted" style="padding:6px 0;">Nenhum grupo cadastrado.</div>'; return; }
+  const opcInsumo = (sel) => '<option value="">sem insumo</option>' + PRODUTOS_INSUMO
+    .map(x => `<option value="${x.id}"${String(sel) === String(x.id) ? ' selected' : ''}>${escP(x.sku)} — ${escP(x.descricao)}</option>`).join('');
+  box.innerHTML = PERS.grupos.map(g => {
+    const marcado = PERS.doProduto.includes(g.id);
+    const regra = g.tipo === 'texto' ? (g.minEscolhas > 0 ? 'texto obrigatório' : 'texto opcional')
+      : `escolhe de ${g.minEscolhas} a ${g.maxEscolhas}`;
+    const opcoes = g.tipo === 'texto' ? '' : `
+      <table style="margin-top:6px;"><thead><tr><th>Opção</th><th style="width:110px;">+ Preço</th><th>Insumo</th><th style="width:90px;">Qtd</th><th style="width:70px;"></th></tr></thead><tbody>
+      ${g.opcoes.map(o => `<tr data-op="${o.id}">
+        <td><input value="${escP(o.nome)}" data-f="nome"></td>
+        <td><input type="number" step="0.01" min="0" value="${Number(o.precoAdicional) || 0}" data-f="precoAdicional" style="width:100px;"></td>
+        <td><select data-f="insumoProdutoId">${opcInsumo(o.insumoProdutoId)}</select></td>
+        <td><input type="number" step="any" min="0" value="${o.quantidadeInsumo ?? ''}" data-f="quantidadeInsumo" style="width:80px;"></td>
+        <td><button class="btn btn-ghost btn-sm" type="button" onclick="salvarOpcao(${o.id})" title="Salvar">✓</button><button class="btn btn-ghost btn-sm" type="button" onclick="apagarOpcao(${o.id})" title="Apagar">×</button></td></tr>`).join('')}
+      <tr data-nova="${g.id}">
+        <td><input placeholder="Nova opção" data-f="nome"></td>
+        <td><input type="number" step="0.01" min="0" value="0" data-f="precoAdicional" style="width:100px;"></td>
+        <td><select data-f="insumoProdutoId">${opcInsumo('')}</select></td>
+        <td><input type="number" step="any" min="0" value="1" data-f="quantidadeInsumo" style="width:80px;"></td>
+        <td><button class="btn btn-secondary btn-sm" type="button" onclick="novaOpcao(${g.id})">+</button></td></tr>
+      </tbody></table>`;
+    return `<div class="card" style="padding:10px 12px;margin-bottom:8px;">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <label style="display:flex;gap:6px;align-items:center;font-weight:600;margin:0;">
+          <input type="checkbox" data-usar="${g.id}"${marcado ? ' checked' : ''}> ${escP(g.nome)}</label>
+        <span class="muted" style="font-size:.85em;">${escP(regra)}${g.descricao ? ' · ' + escP(g.descricao) : ''}${g.produtos ? ` · em ${g.produtos} produto(s)` : ''}</span>
+        <span style="flex:1;"></span>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="editarGrupo(${g.id})">Editar</button>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="apagarGrupo(${g.id})">Apagar</button>
+      </div>${opcoes}</div>`;
+  }).join('');
+}
+
+function camposDe(tr) {
+  const o = {};
+  tr.querySelectorAll('[data-f]').forEach(el => { o[el.dataset.f] = el.value; });
+  if (!o.insumoProdutoId) { o.insumoProdutoId = null; o.quantidadeInsumo = null; }
+  return o;
+}
+
+async function salvarPersProduto() {
+  const id = val('prodId') || prodIdUrl;
+  const ids = [...document.querySelectorAll('[data-usar]')].filter(c => c.checked).map(c => Number(c.dataset.usar));
+  try { await apiP(`/api/loja/opcoes/produto/${id}`, jsonP('PUT', { grupoIds: ids })); showAlert('Personalizações do produto salvas.'); carregarPers(); }
+  catch (e) { showAlert(e.message, 'error'); }
+}
+async function novaOpcao(grupoId) {
+  const tr = document.querySelector(`tr[data-nova="${grupoId}"]`);
+  try { await apiP(`/api/loja/opcoes/grupos/${grupoId}/opcoes`, jsonP('POST', camposDe(tr))); carregarPers(); }
+  catch (e) { showAlert(e.message, 'error'); }
+}
+async function salvarOpcao(id) {
+  const tr = document.querySelector(`tr[data-op="${id}"]`);
+  try { await apiP(`/api/loja/opcoes/itens/${id}`, jsonP('PUT', camposDe(tr))); showAlert('Opção salva.'); carregarPers(); }
+  catch (e) { showAlert(e.message, 'error'); }
+}
+async function apagarOpcao(id) {
+  try { await apiP(`/api/loja/opcoes/itens/${id}`, { method: 'DELETE' }); carregarPers(); }
+  catch (e) { showAlert(e.message, 'error'); }
+}
+async function apagarGrupo(id) {
+  try { await apiP(`/api/loja/opcoes/grupos/${id}`, { method: 'DELETE' }); carregarPers(); }
+  catch (e) { showAlert(e.message, 'error'); }
+}
+
+/* Novo grupo e edição usam o mesmo formulário, aberto no lugar da lista. */
+function formGrupo(g) {
+  const t = g ? g.tipo : 'escolha';
+  return `<div class="card" style="padding:12px;margin-bottom:8px;" id="formGrupo">
+    <div class="form-row">
+      <div class="form-group"><label>Nome</label><input id="fgNome" maxlength="80" value="${escP(g ? g.nome : '')}" placeholder="Embalagem"></div>
+      <div class="form-group"><label>Tipo</label><select id="fgTipo">
+        <option value="escolha"${t === 'escolha' ? ' selected' : ''}>Escolher entre opções</option>
+        <option value="texto"${t === 'texto' ? ' selected' : ''}>Texto livre</option></select></div>
+      <div class="form-group"><label>Mínimo</label><input id="fgMin" type="number" min="0" value="${g ? g.minEscolhas : 0}" style="width:80px;"></div>
+      <div class="form-group"><label>Máximo</label><input id="fgMax" type="number" min="1" value="${g ? g.maxEscolhas : 1}" style="width:80px;"></div>
+    </div>
+    <div class="form-group"><label>Pergunta ao cliente</label><input id="fgDesc" maxlength="160" value="${escP(g ? g.descricao || '' : '')}" placeholder="Qual embalagem você prefere?"></div>
+    <div style="display:flex;gap:8px;"><button class="btn btn-primary btn-sm" type="button" onclick="salvarGrupo(${g ? g.id : 'null'})">Salvar grupo</button>
+      <button class="btn btn-ghost btn-sm" type="button" onclick="renderPers()">Cancelar</button></div></div>`;
+}
+function novoGrupoPers() { renderPers(); document.getElementById('persGrupos').insertAdjacentHTML('afterbegin', formGrupo(null)); }
+function editarGrupo(id) { renderPers(); document.getElementById('persGrupos').insertAdjacentHTML('afterbegin', formGrupo(PERS.grupos.find(x => x.id === id))); }
+async function salvarGrupo(id) {
+  const body = { nome: val('fgNome'), tipo: val('fgTipo'), minEscolhas: Number(val('fgMin')) || 0,
+                 maxEscolhas: Number(val('fgMax')) || 1, descricao: val('fgDesc') };
+  try {
+    await apiP(id ? `/api/loja/opcoes/grupos/${id}` : '/api/loja/opcoes/grupos', jsonP(id ? 'PUT' : 'POST', body));
+    showAlert('Grupo salvo.'); carregarPers();
+  } catch (e) { showAlert(e.message, 'error'); }
 }
 
 carregarCodigosEKit();

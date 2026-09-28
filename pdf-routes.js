@@ -173,7 +173,7 @@ function registrarRotasPdf(app, db) {
       }
 
       const p12Buffer = Buffer.from(cert.certificadoBase64, 'base64');
-      const senha = Buffer.from(cert.senhaCriptografada, 'base64').toString();
+      const senha = require('./cert-senha').decifrarSenha(cert.senhaCriptografada, cert.certificadoBase64);
 
       // Extrair certificado e chave privada do P12
       const p12Asn1 = forge.asn1.fromDer(p12Buffer.toString('binary'));

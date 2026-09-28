@@ -299,9 +299,9 @@ function registrarRotasElectron(app, db, { apiKey }) {
   //
   // ATENÇÃO — isto entrega a CHAVE PRIVADA da empresa ao cliente. É decisão
   // explícita de produto (2026-07-28), tomada com o risco declarado: quem obtiver
-  // a API key do tenant obtém o certificado inteiro. A senha vai em claro porque
-  // no banco ela é apenas base64 (vide certificado-routes.js:14-17) — não há
-  // segredo adicional sendo exposto aqui, mas endurecer isso continua pendente.
+  // a API key do tenant obtém o certificado inteiro. Desde 2026-09-27 a senha é
+  // cifrada no banco (cert-senha.js), mas esta rota a decifra e a entrega em
+  // claro: a API key continua sendo a única barreira aqui.
   app.get('/api/electron/certificado', (req, res) => {
     try {
       const headerKey = req.headers['x-api-key'];
@@ -316,8 +316,9 @@ function registrarRotasElectron(app, db, { apiKey }) {
       if (!row || !row.certificadoBase64) {
         return res.json({ error: 'Certificado não configurado' });
       }
-      let senha = '';
-      try { senha = Buffer.from(row.senhaCriptografada || '', 'base64').toString('utf8'); } catch (_) {}
+      // Decifra aqui: o cliente desktop recebe a senha em claro, como antes.
+      // Sem a chave, falha com erro em vez de mandar senha vazia.
+      const senha = require('./cert-senha').decifrarSenha(row.senhaCriptografada, row.certificadoBase64);
       res.json({
         pfxBase64: row.certificadoBase64,
         senha,

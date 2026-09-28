@@ -49,6 +49,10 @@ function bootstrapTenantAware({ processarFilaAnalise } = {}) {
   //    para decidir acesso.
   const middleware = createTenantMiddleware({
     manager,
+    // Tenant suspenso: a vitrine fecha com a cara da loja, sem falar de
+    // cobrança nem de slug; o resto recebe o aviso de sempre.
+    onSuspended: (req, res, tenant, padrao) =>
+      require('./loja-routes').responderLojaFechada(manager, req, res, tenant) || padrao(req, res, tenant),
     allowWithoutTenant: (req) => {
       return req.path.startsWith('/.well-known/') || req.path === '/health' || req.path === '/api/whatsapp/webhook';
     },

@@ -130,7 +130,7 @@
             <div class="page-header">
               <div>
                 <h1>Status do Sistema</h1>
-                <small>Monitore a sincronização e os dados do sistema</small>
+                <small id="subtituloStatus">Monitore a sincronização e os dados do sistema</small>
               </div>
             </div>
 
@@ -138,7 +138,7 @@
             <div id="alertContainer"></div>
             <div id="painelNegocio"></div>
 
-            <div class="status-grid">
+            <div class="status-grid" id="gradeSync">
                 <!-- Cobertura de Dados -->
                 <div class="status-card">
                     <h3>📅 Cobertura de Dados</h3>
@@ -478,7 +478,22 @@
         }
 
         // Carregar ao iniciar
-        document.addEventListener('DOMContentLoaded', () => {
+        // Sync do PNCP, catálogo e oportunidades só existem com o módulo de
+        // licitações. Sem ele a tela mostra apenas o certificado digital, e não
+        // consulta o sync de 3 em 3 segundos à toa.
+        let SEM_LICITACOES = false;
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const f = await fetch('/api/features/status').then(r => r.json());
+                SEM_LICITACOES = !!(f && f.features && f.features.licitacoes !== true);
+            } catch { /* sem a leitura, mostra a tela completa */ }
+            if (SEM_LICITACOES) {
+                document.getElementById('gradeSync').style.display = 'none';
+                document.getElementById('subtituloStatus').textContent = 'Certificado digital e avisos da empresa';
+                carregarStatusNegocio();
+                setInterval(carregarStatusNegocio, 120000);
+                return;
+            }
             carregarStatus();
             carregarInteresses();
             carregarStatusNegocio();
@@ -523,6 +538,26 @@ async function carregarStatusNegocio(){
   if (!d || !d.success) { alvo.innerHTML=''; return; }
   const p = d.painel;
   const blocos = [];
+
+  if (SEM_LICITACOES) {
+    const c = p.certificado || {};
+    if (!c.configurado) {
+      blocos.push(cartaoNeg('Certificado digital não cadastrado', 'warn',
+        'Sem ele a empresa não emite NF-e nem NFC-e.',
+        '<a href="/configuracoes/minha-empresa.html">Cadastrar em Minha empresa</a>'));
+    } else if (c.vencido) {
+      blocos.push(cartaoNeg('⚠ Certificado digital VENCIDO', 'danger',
+        `Venceu em <strong>${dataBR(c.validade)}</strong> — ${escN(c.titular||'')}`,
+        'Sem certificado válido não há emissão fiscal.'));
+    } else {
+      blocos.push(cartaoNeg(c.aVencer ? `Certificado digital vence em ${c.diasParaVencer} dia(s)` : 'Certificado digital válido',
+        c.aVencer ? 'warn' : 'success',
+        `Validade: <strong>${dataBR(c.validade)}</strong> — ${escN(c.titular||'')}`,
+        c.aVencer ? 'Renove antes de vencer: a troca costuma levar alguns dias.' : ''));
+    }
+    alvo.innerHTML = blocos.join('');
+    return;
+  }
 
   // --- coleta parada: o alerta mais importante da tela ---
   const cat = p.catalogo || {};

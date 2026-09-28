@@ -21,7 +21,7 @@ const crypto = require('crypto');
 const multer = require('multer');
 const imgs = require('./produto-imagens');
 const { requirePortalAuth } = require('./portal-routes');
-const { resolverPreco } = require('./precos-routes');
+const { resolverPreco, precoPromocional } = require('./precos-routes');
 const { gerarNumero, recalcularTotal, confirmarPedidoInterno } = require('./pedidos-routes');
 const { resolverDeposito } = require('./estoque-routes');
 const { reentrarContextoTenant } = require('./tenant-middleware');
@@ -36,9 +36,27 @@ const SUBDIR_LOJA = 'uploads/loja';
 const TEMA_PADRAO = {
   preset: 'neutro',
   corPrimaria: '#0E6B63',
-  fundo: 'claro',        // claro | escuro
-  fonte: 'neutra',       // neutra | tecnica | editorial
+  fundo: 'claro',        // claro | suave | escuro
+  fonte: 'neutra',       // neutra | tecnica | editorial | amigavel
   raio: 10,
+  /* Vitrine decorada (2026-09-27). Todos opcionais: sem eles a loja fica
+     exatamente como era. `corSecundaria` pinta selos, ofertas e a faixa;
+     `corTema` é a cor da barra do navegador no celular (meta theme-color);
+     `fonteTitulo` troca só a família dos títulos, e 'igual' usa a do texto;
+     `faixaTexto` é a faixa de aviso no topo da página. */
+  corSecundaria: null,
+  corTema: null,
+  fonteTitulo: 'igual',  // igual | elegante | classica | manuscrita | moderna
+  faixaTexto: null,
+};
+
+/* Valores aceitos de cada escolha do tema. A validação do PUT e a tela do
+   lojista leem daqui, para que uma opção nova não precise ser escrita duas
+   vezes. */
+const OPCOES_TEMA = {
+  fundo: ['claro', 'suave', 'escuro'],
+  fonte: ['neutra', 'tecnica', 'editorial', 'amigavel'],
+  fonteTitulo: ['igual', 'elegante', 'classica', 'manuscrita', 'moderna'],
 };
 
 const PRESETS = {
@@ -155,6 +173,21 @@ const COLUNAS_INFO_LOJA = [
    * adotado retroativamente. */
   'tipoOperacaoPedidoId INTEGER',
   'tipoOperacaoNfceId INTEGER',
+
+  /* ── Vitrine com a cara da loja (2026-09-27) ────────────────────────────
+   *
+   * `faviconPath` é o ícone da aba, enviado pelo lojista; sem ele a vitrine
+   * segue com o ícone vazio, e nunca com o do ERP.
+   *
+   * `rodapeTexto` substitui o "© ano nome" do rodapé quando preenchido.
+   *
+   * `paginaInicial` faz o endereço do tenant abrir a loja: o visitante que
+   * chega em `/` vai para `/loja/`, e caminho desconhecido recebe o 404 da
+   * loja em vez do login do ERP. Nasce 0, porque trocar a porta de entrada
+   * de quem já usa o ERP pelo endereço raiz não pode acontecer sozinho. */
+  'faviconPath TEXT',
+  'rodapeTexto TEXT',
+  'paginaInicial INTEGER NOT NULL DEFAULT 0',
 ];
 
 /**
@@ -529,6 +562,36 @@ function descricaoDoItem(item) {
   return partes.join(' · ').slice(0, 300);
 }
 
+/**
+ * Grava as escolhas do item em `pedido_item_opcoes`, uma linha por opção e por
+ * campo livre. Roda DEPOIS da validação (`validarEscolhas`): só chegam aqui
+ * opções que pertencem ao produto.
+ *
+ * O insumo é lido da opção agora e copiado para a linha. É essa cópia que a
+ * explosão do pedido (reservas-routes.explodirItensPedido) usa para reservar e
+ * baixar a embalagem, a fita e o cartão, e ela não muda se o lojista trocar o
+ * insumo da opção depois.
+ */
+function gravarEscolhasDoItem(db, pedidoId, pedidoItemId, item) {
+  const insumoDe = db.prepare('SELECT insumoProdutoId, quantidadeInsumo FROM rest_opcoes WHERE id = ?');
+  const nomeGrupo = db.prepare('SELECT nome FROM rest_grupos_opcao WHERE id = ?');
+  const ins = db.prepare(`INSERT INTO pedido_item_opcoes
+      (pedidoId, pedidoItemId, grupoId, grupoNome, opcaoId, nome, texto, precoAdicional, insumoProdutoId, quantidadeInsumo)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  for (const o of item.opcoes || []) {
+    const ins0 = insumoDe.get(o.id) || {};
+    const g = nomeGrupo.get(o.grupoId) || {};
+    const temInsumo = ins0.insumoProdutoId && Number(ins0.quantidadeInsumo) > 0;
+    ins.run(pedidoId, pedidoItemId, o.grupoId, g.nome || null, o.id, o.nome, null, r2c(o.precoAdicional),
+      temInsumo ? ins0.insumoProdutoId : null, temInsumo ? Number(ins0.quantidadeInsumo) : null);
+  }
+  for (const [grupoId, texto] of Object.entries(item.textos || {})) {
+    if (!texto) continue;
+    const g = nomeGrupo.get(Number(grupoId)) || {};
+    ins.run(pedidoId, pedidoItemId, Number(grupoId), g.nome || null, null, null, texto, 0, null, null);
+  }
+}
+
 function entregaPublica(db, cfg) {
   const delivery = !!cfg.servicoDelivery;
   const modo = MODOS_FRETE.includes(cfg.freteModo) ? cfg.freteModo : 'gratis';
@@ -647,8 +710,9 @@ function marcaVisivel(marca) {
  *
  * Não existe campo de promoção neste ERP, e inventar um seria criar uma segunda
  * verdade sobre preço. O que existe é `tabelas_preco` com vigência, que o
- * `resolverPreco` já aplica — então promoção aqui é exatamente isto: o preço
- * resolvido veio ABAIXO do `precoVenda` cadastrado.
+ * `resolverPreco` (cliente logado) e o `precoPromocional` (visitante) aplicam —
+ * então promoção aqui é exatamente isto: o preço resolvido veio ABAIXO do
+ * `precoVenda` cadastrado.
  *
  * Devolve null quando não há diferença, e a tela não desenha nada.
  */
@@ -775,6 +839,17 @@ function compararCategorias(ordem) {
  */
 function disponivelDe(db, produtoId) {
   try {
+    /* Kit não tem saldo próprio (as saídas são dos componentes). Quantos kits
+       dá para montar é o menor "disponível ÷ quantidade na composição" entre
+       os componentes. Somar o saldo do próprio kit dava sempre zero, e todo
+       buquê pronto aparecia "sob consulta". */
+    const p = db.prepare('SELECT tipoProduto FROM produtos WHERE id = ?').get(produtoId);
+    if (p && p.tipoProduto === 'kit') {
+      const comps = db.prepare('SELECT produtoFilhoId, quantidade FROM produto_kit_itens WHERE produtoPaiId = ?').all(produtoId);
+      if (!comps.length) return 0;
+      return Math.min(...comps.map(c => (Number(c.quantidade) > 0
+        ? Math.floor(disponivelDe(db, c.produtoFilhoId) / Number(c.quantidade)) : Infinity)));
+    }
     const s = db.prepare(`SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
         WHEN tipo='saida' THEN -quantidade ELSE quantidade END), 0) s
       FROM movimentacoes_estoque WHERE produtoId = ?`).get(produtoId).s;
@@ -874,9 +949,15 @@ function registrarRotasLojaPublica(app, db) {
       error: 'Não foi possível carregar agora. Tente de novo em instantes.' });
   };
 
+  /* Visitante sem login vê a PROMOÇÃO vigente (precos-routes.precoPromocional),
+     e só ela: tabela comercial sem vigência continua sendo do cliente
+     vinculado. O preço cheio vira o riscado pelo `precoAnterior`, e o mesmo
+     preço vale no carrinho e no pedido, que passam por esta mesma função. */
   const precoVisivel = (cfg, produto, pessoaId) => {
     if (pessoaId) return resolverPreco(db, produto.id, { pessoaId, quantidade: 1 }).preco;
-    return cfg.mostrarPreco ? Number(produto.precoVenda) || 0 : null;
+    if (!cfg.mostrarPreco) return null;
+    const promo = precoPromocional(db, produto.id, 1);
+    return promo ? promo.preco : (Number(produto.precoVenda) || 0);
   };
 
   const fotosDe = (produtoId, imagemPath) => {
@@ -923,6 +1004,8 @@ function registrarRotasLojaPublica(app, db) {
         bannerFoco: lerFoco(c.bannerFoco),
         mostrarPreco: !!c.mostrarPreco, mostrarEstoque: !!c.mostrarEstoque, tema: c.tema,
         pagamento: c.pagamentoModo || 'nenhum',
+        favicon: c.faviconPath || null,
+        rodape: c.rodapeTexto || null,
       } });
     } catch (e) { return erroInterno(res, '/loja/api/config', e); }
   });
@@ -1373,6 +1456,13 @@ function registrarRotasLojaPublica(app, db) {
         if (!documento) return recusa(422, 'CPF/CNPJ inválido. Confira ou deixe em branco.');
       }
 
+      // E-mail é opcional; informado, precisa ser um e-mail. O aceite de
+      // promoções vai para o cadastro (contato-marketing.js).
+      const { lerEmail, aplicarContato } = require('./contato-marketing');
+      const email = lerEmail(b.cliente && b.cliente.email);
+      if (email === false) return recusa(422, 'E-mail inválido. Confira ou deixe em branco.');
+      const aceitePromocoes = !!(b.cliente && b.cliente.aceitePromocoes);
+
       // ── como recebe ───────────────────────────────────────────────────
       const atendimento = String(b.atendimento || '');
       if (!['retirada', 'entrega'].includes(atendimento)) {
@@ -1506,6 +1596,7 @@ function registrarRotasLojaPublica(app, db) {
               .run(chaveDoc, documento && documento.length === 14 ? 'PJ' : 'PF',
                    nome, telefone, telefone, documento ? 0 : 1).lastInsertRowid;
           }
+          aplicarContato(db, pessoaId, { email, aceite: aceitePromocoes, fonte: 'catalogo' });
 
           const numero = gerarNumero(db, 'pedido');
           /* `tipo = 'catalogo'` é definido AQUI, e não aceito do corpo:
@@ -1536,8 +1627,9 @@ function registrarRotasLojaPublica(app, db) {
               (pedidoId, produtoId, descricao, quantidade, precoUnitario, valorTotal)
             VALUES (?, ?, ?, ?, ?, ?)`);
           for (const i of itens) {
-            ins.run(pedidoId, i.produtoId, descricaoDoItem(i), i.quantidade,
-                    i.precoUnitario, i.total);
+            const itemId = ins.run(pedidoId, i.produtoId, descricaoDoItem(i), i.quantidade,
+                    i.precoUnitario, i.total).lastInsertRowid;
+            gravarEscolhasDoItem(db, pedidoId, itemId, i);
           }
           recalcularTotal(db, pedidoId);
 
@@ -1672,7 +1764,7 @@ function registrarRotasLojaAdmin(app, db) {
             movimentaEstoque, usarEmPedido
           FROM tipos_operacao WHERE ativo = 1 ORDER BY codigo`).all();
       } catch { /* tenant sem a tabela ainda: a tela mostra a lista vazia */ }
-      res.json({ success: true, config: c, presets: PRESETS, naturezas,
+      res.json({ success: true, config: c, presets: PRESETS, opcoesTema: OPCOES_TEMA, naturezas,
                  resumo: { publicados, semFoto, aguardando },
                  url: `${req.protocol}://${req.get('host')}/loja/` });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
@@ -1686,9 +1778,19 @@ function registrarRotasLojaAdmin(app, db) {
       if (!/^#[0-9a-f]{6}$/i.test(String(tema.corPrimaria || ''))) {
         return res.status(400).json({ success: false, error: 'Cor principal deve estar no formato #RRGGBB' });
       }
+      // Cores opcionais: vazio desliga, e qualquer outra coisa que não seja
+      // #RRGGBB é recusada, porque o valor vai direto para o CSS da vitrine.
+      for (const [campo, nome] of [['corSecundaria', 'Cor secundária'], ['corTema', 'Cor da barra do navegador']]) {
+        if (tema[campo] == null || tema[campo] === '') { tema[campo] = null; continue; }
+        if (!/^#[0-9a-f]{6}$/i.test(String(tema[campo]))) {
+          return res.status(400).json({ success: false, error: `${nome} deve estar no formato #RRGGBB` });
+        }
+      }
       tema.raio = Math.max(0, Math.min(24, Number(tema.raio) || 0));
-      if (!['claro', 'escuro'].includes(tema.fundo)) tema.fundo = 'claro';
-      if (!['neutra', 'tecnica', 'editorial'].includes(tema.fonte)) tema.fonte = 'neutra';
+      if (!OPCOES_TEMA.fundo.includes(tema.fundo)) tema.fundo = 'claro';
+      if (!OPCOES_TEMA.fonte.includes(tema.fonte)) tema.fonte = 'neutra';
+      if (!OPCOES_TEMA.fonteTitulo.includes(tema.fonteTitulo)) tema.fonteTitulo = 'igual';
+      tema.faixaTexto = tema.faixaTexto == null ? null : String(tema.faixaTexto).trim().slice(0, 140) || null;
 
       const modo = MODOS_PAGAMENTO.includes(b.pagamentoModo) ? b.pagamentoModo : (atual.pagamentoModo || 'nenhum');
       const venc = Math.max(0, Math.min(60, Number(b.pagamentoVencimentoDias ?? atual.pagamentoVencimentoDias ?? 3)));
@@ -1719,6 +1821,9 @@ function registrarRotasLojaAdmin(app, db) {
              b.whatsapp != null ? String(b.whatsapp).replace(/\D/g, '').slice(0, 15) || null : atual.whatsapp,
              texto('email', 120), texto('telefone', 40),
              liga('mostrarPreco'), liga('mostrarEstoque'), JSON.stringify(tema));
+      db.prepare('UPDATE loja_config SET rodapeTexto=?, paginaInicial=? WHERE id=1')
+        .run(texto('rodapeTexto', 200), liga('paginaInicial'));
+      esquecerVitrine(req);
 
       /* ── Regras fiscais: só a REFERÊNCIA, sempre validada aqui ───────────
        *
@@ -1863,6 +1968,197 @@ function registrarRotasLojaAdmin(app, db) {
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });
 
+  /* Ícone da aba da vitrine. Mesma validação do logo (assinatura do arquivo,
+   * não a extensão) e mesmo `reentrarContextoTenant` depois do multer. É ele
+   * que a vitrine declara no <link rel="icon">, e é para ele que o
+   * /favicon.ico aponta quando a loja é a página inicial. */
+  app.post('/api/loja/favicon', uploadLogo.single('favicon'), reentrarContextoTenant, (req, res) => {
+    try {
+      if (!req.file?.buffer) return res.status(400).json({ success: false, error: 'Envie a imagem do ícone' });
+      const ext = imgs.tipoReal(req.file.buffer);
+      if (!ext) return res.status(400).json({ success: false, error: 'O arquivo não é uma imagem JPEG, PNG, WEBP ou GIF' });
+      const fs = require('fs');
+      const dir = path.join(RAIZ_PUBLICA, SUBDIR_LOJA);
+      fs.mkdirSync(dir, { recursive: true });
+      const nome = nomeImagemLoja(req, 'favicon', ext);
+      fs.writeFileSync(path.join(dir, nome), req.file.buffer);
+      const caminho = '/' + SUBDIR_LOJA + '/' + nome;
+      db.prepare('UPDATE loja_config SET faviconPath=?, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=1').run(caminho);
+      esquecerVitrine(req);
+      res.json({ success: true, favicon: caminho });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  app.delete('/api/loja/favicon', (req, res) => {
+    try {
+      db.prepare('UPDATE loja_config SET faviconPath=NULL, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=1').run();
+      esquecerVitrine(req);
+      res.json({ success: true });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /* ===================== PERSONALIZAÇÕES (grupos e opções) =====================
+   *
+   * As mesmas tabelas que o cardápio do restaurante usa (rest_grupos_opcao,
+   * rest_opcoes, rest_produto_grupos), fora do módulo Restaurante: qualquer loja
+   * cadastra "Tamanho", "Embalagem", "Fita" e "Mensagem do cartão" sem ligar o
+   * restaurante. As rotas do restaurante continuam como estão; estas aceitam
+   * também o grupo de TEXTO (campo livre) e a pergunta do grupo, que a vitrine
+   * já sabia mostrar e ninguém conseguia cadastrar.
+   *
+   * O insumo da opção é o produto que sai do estoque quando ela é escolhida
+   * (ver gravarEscolhasDoItem e reservas-routes.explodirItensPedido). */
+  const validarGrupo = (b, atual = {}) => {
+    const tipo = b.tipo !== undefined ? String(b.tipo) : (atual.tipo || 'escolha');
+    if (!['escolha', 'texto'].includes(tipo)) return { erro: 'Tipo deve ser escolha ou texto' };
+    const nome = b.nome !== undefined ? String(b.nome).trim().slice(0, 80) : atual.nome;
+    if (!nome) return { erro: 'Dê um nome ao grupo' };
+    let min = b.minEscolhas !== undefined ? Number(b.minEscolhas) : (atual.minEscolhas ?? 0);
+    let max = b.maxEscolhas !== undefined ? Number(b.maxEscolhas) : (atual.maxEscolhas ?? 1);
+    if (tipo === 'texto') { min = min > 0 ? 1 : 0; max = 1; }
+    if (!Number.isInteger(min) || !Number.isInteger(max) || min < 0 || max < 1) return { erro: 'Mínimo e máximo inválidos' };
+    if (min > max) return { erro: 'O mínimo não pode ser maior que o máximo' };
+    const descricao = b.descricao !== undefined ? (String(b.descricao).trim().slice(0, 160) || null) : (atual.descricao ?? null);
+    return { tipo, nome, min, max, descricao };
+  };
+  const validarInsumo = (b) => {
+    if (!b.insumoProdutoId) return { insumo: null, qtd: null };
+    const p = db.prepare('SELECT id, tipoProduto FROM produtos WHERE id = ?').get(Number(b.insumoProdutoId));
+    if (!p) return { erro: 'Insumo não encontrado' };
+    if (p.tipoProduto === 'kit') return { erro: 'Um kit não pode ser insumo de opção: escolha os componentes' };
+    const qtd = b.quantidadeInsumo == null || b.quantidadeInsumo === '' ? 1 : Number(b.quantidadeInsumo);
+    if (!(qtd > 0)) return { erro: 'A quantidade do insumo precisa ser maior que zero' };
+    return { insumo: p.id, qtd };
+  };
+
+  app.get('/api/loja/opcoes/grupos', (req, res) => {
+    try {
+      const grupos = db.prepare(`SELECT id, nome, descricao, COALESCE(tipo,'escolha') tipo, minEscolhas, maxEscolhas, ordem, ativo
+        FROM rest_grupos_opcao ORDER BY ordem, nome`).all();
+      const opcoes = db.prepare(`SELECT o.id, o.grupoId, o.nome, o.precoAdicional, o.insumoProdutoId, o.quantidadeInsumo,
+          o.ordem, o.ativo, p.sku AS insumoSku, p.descricao AS insumoDescricao
+        FROM rest_opcoes o LEFT JOIN produtos p ON p.id = o.insumoProdutoId ORDER BY o.ordem, o.id`).all();
+      const usos = db.prepare('SELECT grupoId, COUNT(*) n FROM rest_produto_grupos GROUP BY grupoId').all();
+      const uso = new Map(usos.map(u => [u.grupoId, u.n]));
+      for (const g of grupos) { g.opcoes = opcoes.filter(o => o.grupoId === g.id); g.produtos = uso.get(g.id) || 0; }
+      res.json({ success: true, grupos });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  app.post('/api/loja/opcoes/grupos', (req, res) => {
+    try {
+      const v = validarGrupo(req.body || {});
+      if (v.erro) return res.status(400).json({ success: false, error: v.erro });
+      const r = db.prepare(`INSERT INTO rest_grupos_opcao (nome, descricao, tipo, minEscolhas, maxEscolhas, ordem, ativo)
+        VALUES (?, ?, ?, ?, ?, ?, 1)`).run(v.nome, v.descricao, v.tipo, v.min, v.max, Number(req.body?.ordem) || 0);
+      res.json({ success: true, id: r.lastInsertRowid });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  app.put('/api/loja/opcoes/grupos/:id', (req, res) => {
+    try {
+      const atual = db.prepare('SELECT * FROM rest_grupos_opcao WHERE id = ?').get(req.params.id);
+      if (!atual) return res.status(404).json({ success: false, error: 'Grupo não encontrado' });
+      const v = validarGrupo(req.body || {}, atual);
+      if (v.erro) return res.status(400).json({ success: false, error: v.erro });
+      const b = req.body || {};
+      db.prepare(`UPDATE rest_grupos_opcao SET nome=?, descricao=?, tipo=?, minEscolhas=?, maxEscolhas=?, ordem=?, ativo=? WHERE id=?`)
+        .run(v.nome, v.descricao, v.tipo, v.min, v.max,
+             b.ordem !== undefined ? Number(b.ordem) || 0 : atual.ordem,
+             b.ativo !== undefined ? (b.ativo ? 1 : 0) : atual.ativo, atual.id);
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  app.delete('/api/loja/opcoes/grupos/:id', (req, res) => {
+    try {
+      const n = db.prepare('SELECT COUNT(*) n FROM rest_produto_grupos WHERE grupoId = ?').get(req.params.id).n;
+      if (n > 0) return res.status(400).json({ success: false, error: `O grupo está em ${n} produto(s). Tire dos produtos antes de apagar.` });
+      db.transaction(() => {
+        db.prepare('DELETE FROM rest_opcoes WHERE grupoId = ?').run(req.params.id);
+        db.prepare('DELETE FROM rest_grupos_opcao WHERE id = ?').run(req.params.id);
+      })();
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  app.post('/api/loja/opcoes/grupos/:id/opcoes', (req, res) => {
+    try {
+      const g = db.prepare("SELECT id, COALESCE(tipo,'escolha') tipo FROM rest_grupos_opcao WHERE id = ?").get(req.params.id);
+      if (!g) return res.status(404).json({ success: false, error: 'Grupo não encontrado' });
+      if (g.tipo === 'texto') return res.status(400).json({ success: false, error: 'Grupo de texto não tem opções' });
+      const b = req.body || {};
+      const nome = String(b.nome || '').trim().slice(0, 80);
+      if (!nome) return res.status(400).json({ success: false, error: 'Dê um nome à opção' });
+      const preco = b.precoAdicional == null || b.precoAdicional === '' ? 0 : Number(b.precoAdicional);
+      if (!Number.isFinite(preco) || preco < 0) return res.status(400).json({ success: false, error: 'Preço adicional inválido' });
+      const ins = validarInsumo(b);
+      if (ins.erro) return res.status(400).json({ success: false, error: ins.erro });
+      const r = db.prepare(`INSERT INTO rest_opcoes (grupoId, nome, precoAdicional, insumoProdutoId, quantidadeInsumo, ordem, ativo)
+        VALUES (?, ?, ?, ?, ?, ?, 1)`).run(g.id, nome, r2c(preco), ins.insumo, ins.qtd, Number(b.ordem) || 0);
+      res.json({ success: true, id: r.lastInsertRowid });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  app.put('/api/loja/opcoes/itens/:id', (req, res) => {
+    try {
+      const atual = db.prepare('SELECT * FROM rest_opcoes WHERE id = ?').get(req.params.id);
+      if (!atual) return res.status(404).json({ success: false, error: 'Opção não encontrada' });
+      const b = req.body || {};
+      const nome = b.nome !== undefined ? String(b.nome).trim().slice(0, 80) : atual.nome;
+      if (!nome) return res.status(400).json({ success: false, error: 'Dê um nome à opção' });
+      const preco = b.precoAdicional !== undefined ? Number(b.precoAdicional) : Number(atual.precoAdicional);
+      if (!Number.isFinite(preco) || preco < 0) return res.status(400).json({ success: false, error: 'Preço adicional inválido' });
+      let insumo = atual.insumoProdutoId, qtd = atual.quantidadeInsumo;
+      if (b.insumoProdutoId !== undefined) {
+        const ins = validarInsumo(b);
+        if (ins.erro) return res.status(400).json({ success: false, error: ins.erro });
+        insumo = ins.insumo; qtd = ins.qtd;
+      }
+      db.prepare('UPDATE rest_opcoes SET nome=?, precoAdicional=?, insumoProdutoId=?, quantidadeInsumo=?, ordem=?, ativo=? WHERE id=?')
+        .run(nome, r2c(preco), insumo, qtd,
+             b.ordem !== undefined ? Number(b.ordem) || 0 : atual.ordem,
+             b.ativo !== undefined ? (b.ativo ? 1 : 0) : atual.ativo, atual.id);
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  app.delete('/api/loja/opcoes/itens/:id', (req, res) => {
+    try {
+      db.prepare('DELETE FROM rest_opcoes WHERE id = ?').run(req.params.id);
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  app.get('/api/loja/opcoes/produto/:id', (req, res) => {
+    try {
+      const ids = db.prepare('SELECT grupoId FROM rest_produto_grupos WHERE produtoId = ? ORDER BY ordem').all(req.params.id)
+        .map(r => r.grupoId);
+      res.json({ success: true, grupoIds: ids });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // Substitui o conjunto inteiro, na ordem enviada (é a ordem na vitrine).
+  app.put('/api/loja/opcoes/produto/:id', (req, res) => {
+    try {
+      const p = db.prepare('SELECT id FROM produtos WHERE id = ?').get(req.params.id);
+      if (!p) return res.status(404).json({ success: false, error: 'Produto não encontrado' });
+      const ids = Array.isArray(req.body?.grupoIds) ? [...new Set(req.body.grupoIds.map(Number))] : null;
+      if (!ids) return res.status(400).json({ success: false, error: 'grupoIds deve ser uma lista' });
+      for (const gid of ids) {
+        if (!db.prepare('SELECT 1 FROM rest_grupos_opcao WHERE id = ?').get(gid)) {
+          return res.status(404).json({ success: false, error: `Grupo ${gid} não encontrado` });
+        }
+      }
+      db.transaction(() => {
+        db.prepare('DELETE FROM rest_produto_grupos WHERE produtoId = ?').run(p.id);
+        const ins = db.prepare('INSERT INTO rest_produto_grupos (produtoId, grupoId, ordem) VALUES (?, ?, ?)');
+        ids.forEach((gid, i) => ins.run(p.id, gid, i));
+      })();
+      res.json({ success: true, vinculados: ids.length });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   /* Nome da loja, isolado do PUT /api/loja/config.
    *
    * O PUT grava a configuração INTEIRA de uma vez: mandar só o nome por ele
@@ -1886,6 +2182,7 @@ function registrarRotasLojaAdmin(app, db) {
     try {
       const ativa = req.body?.ativa ? 1 : 0;
       db.prepare('UPDATE loja_config SET ativa=?, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=1').run(ativa);
+      esquecerVitrine(req);
       res.json({ success: true, ativa: !!ativa });
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });
@@ -1912,7 +2209,9 @@ function registrarRotasLojaAdmin(app, db) {
           instagram: c.instagram || null, facebook: c.facebook || null,
           endereco: c.endereco || null, mostrarEndereco: !!c.mostrarEndereco,
           horarios: lerHorarios(c.horarios),
+          paginaInicial: !!c.paginaInicial,
         },
+        enderecoRaiz: `${req.protocol}://${req.get('host')}/`,
         // O que a vitrine usaria se o campo acima ficasse vazio.
         empresa: { nome: emp.nome || null, telefone: emp.telefone || null,
                    endereco: emp.endereco || null, temLogo: !!emp.logo },
@@ -1949,6 +2248,12 @@ function registrarRotasLojaAdmin(app, db) {
              usuarioRede(b.instagram, 'instagram.com'), usuarioRede(b.facebook, 'facebook.com'),
              txt(b.endereco, 200), b.mostrarEndereco ? 1 : 0,
              Object.keys(horarios).length ? JSON.stringify(horarios) : null);
+      // Ausente preserva: quem chamar esta rota sem o campo não desliga a loja
+      // como página inicial por acidente.
+      if (b.paginaInicial !== undefined) {
+        db.prepare('UPDATE loja_config SET paginaInicial=? WHERE id=1').run(b.paginaInicial ? 1 : 0);
+      }
+      esquecerVitrine(req);
 
       const c = lerConfig(db);
       res.json({ success: true, atendimento: statusAtendimento(c.horarios),
@@ -2286,10 +2591,134 @@ function registrarRotasLojaAdmin(app, db) {
   });
 }
 
+
+/* ===================== A LOJA COMO PÁGINA INICIAL =====================
+ *
+ * Com `paginaInicial` ligado (e a loja publicada), o endereço do tenant é a
+ * loja para quem não fez login. Três pontos da cadeia de middlewares, e cada
+ * um existe porque a peça seguinte, sozinha, mostraria o ERP:
+ *
+ *  - `vitrineAntesDoLogin`, antes do static de public/auth: `/` vai para a
+ *    loja, `/login` para o login, e o favicon, os ícones e o manifest do ERP
+ *    deixam de ser servidos ao visitante (sai o favicon da loja, ou nada).
+ *  - `vitrineNaBarreira`, logo antes do requireAuth: o que chegaria ao
+ *    redirecionamento para /login.html recebe o 404 da loja.
+ *  - `responderLojaFechada`, na suspensão do tenant: a vitrine fecha com o
+ *    nome e as cores da loja, sem falar de cobrança nem de slug.
+ *
+ * Quem tem sessão passa direto pelas três: o dono entra por /login e, logado,
+ * `/` volta a ser o painel.
+ */
+const CACHE_VITRINE = new Map();   // slug -> { em, v }
+const VITRINE_TTL_MS = 15000;
+
+function lerVitrineDoBanco(db) {
+  try {
+    const c = db.prepare(`SELECT ativa, paginaInicial, faviconPath, nome, logoPath, whatsapp, tema
+      FROM loja_config WHERE id = 1`).get();
+    if (!c) return null;
+    return { ...c, tema: { ...TEMA_PADRAO, ...jsonOu(c.tema, {}) } };
+  } catch { return null; }   // tenant sem loja_config: não há vitrine
+}
+
+/* Toda requisição do tenant passa por aqui, inclusive as do ERP: o cache de
+   15 s evita uma consulta por requisição. Quem grava a configuração chama
+   `esquecerVitrine`, então a mudança vale na hora para o processo que gravou. */
+function vitrineComoInicio(req) {
+  const slug = req.tenant && req.tenant.slug;
+  if (!slug || !req.tenantDb) return null;
+  const agora = Date.now();
+  let e = CACHE_VITRINE.get(slug);
+  if (!e || agora - e.em > VITRINE_TTL_MS) {
+    e = { em: agora, v: lerVitrineDoBanco(req.tenantDb) };
+    CACHE_VITRINE.set(slug, e);
+  }
+  const v = e.v;
+  return v && Number(v.ativa) === 1 && Number(v.paginaInicial) === 1 ? v : null;
+}
+
+function esquecerVitrine(req) {
+  if (req && req.tenant && req.tenant.slug) CACHE_VITRINE.delete(req.tenant.slug);
+}
+
+const logado = (req) => !!(req.session && req.session.userId);
+const ICONES_DO_ERP = /^\/(favicon\.(ico|svg)|apple-touch-icon\.png|icone-[a-z0-9-]+\.(png|svg))$/i;
+
+function vitrineAntesDoLogin(req, res, next) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const v = vitrineComoInicio(req);
+  if (!v || logado(req)) return next();
+  const p = req.path;
+  if (p === '/') return res.redirect(302, '/loja/');
+  if (p === '/login') return res.redirect(302, '/login.html');
+  if (ICONES_DO_ERP.test(p)) return v.faviconPath ? res.redirect(302, v.faviconPath) : res.status(404).end();
+  if (p === '/manifest.webmanifest') return res.status(404).end();
+  next();
+}
+
+const PAGINA_404 = path.join(RAIZ_PUBLICA, 'loja', '404.html');
+
+function vitrineNaBarreira(req, res, next) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  if (req.path.startsWith('/api/') || req.headers['x-api-key']) return next();
+  if (!vitrineComoInicio(req) || logado(req)) return next();
+  res.status(404).sendFile(PAGINA_404);
+}
+
+const escHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const corOk = (c, padrao) => (/^#[0-9a-f]{6}$/i.test(String(c || '')) ? c : padrao);
+
+/**
+ * Página de loja fechada, para o tenant suspenso. Devolve true se respondeu.
+ *
+ * Só vale para o que é da vitrine: caminhos da loja e, com a loja como página
+ * inicial, o resto que o visitante alcançaria. O dono que abre /login num
+ * tenant suspenso continua vendo o aviso da conta, que é assunto dele.
+ */
+function responderLojaFechada(manager, req, res, tenant) {
+  const p = req.path || '';
+  if (p.startsWith('/api/') || p.startsWith('/login')) return false;
+  let v = null;
+  try { v = lerVitrineDoBanco(manager.getDb(tenant.slug)); } catch { return false; }
+  if (!v) return false;
+  const daLoja = p === '/loja' || p.startsWith('/loja/') || p.startsWith('/uploads/loja/');
+  if (!daLoja && !(Number(v.ativa) === 1 && Number(v.paginaInicial) === 1)) return false;
+
+  const t = v.tema || {};
+  const cor = corOk(t.corPrimaria, '#0E6B63');
+  const escuro = t.fundo === 'escuro';
+  const fundo = escuro ? '#0E1413' : (t.fundo === 'suave' ? '#FBF6F1' : '#F7F8F8');
+  const tinta = escuro ? '#E6EDEC' : '#14201F';
+  const nome = escHtml(v.nome || 'Loja');
+  const zap = whatsappNormalizado(v.whatsapp);
+  res.status(503).set('Retry-After', '3600').type('html').send(`<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="${corOk(t.corTema, cor)}">
+<link rel="icon" href="${v.faviconPath ? escHtml(v.faviconPath) : 'data:,'}">
+<title>${nome}</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: ${fundo}; color: ${tinta};
+    font-family: Inter, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; text-align: center; padding: 24px; }
+  img { width: 96px; height: 96px; object-fit: cover; border-radius: 50%; }
+  h1 { font-size: 1.6em; margin: 16px 0 8px; }
+  p { margin: 0 0 20px; opacity: .8; }
+  a { display: inline-block; background: ${cor}; color: #fff; padding: 10px 18px; border-radius: 999px; text-decoration: none; font-weight: 600; }
+</style></head><body><main>
+  ${v.logoPath ? `<img src="${escHtml(v.logoPath)}" alt="">` : ''}
+  <h1>${nome}</h1>
+  <p>A loja está fechada no momento.</p>
+  ${zap ? `<a href="https://wa.me/${zap}">Falar pelo WhatsApp</a>` : ''}
+</main></body></html>`);
+  return true;
+}
+
 module.exports = {
   migrarLojaDB, registrarRotasLojaPublica, registrarRotasLojaAdmin,
   disponivelDe, rotuloEstoque, TEMA_PADRAO, PRESETS, SUBDIR_LOJA,
   ordemCategorias, compararCategorias,
   marcaVisivel, precoAnterior, personalizacoesDe, validarEscolhas,
   COLUNAS_INFO_LOJA, MODOS_FRETE, lerFoco, usuarioRede, bairrosCobertura, entregaPublica, whatsappNormalizado, lerHorarios, statusAtendimento, empresaDe,
+  OPCOES_TEMA, vitrineAntesDoLogin, vitrineNaBarreira, responderLojaFechada, esquecerVitrine,
 };

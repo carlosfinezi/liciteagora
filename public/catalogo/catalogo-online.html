@@ -113,6 +113,8 @@
   padding: 10px; }
 .ap-marca { font-size: .85em; opacity: .7; }
 .ap-preco { font-weight: 660; margin-top: 4px; }
+.ap-faixa { color: #fff; font-size: .8em; font-weight: 600; text-align: center; padding: 4px 6px;
+  border-radius: 6px; }
 .ap-bt { background: var(--ap-cor, #0E6B63); color: #fff; border: 0; cursor: default;
   border-radius: var(--ap-raio, 10px); padding: 9px 12px; font: inherit; font-weight: 600; }
 
@@ -580,7 +582,7 @@ body.arrastando-lista { user-select: none; -webkit-user-select: none; cursor: gr
 
 <!-- aparência -->
 <div class="modal-bg" id="modalAp" onclick="if(event.target===this)fecharAparencia()">
-  <div class="modal" style="max-width:520px;">
+  <div class="modal" style="max-width:640px;">
     <div class="modal-header"><h3 style="margin:0;">Aparência do catálogo</h3></div>
     <div id="apCorpo"></div>
     <div class="modal-actions">
@@ -1503,18 +1505,22 @@ let PRESETS_TEMA = null;
  * `GET /api/loja/config` que a tela antiga usa, os quatro tokens são os mesmos
  * de `loja_config.tema`, e o salvar manda só `tema`. Não há segundo motor de
  * tema, segundo JSON nem tabela nova. */
+let CFG_AP = {};
+
 async function abrirAparencia() {
   const l = DADOS.loja;
-  const tema = { corPrimaria: '#0E6B63', fundo: 'claro', fonte: 'neutra', raio: 10, ...(l.tema || {}) };
 
   /* As paletas são dado do servidor, não uma lista escrita aqui: repetir os
-     valores nesta tela criaria uma segunda fonte para a mesma coisa. */
-  if (!PRESETS_TEMA) {
-    try {
-      const d = await api('/api/loja/config');
-      PRESETS_TEMA = d.presets || {};
-    } catch (_) { PRESETS_TEMA = {}; }
-  }
+     valores nesta tela criaria uma segunda fonte para a mesma coisa. A config
+     vem junto a cada abertura, porque ícone e rodapé não viajam no catálogo. */
+  try {
+    const d = await api('/api/loja/config');
+    PRESETS_TEMA = d.presets || {};
+    CFG_AP = d.config || {};
+  } catch (_) { PRESETS_TEMA = PRESETS_TEMA || {}; }
+  const tema = { corPrimaria: '#0E6B63', fundo: 'claro', fonte: 'neutra', raio: 10, fonteTitulo: 'igual',
+                 ...(l.tema || {}), ...(CFG_AP.tema || {}) };
+  const opt = (v, atual, rotulo) => `<option value="${v}"${atual === v ? ' selected' : ''}>${rotulo}</option>`;
 
   const paletas = Object.entries(PRESETS_TEMA).map(([nome, p]) =>
     `<button type="button" class="ap-paleta" data-paleta="${esc(nome)}"
@@ -1535,20 +1541,52 @@ async function abrirAparencia() {
             </div></div>
           <div class="form-group"><label for="apFundo">Fundo</label>
             <select id="apFundo">
-              <option value="claro"${tema.fundo === 'claro' ? ' selected' : ''}>Claro</option>
-              <option value="escuro"${tema.fundo === 'escuro' ? ' selected' : ''}>Escuro</option>
+              ${opt('claro', tema.fundo, 'Claro')}${opt('suave', tema.fundo, 'Suave (creme)')}${opt('escuro', tema.fundo, 'Escuro')}
             </select></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label for="apFonte">Tipografia</label>
+          <div class="form-group"><label for="apCor2Hex">Cor secundária</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="color" id="apCor2" value="${esc(tema.corSecundaria || tema.corPrimaria)}" style="width:52px;padding:2px;">
+              <input type="text" id="apCor2Hex" value="${esc(tema.corSecundaria || '')}" maxlength="7"
+                     placeholder="igual à principal" style="max-width:130px;">
+            </div></div>
+          <div class="form-group"><label for="apCorTemaHex">Barra do navegador</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="color" id="apCorTema" value="${esc(tema.corTema || tema.corPrimaria)}" style="width:52px;padding:2px;">
+              <input type="text" id="apCorTemaHex" value="${esc(tema.corTema || '')}" maxlength="7"
+                     placeholder="igual à principal" style="max-width:130px;">
+            </div></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label for="apFonte">Tipografia do texto</label>
             <select id="apFonte">
-              <option value="neutra"${tema.fonte === 'neutra' ? ' selected' : ''}>Neutra</option>
-              <option value="tecnica"${tema.fonte === 'tecnica' ? ' selected' : ''}>Técnica</option>
-              <option value="editorial"${tema.fonte === 'editorial' ? ' selected' : ''}>Expressiva</option>
+              ${opt('neutra', tema.fonte, 'Neutra')}${opt('amigavel', tema.fonte, 'Amigável')}${opt('editorial', tema.fonte, 'Expressiva')}${opt('tecnica', tema.fonte, 'Técnica')}
             </select></div>
+          <div class="form-group"><label for="apFonteTitulo">Tipografia dos títulos</label>
+            <select id="apFonteTitulo">
+              ${opt('igual', tema.fonteTitulo, 'A mesma do texto')}${opt('elegante', tema.fonteTitulo, 'Elegante')}${opt('classica', tema.fonteTitulo, 'Clássica')}${opt('manuscrita', tema.fonteTitulo, 'Manuscrita')}${opt('moderna', tema.fonteTitulo, 'Moderna')}
+            </select></div>
+        </div>
+        <div class="form-row">
           <div class="form-group"><label for="apRaio">Cantos <small class="muted" id="apRaioVal"></small></label>
             <input type="range" id="apRaio" min="0" max="24" step="2" value="${Number(tema.raio) || 0}"></div>
+          <div class="form-group"><label>Ícone da aba</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <img id="apFavicon" alt="" style="width:32px;height:32px;border-radius:6px;object-fit:cover;border:1px solid var(--border);"
+                   ${CFG_AP.faviconPath ? `src="${esc(CFG_AP.faviconPath)}"` : 'hidden'}>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('arqFavicon').click()">Enviar</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="apFaviconTirar" onclick="removerFavicon()"
+                      ${CFG_AP.faviconPath ? '' : 'hidden'}>Remover</button>
+              <input type="file" id="arqFavicon" accept="image/png,image/jpeg,image/webp,image/gif" hidden onchange="enviarFavicon(this)">
+            </div></div>
         </div>
+        <div class="form-group"><label for="apFaixa">Faixa de aviso no topo</label>
+          <input id="apFaixa" maxlength="140" value="${esc(tema.faixaTexto || '')}"
+                 placeholder="Entregamos em toda a cidade"></div>
+        <div class="form-group"><label for="apRodape">Texto do rodapé</label>
+          <input id="apRodape" maxlength="200" value="${esc(CFG_AP.rodapeTexto || '')}"
+                 placeholder="© ${new Date().getFullYear()} ${esc(l.nome || 'Sua loja')}"></div>
         <p class="muted" style="font-size:.82em;margin:10px 0 0;">
           O logotipo e a capa se trocam no próprio cabeçalho desta tela, junto
           do "Ajustar" de cada um.</p>
@@ -1556,6 +1594,7 @@ async function abrirAparencia() {
       <div class="ap-previa">
         <label>Prévia</label>
         <div class="ap-tela" id="apTela">
+          <div class="ap-faixa" id="apPvFaixa" hidden></div>
           <div class="ap-topo"><strong id="apPvNome">Sua loja</strong></div>
           <div class="ap-cartao">
             <div class="ap-marca">Marca</div>
@@ -1568,7 +1607,7 @@ async function abrirAparencia() {
     </div>`;
 
   document.getElementById('apPvNome').textContent = l.nome || 'Sua loja';
-  for (const id of ['apCor', 'apFundo', 'apFonte', 'apRaio']) {
+  for (const id of ['apCor', 'apFundo', 'apFonte', 'apFonteTitulo', 'apRaio', 'apFaixa']) {
     document.getElementById(id).addEventListener('input', pintarPrevia);
   }
   document.getElementById('apCorHex').addEventListener('change', () => {
@@ -1576,6 +1615,18 @@ async function abrirAparencia() {
     if (/^#[0-9a-f]{6}$/i.test(v)) document.getElementById('apCor').value = v;
     pintarPrevia();
   });
+  /* Secundária e barra são opcionais: o texto vazio quer dizer "igual à
+     principal". O seletor de cor preenche o texto; apagar o texto desliga. */
+  for (const [cor, hex] of [['apCor2', 'apCor2Hex'], ['apCorTema', 'apCorTemaHex']]) {
+    document.getElementById(cor).addEventListener('input', () => {
+      document.getElementById(hex).value = document.getElementById(cor).value; pintarPrevia();
+    });
+    document.getElementById(hex).addEventListener('change', () => {
+      const v = document.getElementById(hex).value.trim();
+      if (/^#[0-9a-f]{6}$/i.test(v)) document.getElementById(cor).value = v;
+      pintarPrevia();
+    });
+  }
   document.getElementById('apCorpo').addEventListener('click', (e) => {
     const b = e.target.closest('[data-paleta]');
     if (!b) return;
@@ -1597,22 +1648,75 @@ const AP_FONTES = {
   neutra: "Inter, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
   tecnica: "'IBM Plex Sans', Inter, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
   editorial: "Poppins, Inter, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
+  amigavel: "Nunito, Inter, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
 };
+const AP_TITULOS = {
+  elegante: "'Playfair Display', Georgia, serif",
+  classica: "'Cormorant Garamond', Georgia, serif",
+  manuscrita: "'Dancing Script', cursive",
+  moderna: "Poppins, Inter, sans-serif",
+};
+/* As famílias decorativas não estão carregadas no ERP: descem uma vez, só
+   quando o lojista abre a prévia. */
+function apCarregarFontes() {
+  if (document.querySelector('link[data-ap-fontes]')) return;
+  const l = document.createElement('link');
+  l.rel = 'stylesheet'; l.dataset.apFontes = '1';
+  l.href = 'https://fonts.googleapis.com/css2?family=Nunito:wght@400;700&family=Playfair+Display:wght@700'
+    + '&family=Cormorant+Garamond:wght@700&family=Dancing+Script:wght@700&display=swap';
+  document.head.appendChild(l);
+}
+const AP_FUNDOS = { claro: ['#F7F8F8', '#14201F'], suave: ['#FBF6F1', '#2B201C'], escuro: ['#14201F', '#EAF2F1'] };
 
 function pintarPrevia() {
+  apCarregarFontes();
   const cor = document.getElementById('apCor').value;
   const fundo = document.getElementById('apFundo').value;
   const raio = Number(document.getElementById('apRaio').value) || 0;
   const fonte = document.getElementById('apFonte').value;
+  const titulo = document.getElementById('apFonteTitulo').value;
+  const cor2 = document.getElementById('apCor2Hex').value.trim();
+  const faixa = document.getElementById('apFaixa').value.trim();
   document.getElementById('apCorHex').value = cor;
   document.getElementById('apRaioVal').textContent = raio + 'px';
   const tela = document.getElementById('apTela');
-  const escuro = fundo === 'escuro';
-  tela.style.background = escuro ? '#14201F' : '#F7F8F8';
-  tela.style.color = escuro ? '#EAF2F1' : '#14201F';
+  const [bg, fg] = AP_FUNDOS[fundo] || AP_FUNDOS.claro;
+  tela.style.background = bg;
+  tela.style.color = fg;
   tela.style.fontFamily = AP_FONTES[fonte] || AP_FONTES.neutra;
+  document.getElementById('apPvNome').style.fontFamily = AP_TITULOS[titulo] || '';
   tela.style.setProperty('--ap-raio', raio + 'px');
   tela.style.setProperty('--ap-cor', cor);
+  const pvFaixa = document.getElementById('apPvFaixa');
+  pvFaixa.textContent = faixa;
+  pvFaixa.hidden = !faixa;
+  pvFaixa.style.background = /^#[0-9a-f]{6}$/i.test(cor2) ? cor2 : cor;
+}
+
+async function enviarFavicon(input) {
+  const arq = input.files && input.files[0];
+  input.value = '';
+  if (!arq) return;
+  const fd = new FormData();
+  fd.append('favicon', arq);
+  try {
+    const d = await api('/api/loja/favicon', { method: 'POST', body: fd });
+    CFG_AP.faviconPath = d.favicon;
+    const img = document.getElementById('apFavicon');
+    img.src = d.favicon; img.hidden = false;
+    document.getElementById('apFaviconTirar').hidden = false;
+    showAlert('Ícone da aba atualizado.');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function removerFavicon() {
+  try {
+    await api('/api/loja/favicon', { method: 'DELETE' });
+    CFG_AP.faviconPath = null;
+    document.getElementById('apFavicon').hidden = true;
+    document.getElementById('apFaviconTirar').hidden = true;
+    showAlert('Ícone removido.');
+  } catch (e) { showAlert(e.message, 'error'); }
 }
 
 function fecharAparencia() { document.getElementById('modalAp').classList.remove('open'); }
@@ -1626,8 +1730,13 @@ async function salvarAparencia() {
     await api('/api/loja/config', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        tema: { ...(DADOS.loja.tema || {}), corPrimaria: v('apCor'),
-                fundo: v('apFundo'), fonte: v('apFonte'), raio: Number(v('apRaio')) || 0 },
+        tema: { ...(DADOS.loja.tema || {}), ...(CFG_AP.tema || {}), corPrimaria: v('apCor'),
+                fundo: v('apFundo'), fonte: v('apFonte'), raio: Number(v('apRaio')) || 0,
+                fonteTitulo: v('apFonteTitulo'),
+                corSecundaria: v('apCor2Hex').trim() || null,
+                corTema: v('apCorTemaHex').trim() || null,
+                faixaTexto: v('apFaixa').trim() || null },
+        rodapeTexto: v('apRodape'),
       }),
     });
     showAlert('Aparência salva.');

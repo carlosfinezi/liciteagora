@@ -71,6 +71,88 @@ carlosfinezi. Qualquer processo desse usuário podia reescrevê-lo e rodar o
 que quisesse como root, sem senha. **Nunca volte a apontar sudo para arquivo
 desta árvore.** Mesmo desenho do `trajeta-publicar`.
 
+### Criar tenant fora do painel: `scripts/criar-tenant.js`
+
+O painel admin exige sessão de super-admin. O script segue o MESMO caminho da
+rota (`criarTenant` e `ligarFeature`, exportados do `control-plane-routes.js`)
+e depois roda a cópia root do provisionamento de vhost:
+
+```
+sudo -u carlosfinezi DISABLE_SCHEDULERS=1 node scripts/criar-tenant.js \
+  --slug X --nome "Nome" --plano-id 4 --features produtos,varejo,fiscal
+```
+
+Roda como carlosfinezi (dono de `data/` e o único que o sudo libera) e é todo
+síncrono de propósito: as migrações registram as rotas de todos os módulos, e
+alguns armam temporizadores. Sem devolver o controle ao event loop até o
+`process.exit`, nenhum dispara, e o script não vira uma segunda produção.
+`--plano-id 4` é o Vitalício/Interno: os planos Trial e Mensal vencem e
+suspendem o tenant sozinhos. Foi assim que nasceu o `floricultura`, em
+27/09/2026.
+
+### Chave do certificado A1: `/etc/liciteagora/chave-certificado.env`
+
+Desde 27/09/2026 a senha do certificado digital fica cifrada no banco
+(`cert-senha.js`, AES-256-GCM). Até então era só base64, e o `pncp.db`
+sozinho entregava o pfx e a senha que o abre.
+
+- **A chave NÃO mora no banco nem na árvore.** Fica em
+  `/etc/liciteagora/chave-certificado.env` (root, 600), como
+  `LICITEAGORA_CHAVE_CERT` (64 hexadecimais). O systemd a entrega às duas
+  units por um drop-in: `/etc/systemd/system/<unit>.service.d/chave-certificado.conf`,
+  com `EnvironmentFile=-...`. O carlosfinezi não consegue ler o arquivo, e o
+  processo recebe só a variável.
+- **O backup dos bancos não leva a chave**, e é isso que faz o banco sozinho
+  não revelar a senha. Guarde uma cópia da chave FORA desta máquina: sem ela,
+  o backup restaura o pfx e perde a senha.
+- **A migração roda no boot de cada tenant** (`db-schema.js` →
+  `migrarSenhas`). Sem a chave no processo ela não migra e avisa no log
+  quantas senhas ficaram em base64. A leitura aceita os dois formatos, então
+  nada para enquanto isso.
+- **Gravar senha sem a chave é recusado**: o upload do certificado responde
+  erro em vez de guardar em base64.
+- Script ou suíte rodado à mão como carlosfinezi **não tem a chave** e não
+  decifra as senhas migradas. Para provar a emissão num tenant real:
+  `( set -a; . /etc/liciteagora/chave-certificado.env; set +a; node scripts/provar-cert-senha.js 1bit )`,
+  como root, somente leitura (faz uma consulta de status à SEFAZ e um
+  controle com senha errada, que tem de falhar).
+
+**Se a chave se perder:** toda senha já migrada fica ilegível. A NF-e, a
+NFC-e, a NFS-e, o PDF assinado e o certificado entregue ao Electron passam a
+falhar com "LICITEAGORA_CHAVE_CERT ausente" ou erro de decifra, em todos os
+tenants com certificado. O pfx continua no banco; o que some é a senha. O
+conserto é gerar uma chave nova (`openssl rand -hex 32` no mesmo arquivo),
+reiniciar as duas units e pedir a cada tenant que reenvie o certificado com a
+senha em Configurações › Minha empresa. Não há como recuperar as senhas
+antigas, e é justamente essa a garantia.
+
+**Se o arquivo sumir mas a chave existir em outro lugar:** recoloque o arquivo
+com o mesmo valor e reinicie as units. O hífen do `EnvironmentFile=-` faz o
+serviço subir mesmo sem o arquivo, e aí só a emissão fiscal falha, com erro no
+log, em vez de o ERP inteiro cair no boot.
+
+### A loja como página inicial, e a nova posição do static do login
+
+Desde 27/09/2026, com `loja_config.paginaInicial = 1` e a loja publicada
+(Catálogo Online › Informações da empresa › "Abrir o catálogo em…"), quem abre
+o endereço do tenant sem sessão cai na loja: `/` vai para `/loja/`, caminho
+desconhecido recebe `public/loja/404.html` com status 404, e favicon, ícones e
+manifest do ERP não são servidos (sai o ícone da loja, ou 404). O dono entra
+por `/login`; com sessão, tudo volta a ser o ERP. Tenant suspenso mostra a loja
+fechada (`responderLojaFechada`), sem slug nem cobrança.
+
+Para isso, **o static de `public/auth` deixou de ser montado antes do
+middleware de tenant**. Agora é `base-middleware.servirTelaDeLogin`, chamado
+pelo `auth-pipeline` depois da sessão e do `vitrineAntesDoLogin`. Duas
+consequências: host desconhecido recebe o 404 do tenant em vez da tela de
+login, e o painel admin continua servido porque o host `admin` passa pelo
+middleware de tenant. O `vitrineNaBarreira` fica logo antes do
+`requireAuth`. A configuração é lida com cache de 15 s por tenant, e quem grava
+chama `esquecerVitrine`.
+
+O domínio próprio (`floriculturadoamigo.com.br`) **ainda não existe**: o
+`resolveFromHost` só reconhece `<slug>.liciteagora.app`.
+
 ## Verify
 
 ```

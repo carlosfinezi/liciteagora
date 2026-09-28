@@ -817,6 +817,16 @@ try {
   if (_m) db.prepare('UPDATE certificado_digital SET estabelecimentoId = ? WHERE id = 1 AND estabelecimentoId IS NULL').run(_m.id);
 } catch {}
 
+// Senha do certificado: de base64 para cifrada (cert-senha.js, 2026-09-27).
+// Sem a chave no ambiente não migra, e diz no log quantas ficaram para trás.
+try {
+  const { migradas, pendentes } = require('./cert-senha').migrarSenhas(db);
+  if (migradas) console.log(`[Certificado] ${migradas} senha(s) migrada(s) para o formato cifrado`);
+  if (pendentes) console.warn(`[Certificado] ${pendentes} senha(s) ainda em base64: LICITEAGORA_CHAVE_CERT ausente neste processo`);
+} catch (e) {
+  console.error('[Certificado] Migração da senha falhou:', e.message);
+}
+
 // Multi-loja Fase 2: estabelecimentoId nos domínios fiscal/financeiro/estoque
 // (NULL = matriz). Estes ALTERs também existem nos migrar() dos módulos de
 // rota, mas lá só rodam em tenant NOVO (provision) — no boot rodam contra o
@@ -1425,6 +1435,33 @@ for (const col of ['instagram TEXT', 'facebook TEXT']) {
 for (const col of require('./loja-routes').COLUNAS_INFO_LOJA) {
   alterSafe(db, `ALTER TABLE loja_config ADD COLUMN ${col}`);
 }
+
+/* Escolhas do cliente por item do pedido (2026-09-27).
+ *
+ * Até aqui as personalizações da loja existiam só como texto na descrição do
+ * item, e por isso o insumo da opção (a embalagem, a fita, o cartão) nunca saía
+ * do estoque: não havia de onde ler qual opção foi escolhida. Uma linha por
+ * escolha, com o insumo COPIADO da opção no momento da compra: se o lojista
+ * trocar o insumo depois, o pedido antigo continua baixando o que foi vendido.
+ * Campo livre (grupo do tipo texto) entra com `texto` e sem opção. */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS pedido_item_opcoes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pedidoId INTEGER NOT NULL,
+    pedidoItemId INTEGER NOT NULL,
+    grupoId INTEGER,
+    grupoNome TEXT,
+    opcaoId INTEGER,
+    nome TEXT,
+    texto TEXT,
+    precoAdicional REAL NOT NULL DEFAULT 0,
+    insumoProdutoId INTEGER,
+    quantidadeInsumo REAL,
+    criadoEm TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_pio_item ON pedido_item_opcoes(pedidoItemId);
+  CREATE INDEX IF NOT EXISTS idx_pio_pedido ON pedido_item_opcoes(pedidoId);
+`);
 
 /* Vínculo da NFC-e com o pedido comercial (Fase 1 fiscal, 2026-09-21).
  *

@@ -101,7 +101,8 @@ function pedidoMovimentaEstoque(db, pedidoId) {
 
 /**
  * Itens do pedido com kit explodido: item apontando para produto tipoProduto='kit'
- * vira N linhas dos componentes (kit não tem saldo próprio). O `id` de cada linha
+ * vira N linhas dos componentes (kit não tem saldo próprio), e cada opção com
+ * insumo escolhida no item vira mais uma linha (pedido_item_opcoes). O `id` de cada linha
  * continua sendo o do item original — cancelamento, consumo e vínculo por
  * pedido/item funcionam sem mudança.
  *
@@ -110,6 +111,14 @@ function pedidoMovimentaEstoque(db, pedidoId) {
  */
 function explodirItensPedido(db, pedidoId) {
   const itensPedido = db.prepare('SELECT * FROM pedido_itens WHERE pedidoId = ?').all(pedidoId);
+  // Insumo das opções escolhidas (a embalagem, a fita, o cartão do buquê):
+  // sai do estoque junto do item, na quantidade da opção vezes a do item.
+  // Tenant sem a tabela (banco antigo de teste) segue sem insumo.
+  let insumosDe = null;
+  try {
+    insumosDe = db.prepare(`SELECT insumoProdutoId, quantidadeInsumo FROM pedido_item_opcoes
+      WHERE pedidoItemId = ? AND insumoProdutoId IS NOT NULL AND quantidadeInsumo > 0`);
+  } catch { /* sem pedido_item_opcoes */ }
   const itens = [];
   for (const it of itensPedido) {
     if (!it.produtoId) { itens.push(it); continue; }
@@ -121,6 +130,11 @@ function explodirItensPedido(db, pedidoId) {
       }
     } else {
       itens.push(it);
+    }
+    if (insumosDe) {
+      for (const o of insumosDe.all(it.id)) {
+        itens.push({ ...it, produtoId: o.insumoProdutoId, quantidade: Number(it.quantidade) * Number(o.quantidadeInsumo) });
+      }
     }
   }
   return itens;
@@ -414,7 +428,7 @@ function consumirReservasPedido(db, pedidoId, dataConsumo) {
   if (!pedidoMovimentaEstoque(db, pedidoId)) {
     return [];
   }
-  const { calcularContextoMovimento, resolverDeposito } = require('./estoque-routes');
+  const { contextoDeSaida, resolverDeposito } = require('./estoque-routes');
   const reservas = db.prepare(`
     SELECT r.*, p.numero AS pedidoNumero
     FROM reservas_estoque r
@@ -424,7 +438,7 @@ function consumirReservasPedido(db, pedidoId, dataConsumo) {
 
   const movIds = [];
   for (const r of reservas) {
-    const ctx = calcularContextoMovimento(db, r.produtoId, 'saida', r.quantidade, null);
+    const ctx = contextoDeSaida(db, r.produtoId, r.quantidade);
     const result = db.prepare(`
       INSERT INTO movimentacoes_estoque
         (produtoId, tipo, quantidade, origem, origemId, observacao, data,
@@ -525,7 +539,7 @@ function cancelarReservasOS(db, osId, motivo = null) {
 }
 
 function consumirReservasOS(db, osId, dataConsumo) {
-  const { calcularContextoMovimento, resolverDeposito } = require('./estoque-routes');
+  const { contextoDeSaida, resolverDeposito } = require('./estoque-routes');
   // equipamentoId IS NULL: a reserva da própria máquina (trator na oficina)
   // NÃO vira saída. Ela só segura a unidade contra venda enquanto a OS corre;
   // a baixa daquele trator acontece na venda dele, não no fim do serviço.
@@ -539,7 +553,7 @@ function consumirReservasOS(db, osId, dataConsumo) {
 
   const movIds = [];
   for (const r of reservas) {
-    const ctx = calcularContextoMovimento(db, r.produtoId, 'saida', r.quantidade, null);
+    const ctx = contextoDeSaida(db, r.produtoId, r.quantidade);
     const result = db.prepare(`
       INSERT INTO movimentacoes_estoque
         (produtoId, tipo, quantidade, origem, origemId, observacao, data,

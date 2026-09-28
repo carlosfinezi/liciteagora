@@ -164,6 +164,43 @@ function resolverPreco(db, produtoId, { pessoaId = null, quantidade = 1, tabelaI
   return { preco: p ? (p.precoVenda || 0) : 0, fonte: 'produto' };
 }
 
+/**
+ * Preço de PROMOÇÃO de um produto, para quem não tem cadastro: o visitante da
+ * loja e o consumidor do balcão.
+ *
+ * Promoção é a tabela de preço geral, ativa, dentro da vigência e COM vigência
+ * definida (início ou fim). A exigência da vigência é o que separa promoção de
+ * tabela comercial: "Atacado" ou "Revenda" não têm data para acabar, e aplicá-las
+ * a qualquer visitante publicaria preço de revenda na vitrine. Essas continuam
+ * valendo só para o cliente vinculado a elas (resolverPreco).
+ *
+ * Entre as promoções vigentes, a ordem é a mesma do resolverPreco (prioridade,
+ * depois id), e só vale se ficar abaixo do preço de venda do cadastro. Devolve
+ * { preco, cheio, tabelaNome, ate } ou null.
+ */
+function precoPromocional(db, produtoId, quantidade = 1) {
+  const hoje = dataBrasilia();
+  const qtd = Number(quantidade) || 1;
+  const p = db.prepare('SELECT precoVenda FROM produtos WHERE id = ?').get(produtoId);
+  const cheio = p ? Number(p.precoVenda) || 0 : 0;
+  if (!(cheio > 0)) return null;
+  let tabelas;
+  try {
+    tabelas = db.prepare(`SELECT * FROM tabelas_preco WHERE ativo = 1
+      AND (COALESCE(vigenciaInicio, '') <> '' OR COALESCE(vigenciaFim, '') <> '')
+      ORDER BY prioridade DESC, id`).all().filter(t => tabelaVigente(t, hoje));
+  } catch { return null; }   // tenant sem tabelas de preço
+  const item = db.prepare(`SELECT preco FROM tabela_preco_itens
+    WHERE tabelaId = ? AND produtoId = ? AND qtdMinima <= ? ORDER BY qtdMinima DESC LIMIT 1`);
+  for (const t of tabelas) {
+    const i = item.get(t.id, produtoId, qtd);
+    if (!i) continue;
+    const preco = Number(i.preco);
+    return preco > 0 && preco < cheio ? { preco, cheio, tabelaNome: t.nome, ate: t.vigenciaFim || null } : null;
+  }
+  return null;
+}
+
 // ==================== VENDAS PERDIDAS × PEDIDO ====================
 
 /**
@@ -631,7 +668,7 @@ function registrarRotasPrecos(app, db) {
 }
 
 module.exports = {
-  registrarRotasPrecos, migrarPrecosDB, resolverPreco,
+  registrarRotasPrecos, migrarPrecosDB, resolverPreco, precoPromocional,
   registrarPerdasDePedido, estornarPerdasDePedido, itensElegiveisPerda,
   MOTIVOS_PERDA, MOTIVOS_VALIDOS, ORIGENS_AUTO,
 };

@@ -30,6 +30,9 @@
   --line: #E1E7E6;
   --raio: 10px;
   --fonte: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  --fonte-titulo: var(--fonte);
+  --secundaria: var(--primaria);
+  --secundaria-texto: #fff;
   --barra-h: 68px;
 }
 * { box-sizing: border-box; }
@@ -230,6 +233,9 @@ header.topo img.logo { width: 52px; height: 52px; border-radius: 50%; aspect-rat
 .sem-foto { color: var(--ink-2); font-size: 12px; }
 .selo { position: absolute; left: 8px; top: 8px; background: #FFF4D6; color: #8A6A12;
   border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 700; }
+/* Oferta no canto oposto ao ★, para os dois caberem no mesmo card. */
+.selo-oferta { position: absolute; right: 8px; top: 8px; background: var(--secundaria); color: var(--secundaria-texto);
+  border-radius: 999px; padding: 2px 9px; font-size: 12px; font-weight: 700; }
 .card-txt { padding: 10px 12px 14px; display: flex; flex-direction: column; gap: 3px; flex: 1; }
 .card-txt h3 { font-size: 14px; margin: 0; font-weight: 550; line-height: 1.3;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -396,6 +402,15 @@ header.topo img.logo { width: 52px; height: 52px; border-radius: 50%; aspect-rat
     padding-bottom: env(safe-area-inset-bottom, 0px); }
 }
 
+/* ---------- fonte dos títulos e faixa de aviso ---------- */
+/* Só títulos: nome da loja, seções, produto, sacola e rodapé. O nome do
+   produto no card fica na fonte do texto, porque em 14px uma manuscrita
+   deixa de ser lida. */
+.cab-nome, .secao h2, .p-info h1, .sacola-topo h1, .chk h1, .ok-tela h1,
+.rod-marca strong, .info-cab h2 { font-family: var(--fonte-titulo); }
+.faixa { background: var(--secundaria); color: var(--secundaria-texto); text-align: center;
+  font-size: 13.5px; font-weight: 600; padding: 7px 16px; line-height: 1.4; }
+
 /* ---------- rodapé ---------- */
 footer.rodape { border-top: 1px solid var(--line); color: var(--ink-2); font-size: 14px;
   /* Fundo levemente distinto da página, sem virar bloco escuro. */
@@ -439,6 +454,7 @@ footer.rodape { border-top: 1px solid var(--line); color: var(--ink-2); font-siz
 </head>
 <body>
 
+<div class="faixa" id="faixa" hidden></div>
 <div class="capa" id="capa" hidden></div>
 
 <header class="topo">
