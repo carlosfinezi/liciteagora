@@ -22,6 +22,8 @@
   .abc-barra .seg-a { background: var(--success); }
   .abc-barra .seg-b { background: var(--warn); }
   .abc-barra .seg-c { background: var(--text-3); }
+  /* Classe C em cinza, no cartão e na barra, como diz a legenda */
+  .kpi.classe-c { border-left-color: var(--text-3); }
   .anomalias { display: grid; gap: 10px; margin-bottom: 16px; }
   .anomalia {
     display: flex; gap: 12px; align-items: flex-start;
@@ -68,7 +70,7 @@
   </div>
 
   <!-- ============= VALORIZAÇÃO ============= -->
-  <div class="tab-content" id="tab-valorizacao">
+  <div class="tab-content active" id="tab-valorizacao">
     <div class="kpi-grid" id="kpisVal"></div>
     <div class="anomalias" id="anomaliasVal"></div>
 
@@ -82,7 +84,7 @@
       <div class="tbl-wrap">
         <table>
           <thead><tr>
-            <th>SKU</th><th>Descrição</th>
+            <th>Código</th><th>Descrição</th>
             <th style="text-align:right;">Saldo</th>
             <th style="text-align:right;">Custo médio</th>
             <th style="text-align:right;">Valor</th>
@@ -95,7 +97,7 @@
   </div>
 
   <!-- ============= ABC ============= -->
-  <div class="tab-content" id="tab-abc" style="display:none;">
+  <div class="tab-content" id="tab-abc">
     <div class="kpi-grid" id="kpisAbc"></div>
 
     <div class="chart-wrap">
@@ -107,10 +109,10 @@
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>Classe</th><th>SKU</th><th>Descrição</th>
+          <th>Classe</th><th>Código</th><th>Descrição</th>
           <th style="text-align:right;">Qtd saída</th>
           <th style="text-align:right;">Valor saída</th>
-          <th style="text-align:right;">% periodo</th>
+          <th style="text-align:right;">% período</th>
           <th style="text-align:right;">% acum.</th>
         </tr></thead>
         <tbody id="tbAbc"></tbody>
@@ -119,18 +121,18 @@
   </div>
 
   <!-- ============= GIRO ============= -->
-  <div class="tab-content" id="tab-giro" style="display:none;">
+  <div class="tab-content" id="tab-giro">
     <div class="kpi-grid" id="kpisGiro"></div>
 
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>SKU</th><th>Descrição</th>
+          <th>Código</th><th>Descrição</th>
           <th style="text-align:right;">Saldo atual</th>
           <th style="text-align:right;">Saída período</th>
           <th style="text-align:right;">Giro</th>
           <th style="text-align:right;">Cobertura (dias)</th>
-          <th style="text-align:right;">Últ. saída</th>
+          <th style="text-align:right;">Última saída</th>
           <th>Status</th>
         </tr></thead>
         <tbody id="tbGiro"></tbody>
@@ -139,7 +141,7 @@
   </div>
 
   <!-- ============= CMV ============= -->
-  <div class="tab-content" id="tab-cmv" style="display:none;">
+  <div class="tab-content" id="tab-cmv">
     <div class="toolbar">
       <label style="color:var(--text-2);font-size:0.85em;">De</label>
       <input type="date" id="cmvInicio" onchange="carregarCmv()" style="width:auto;">
@@ -159,7 +161,7 @@
       <div class="tbl-wrap">
         <table>
           <thead><tr>
-            <th>SKU</th><th>Descrição</th>
+            <th>Código</th><th>Descrição</th>
             <th style="text-align:right;">Qtd vendida</th>
             <th style="text-align:right;">CMV</th>
             <th style="text-align:right;">% do total</th>
@@ -170,7 +172,7 @@
     </div>
   </div>
 
-  <div class="tab-content" id="tab-lucro" style="display:none;">
+  <div class="tab-content" id="tab-lucro">
     <div class="toolbar">
       <label style="color:var(--text-2);font-size:0.85em;">De</label>
       <input type="date" id="lucroInicio" onchange="carregarLucro()" style="width:auto;">
@@ -184,7 +186,7 @@
       <div class="tbl-wrap">
         <table>
           <thead><tr>
-            <th>SKU</th><th>Descrição</th>
+            <th>Código</th><th>Descrição</th>
             <th style="text-align:right;">Qtd</th>
             <th style="text-align:right;">Vendido</th>
             <th style="text-align:right;">Custo</th>
@@ -208,11 +210,15 @@
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
 function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtInt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR'); }
+// '2026-09-27' (ou com hora) → '27/09/2026'. Sem conta de fuso: a data já vem do banco.
+function fmtData(iso){ if(!iso) return '—'; const [a,m,d]=String(iso).slice(0,10).split('-'); return d ? `${d}/${m}/${a}` : '—'; }
 
+// A aba aparece pela classe active: o app-modern.css esconde toda .tab-content
+// sem ela. Até 28/09/2026 esta função só mexia no style.display, que não vence
+// a regra, e a tela abria em branco em todas as abas.
 function switchTab(t){
-  document.querySelectorAll('.tab-content').forEach(x=>x.style.display='none');
+  document.querySelectorAll('.tab-content').forEach(x=>x.classList.toggle('active', x.id==='tab-'+t));
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
-  document.getElementById('tab-'+t).style.display='';
   document.querySelector(`.tab[data-tab="${t}"]`).classList.add('active');
   if (t==='valorizacao' && !dadosCarregados.valorizacao) carregarValorizacao();
   if (t==='abc' && !dadosCarregados.abc) carregarAbc();
@@ -280,23 +286,23 @@ function exportarAba(){
     // Exporta o estoque inteiro, não só o Top 10 da tela: quem exporta quer
     // fechar número, e um recorte de 10 linhas não fecha nada.
     baixarCsv('valorizacao-estoque',
-      ['SKU','Descrição','Unidade','Saldo','Custo médio','Valor','Situação'],
+      ['Código','Descrição','Unidade','Saldo','Custo médio','Valor','Situação'],
       [
         ...d.top10.map(i => [i.sku, i.descricao, i.unidade, num(i.saldo), num(i.custoMedio), num(i.valor), 'ativo']),
         ...(d.inativosComSaldo?.lista || []).map(i => [i.sku, i.descricao, i.unidade, num(i.saldo), num(i.custoMedio), num(i.valor), 'INATIVO COM SALDO']),
         ...(d.saldoNegativo?.lista || []).map(i => [i.sku, i.descricao, i.unidade, num(i.saldo), num(i.custoMedio), num(i.valor), 'SALDO NEGATIVO']),
       ]);
   } else if (aba === 'abc') {
-    baixarCsv('curva-abc', ['Classe','SKU','Descrição','Qtd saída','Valor saída','% período','% acumulado'],
+    baixarCsv('curva-abc', ['Classe','Código','Descrição','Qtd saída','Valor saída','% período','% acumulado'],
       d.itens.map(i => [i.classe, i.sku, i.descricao, num(i.qtdSaida), num(i.valorSaida), num(i.percentual), num(i.percentualAcumulado)]));
   } else if (aba === 'giro') {
-    baixarCsv('giro-cobertura', ['SKU','Descrição','Saldo atual','Custo médio','Valor em estoque','Saída período','Giro','Cobertura (dias)','Dias sem saída','Parado'],
+    baixarCsv('giro-cobertura', ['Código','Descrição','Saldo atual','Custo médio','Valor em estoque','Saída período','Giro','Cobertura (dias)','Dias sem saída','Parado'],
       d.itens.map(i => [i.sku, i.descricao, num(i.saldoAtual), num(i.custoMedio), num(i.valorEstoque), num(i.qtdSaidaPeriodo), num(i.giro), num(i.coberturaDias), i.diasSemSaida ?? '', i.parado ? 'sim' : 'não']));
   } else if (aba === 'lucro') {
-    baixarCsv('lucro-por-produto', ['SKU','Descrição','Qtd','Vendido','Custo','Lucro','Margem %','Custo estimado'],
+    baixarCsv('lucro-por-produto', ['Código','Descrição','Qtd','Vendido','Custo','Lucro','Margem %','Custo estimado'],
       d.produtos.map(p => [p.sku, p.descricao, num(p.quantidade), num(p.receita), num(p.custo), num(p.lucro), num(p.margem), p.estimado ? 'sim' : 'não']));
   } else {
-    baixarCsv('cmv', ['SKU','Descrição','Qtd vendida','CMV'],
+    baixarCsv('cmv', ['Código','Descrição','Qtd vendida','CMV'],
       d.porProduto.map(p => [p.sku, p.descricao, num(p.qtdSaida), num(p.cmv)]));
   }
 }
@@ -439,8 +445,8 @@ async function carregarAbc(){
   document.getElementById('kpisAbc').innerHTML = `
     <div class="kpi success"><div class="label">Classe A (80% valor)</div><div class="value">${d.resumo.A.itens} <small>itens</small></div><small class="muted">R$ ${fmt(d.resumo.A.valor)}</small></div>
     <div class="kpi warn"><div class="label">Classe B (15% valor)</div><div class="value">${d.resumo.B.itens} <small>itens</small></div><small class="muted">R$ ${fmt(d.resumo.B.valor)}</small></div>
-    <div class="kpi"><div class="label">Classe C (5% valor)</div><div class="value">${d.resumo.C.itens} <small>itens</small></div><small class="muted">R$ ${fmt(d.resumo.C.valor)}</small></div>
-    <div class="kpi danger"><div class="label">Total movimentado</div><div class="value">R$ ${fmt(d.valorTotal)}</div><small class="muted">${d.totalItens} produtos</small></div>
+    <div class="kpi classe-c"><div class="label">Classe C (5% valor)</div><div class="value">${d.resumo.C.itens} <small>itens</small></div><small class="muted">R$ ${fmt(d.resumo.C.valor)}</small></div>
+    <div class="kpi"><div class="label">Total movimentado</div><div class="value">R$ ${fmt(d.valorTotal)}</div><small class="muted">${d.totalItens} produtos</small></div>
   `;
 
   // Barra de distribuição por qtd de itens
@@ -486,7 +492,7 @@ async function carregarGiro(){
 
   document.getElementById('tbGiro').innerHTML = d.itens.map(i => {
     let status, statusClass;
-    if (i.saldoAtual <= 0 && i.qtdSaidaPeriodo > 0) { status = 'SEM ESTOQUE'; statusClass = 'cancelado'; }
+    if (i.saldoAtual <= 0) { status = 'SEM ESTOQUE'; statusClass = 'cancelado'; }
     else if (i.parado) { status = 'PARADO'; statusClass = 'inativo'; }
     else if (i.coberturaDias != null && i.coberturaDias <= 30) { status = 'CRÍTICO'; statusClass = 'vencida'; }
     else if (i.coberturaDias != null && i.coberturaDias <= 60) { status = 'ATENÇÃO'; statusClass = 'em_separacao'; }
@@ -498,7 +504,7 @@ async function carregarGiro(){
       <td style="text-align:right;">${fmt(i.qtdSaidaPeriodo)}</td>
       <td style="text-align:right;">${i.giro != null ? fmt(i.giro) : '—'}</td>
       <td style="text-align:right;">${i.coberturaDias != null ? fmt(i.coberturaDias) : '—'}</td>
-      <td style="text-align:right;color:var(--text-2);">${i.diasSemSaida != null ? i.diasSemSaida + 'd' : '—'}</td>
+      <td style="text-align:right;color:var(--text-2);">${fmtData(i.ultimaSaida)}</td>
       <td><span class="badge ${statusClass}">${status}</span></td>
     </tr>`;
   }).join('') || '<tr><td colspan="8" class="empty">Sem produtos ativos</td></tr>';

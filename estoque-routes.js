@@ -8,6 +8,7 @@
  */
 
 const { logAction } = require('./audit-log');
+const { ordemPt } = require('./ordem-pt');
 
 const TIPOS_VALIDOS = new Set(['entrada', 'saida', 'ajuste']);
 
@@ -18,6 +19,9 @@ function dataBrasilia() {
 }
 
 function alterSafe(db, sql) { try { db.exec(sql); } catch { /* coluna ja existe */ } }
+
+// Diferença de saldos arredondada como a soma do SQL (ver calcularSaldo).
+const r3 = (x) => Math.round((x || 0) * 1000) / 1000 + 0;
 
 function migrarEstoqueDB(db) {
   // Colunas adicionais em produtos
@@ -263,12 +267,18 @@ function resolverDeposito(db, { depositoId, movOriginalId, pedidoId, osId, produ
  * Calcula saldo atual de um produto (soma de entradas - saídas + ajustes).
  * Ajuste funciona como delta absoluto (positivo ou negativo).
  * Com depositoId: saldo apenas daquele depósito (NULL nas movimentações = depósito padrão).
+ *
+ * A soma sai arredondada em 3 casas, e esse é o padrão de toda soma de saldo:
+ * produto vendido por quilo soma frações que não fecham em zero exato. Zerado,
+ * dava 1e-13 (giro de trilhões, dividindo por ele) ou -1e-13 ("-0,00" e status
+ * de saldo negativo). O "+ 0" existe porque ROUND de um negativo minúsculo
+ * devolve -0, que a tela escreve "-0,00".
  */
 function calcularSaldo(db, produtoId, depositoId = null) {
   let sql = `
-    SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
+    SELECT ROUND(COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
                              WHEN tipo='saida' THEN -quantidade
-                             ELSE quantidade END), 0) AS saldo
+                             ELSE quantidade END), 0), 3) + 0 AS saldo
     FROM movimentacoes_estoque WHERE produtoId = ?`;
   const params = [produtoId];
   if (depositoId != null) {
@@ -542,12 +552,12 @@ function registrarRotasEstoque(app, db) {
       let sql = `SELECT p.id, p.sku, p.descricao, p.unidade, p.precoCusto, p.precoVenda,
         p.estoqueMinimo, p.pontoReposicao, p.estoqueMaximo, p.leadTimeDias, p.localizacao,
         p.rastreiaLote, p.rastreiaSerial,
-        COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
+        ROUND(COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
                                   WHEN tipo='saida' THEN -quantidade
                                   ELSE quantidade END)
-                  FROM movimentacoes_estoque WHERE produtoId = p.id${filtroDep}), 0) AS saldo,
-        COALESCE((SELECT SUM(quantidade) FROM reservas_estoque
-                  WHERE produtoId = p.id AND status = 'ativa'${filtroDep}), 0) AS reservado,
+                  FROM movimentacoes_estoque WHERE produtoId = p.id${filtroDep}), 0), 3) + 0 AS saldo,
+        ROUND(COALESCE((SELECT SUM(quantidade) FROM reservas_estoque
+                  WHERE produtoId = p.id AND status = 'ativa'${filtroDep}), 0), 3) + 0 AS reservado,
         COALESCE((SELECT custoMedioPosterior FROM movimentacoes_estoque
                   WHERE produtoId = p.id AND custoMedioPosterior IS NOT NULL
                   ORDER BY data DESC, id DESC LIMIT 1), p.precoCusto) AS custoMedio
@@ -560,10 +570,10 @@ function registrarRotasEstoque(app, db) {
       }
       if (rastreiaLote === '1') sql += ' AND p.rastreiaLote = 1';
       if (rastreiaSerial === '1') sql += ' AND p.rastreiaSerial = 1';
-      sql += ' ORDER BY p.descricao ASC';
+      sql += ` ORDER BY ${ordemPt('p.descricao')}, p.descricao`;
       const itens = db.prepare(sql).all(...params).map(i => ({
         ...i,
-        disponivel: (i.saldo || 0) - (i.reservado || 0),
+        disponivel: r3((i.saldo || 0) - (i.reservado || 0)),
         valorEstoque: (i.saldo || 0) * (i.custoMedio || 0)
       }));
       const total = {
@@ -573,7 +583,18 @@ function registrarRotasEstoque(app, db) {
         totalReservado: itens.reduce((s, i) => s + (i.reservado || 0), 0),
         comReservaAtiva: itens.filter(i => i.reservado > 0).length
       };
-      res.json({ success: true, itens, total });
+      // Reserva e rastreio só aparecem na tela de quem usa. Olha o tenant
+      // inteiro, e não o filtro: buscar um nome não pode sumir com a coluna.
+      // Produto inativo não conta, porque ele não aparece em lista nenhuma.
+      const existe = (sql) => !!db.prepare(sql).get();
+      const presenca = {
+        reserva: existe(`SELECT 1 FROM reservas_estoque r JOIN produtos p ON p.id = r.produtoId AND p.ativo = 1 LIMIT 1`),
+        lote: existe(`SELECT 1 FROM produtos WHERE ativo = 1 AND rastreiaLote = 1 LIMIT 1`)
+          || existe(`SELECT 1 FROM lotes l JOIN produtos p ON p.id = l.produtoId AND p.ativo = 1 LIMIT 1`),
+        serial: existe(`SELECT 1 FROM produtos WHERE ativo = 1 AND rastreiaSerial = 1 LIMIT 1`)
+          || existe(`SELECT 1 FROM serial_numbers s JOIN produtos p ON p.id = s.produtoId AND p.ativo = 1 LIMIT 1`),
+      };
+      res.json({ success: true, itens, total, presenca });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -583,15 +604,16 @@ function registrarRotasEstoque(app, db) {
     try {
       const rows = db.prepare(`
         SELECT p.id, p.sku, p.descricao, p.unidade, p.estoqueMinimo, p.pontoReposicao,
-          COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
+          ROUND(COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
                                     WHEN tipo='saida' THEN -quantidade
                                     ELSE quantidade END)
-                    FROM movimentacoes_estoque WHERE produtoId = p.id), 0) AS saldo,
-          COALESCE((SELECT SUM(quantidade) FROM reservas_estoque
-                    WHERE produtoId = p.id AND status = 'ativa'), 0) AS reservado
+                    FROM movimentacoes_estoque WHERE produtoId = p.id), 0), 3) + 0 AS saldo,
+          ROUND(COALESCE((SELECT SUM(quantidade) FROM reservas_estoque
+                    WHERE produtoId = p.id AND status = 'ativa'), 0), 3) + 0 AS reservado
         FROM produtos p WHERE p.ativo = 1 AND (p.estoqueMinimo > 0 OR p.pontoReposicao > 0)
+        ORDER BY ${ordemPt('p.descricao')}, p.descricao
       `).all();
-      const alertas = rows.map(r => ({ ...r, disponivel: r.saldo - r.reservado }))
+      const alertas = rows.map(r => ({ ...r, disponivel: r3(r.saldo - r.reservado) }))
                           .filter(r => {
                             const lim = r.pontoReposicao > 0 ? r.pontoReposicao : r.estoqueMinimo;
                             return r.disponivel < lim;
@@ -615,10 +637,10 @@ function registrarRotasEstoque(app, db) {
 
       const montar = (ativo) => db.prepare(`
         SELECT p.id, p.sku, p.descricao, p.unidade, p.precoCusto, p.ativo,
-          COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
+          ROUND(COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
                                     WHEN tipo='saida' THEN -quantidade
                                     ELSE quantidade END)
-                    FROM movimentacoes_estoque WHERE produtoId = p.id${filtroDep}), 0) AS saldo,
+                    FROM movimentacoes_estoque WHERE produtoId = p.id${filtroDep}), 0), 3) + 0 AS saldo,
           ${sqlCustoAtual('p').sql} AS custoMedio
         FROM produtos p WHERE p.ativo = ?
       `).all(...pDep, ativo).map(i => ({ ...i, valor: (i.saldo || 0) * (i.custoMedio || 0) }));
@@ -715,8 +737,11 @@ function registrarRotasEstoque(app, db) {
   app.get('/api/estoque/giro', (req, res) => {
     try {
       const meses = Math.max(1, Math.min(60, Number(req.query.meses) || 12));
-      const dataInicio = new Date(Date.now() - meses * 30 * 24 * 60 * 60 * 1000).toISOString().slice(0,10);
       const diasPeriodo = meses * 30;
+      // Os dias contam pela data de Marabá, e não pela hora do servidor.
+      const hoje = dataBrasilia();
+      const diasEntre = (de, ate) => Math.round((Date.parse(ate + 'T12:00:00Z') - Date.parse(de + 'T12:00:00Z')) / 86400000);
+      const dataInicio = new Date(Date.parse(hoje + 'T12:00:00Z') - diasPeriodo * 86400000).toISOString().slice(0, 10);
 
       const dep = req.query.depositoId ? Number(req.query.depositoId) : null;
       const padrao = getDepositoPadraoId(db);
@@ -727,31 +752,40 @@ function registrarRotasEstoque(app, db) {
 
       const rows = db.prepare(`
         SELECT p.id, p.sku, p.descricao, p.unidade, p.precoCusto,
-          COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
+          ROUND(COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
                                     WHEN tipo='saida' THEN -quantidade
                                     ELSE quantidade END)
-                    FROM movimentacoes_estoque WHERE produtoId = p.id${fd}), 0) AS saldoAtual,
+                    FROM movimentacoes_estoque WHERE produtoId = p.id${fd}), 0), 3) + 0 AS saldoAtual,
           ${sqlCustoAtual('p').sql} AS custoMedio,
-          COALESCE((SELECT SUM(quantidade) FROM movimentacoes_estoque
-                    WHERE produtoId = p.id AND tipo = 'saida' AND data >= ?${fd}), 0) AS qtdSaidaPeriodo,
-          (SELECT MAX(data) FROM movimentacoes_estoque
-            WHERE produtoId = p.id AND tipo = 'saida'${fd}) AS ultimaSaida
+          ROUND(COALESCE((SELECT SUM(quantidade) FROM movimentacoes_estoque
+                    WHERE produtoId = p.id AND tipo = 'saida' AND data >= ?${fd}), 0), 3) + 0 AS qtdSaidaPeriodo,
+          (SELECT MAX(date(data)) FROM movimentacoes_estoque
+            WHERE produtoId = p.id AND tipo = 'saida'${fd}) AS ultimaSaida,
+          (SELECT MIN(date(data)) FROM movimentacoes_estoque
+            WHERE produtoId = p.id${fd}) AS primeiraMov
         FROM produtos p WHERE p.ativo = 1
-      `).all(...pDep, dataInicio, ...pDep, ...pDep);
+      `).all(...pDep, dataInicio, ...pDep, ...pDep, ...pDep);
 
       const itens = rows.map(r => {
-        const saidaDiaria = diasPeriodo > 0 ? r.qtdSaidaPeriodo / diasPeriodo : 0;
-        const cobertura = saidaDiaria > 0 ? r.saldoAtual / saidaDiaria : null;
-        // Giro = saídas no período / saldo médio (aprox: saldo atual como proxy)
-        const giro = r.saldoAtual > 0 ? r.qtdSaidaPeriodo / r.saldoAtual : (r.qtdSaidaPeriodo > 0 ? Infinity : 0);
-        const diasSemSaida = r.ultimaSaida
-          ? Math.floor((Date.now() - new Date(r.ultimaSaida + 'T12:00:00').getTime()) / (1000*60*60*24))
-          : null;
+        // A média diária divide pelo histórico que existe dentro da janela: um
+        // produto (ou um tenant) com 6 meses de movimento, olhado em 12 meses,
+        // não pode dividir por 360 dias, ou a cobertura sai dobrada.
+        const inicioHist = r.primeiraMov && r.primeiraMov > dataInicio ? r.primeiraMov : dataInicio;
+        const diasHistorico = Math.max(1, Math.min(diasPeriodo, diasEntre(inicioHist, hoje)));
+        const diasSemSaida = r.ultimaSaida ? diasEntre(r.ultimaSaida, hoje) : null;
         const parado = r.saldoAtual > 0 && (diasSemSaida == null || diasSemSaida > 90);
+        const saidaDiaria = r.qtdSaidaPeriodo / diasHistorico;
+        // Parado não gira: as vendas antigas da janela davam giro e cobertura de
+        // quem vende, ao lado do selo PARADO.
+        const cobertura = parado ? null : (saidaDiaria > 0 ? r.saldoAtual / saidaDiaria : null);
+        // Giro = saídas no período / saldo médio (aprox: saldo atual como proxy)
+        const giro = parado ? 0
+          : r.saldoAtual > 0 ? r.qtdSaidaPeriodo / r.saldoAtual : (r.qtdSaidaPeriodo > 0 ? Infinity : 0);
         const valorEstoque = r.saldoAtual * (r.custoMedio || 0);
         return {
           ...r,
           saidaDiaria,
+          diasHistorico,
           coberturaDias: cobertura,
           giro: isFinite(giro) ? giro : null,
           diasSemSaida,

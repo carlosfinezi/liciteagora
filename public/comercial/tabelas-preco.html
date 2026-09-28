@@ -49,7 +49,7 @@
     </div>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>SKU</th><th>Produto</th><th style="text-align:right;">Qtd mín.</th>
+        <thead><tr><th>Código</th><th>Produto</th><th style="text-align:right;">Qtd mín.</th>
           <th style="text-align:right;">Custo</th><th style="text-align:right;">Preço tabela</th><th style="text-align:right;">Preço cadastro</th><th style="text-align:right;">Margem</th><th style="width:40px;"></th></tr></thead>
         <tbody id="tbItens"></tbody>
       </table>
@@ -329,7 +329,7 @@ async function abrirComparar(){
   const totalProd = prodMap.size;
   const prods = [...prodMap.entries()].sort((a,b)=>a[1].descricao.localeCompare(b[1].descricao));
   const cobertura = ativas.map((t,ti)=> precoTab[ti].size);
-  const head = `<tr><th>SKU</th><th>Produto</th><th style="text-align:right;">Custo</th>` +
+  const head = `<tr><th>Código</th><th>Produto</th><th style="text-align:right;">Custo</th>` +
     ativas.map((t,ti)=>`<th style="text-align:right;">${t.nome}<br><span style="font-weight:400;color:var(--text-3);font-size:.85em;">${precoTab[ti].size}/${totalProd} (${totalProd?Math.round(cobertura[ti]/totalProd*100):0}%)</span></th>`).join('') + `</tr>`;
   const rows = prods.map(([pid,info])=>{
     const cells = ativas.map((t,ti)=> precoTab[ti].has(pid) ? precoTab[ti].get(pid).preco : null);

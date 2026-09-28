@@ -7,34 +7,56 @@
  *   registrarRotasLotes(app, db);
  */
 
+// Data de hoje em Marabá. A validade é uma data, e o "hoje" do SQLite
+// (date('now')) é o de Greenwich: das 21h à meia-noite ele já está amanhã.
+function hojeBelem() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Belem' }).format(new Date());
+}
+
 function registrarRotasLotes(app, db) {
   // ==================== LISTAGEM ====================
 
   app.get('/api/lotes', (req, res) => {
     try {
-      const { produtoId, ativo, vencendoDias, comSaldo } = req.query;
+      const { produtoId, ativo, vencendoDias, comSaldo, q } = req.query;
+      const hoje = hojeBelem();
+      // Fornecedor pelo nome que o dono conhece; a razão social só na falta dele.
       let sql = `SELECT l.*, p.sku, p.descricao, p.unidade,
-                        f.razaoSocial AS fornecedorNome
+                        COALESCE(NULLIF(f.nomeFantasia, ''), f.razaoSocial) AS fornecedorNome
                  FROM lotes l
                  JOIN produtos p ON p.id = l.produtoId
                  LEFT JOIN pessoas f ON f.id = l.fornecedorId
                  WHERE 1=1`;
       const params = [];
       if (produtoId) { sql += ' AND l.produtoId = ?'; params.push(produtoId); }
+      if (q) { sql += ' AND (p.descricao LIKE ? OR p.sku LIKE ?)'; params.push(`%${q}%`, `%${q}%`); }
       if (ativo !== undefined) { sql += ' AND l.ativo = ?'; params.push(Number(ativo)); }
       else { sql += ' AND l.ativo = 1'; }
       if (comSaldo === '1') { sql += ' AND l.saldoAtual > 0'; }
 
       if (vencendoDias) {
+        // De hoje até hoje + N. Vencido não vence mais: tem cartão próprio.
         sql += ` AND l.dataValidade IS NOT NULL
-                 AND date(l.dataValidade) <= date('now', '+' || ? || ' days')
-                 AND date(l.dataValidade) >= date('now', '-1 day')`;
-        params.push(Number(vencendoDias));
+                 AND date(l.dataValidade) <= date(?, '+' || ? || ' days')
+                 AND date(l.dataValidade) >= date(?)`;
+        params.push(hoje, Number(vencendoDias), hoje);
       }
 
       sql += ' ORDER BY CASE WHEN l.dataValidade IS NULL THEN 1 ELSE 0 END, l.dataValidade ASC, l.id DESC';
       const lotes = db.prepare(sql).all(...params);
-      res.json({ success: true, lotes });
+
+      // Os cartões contam todos os lotes ativos, e não a lista filtrada: com
+      // "vence em 30 dias" marcado, o cartão de vencidos caía para zero.
+      const resumo = db.prepare(`
+        SELECT COUNT(*) AS total,
+          SUM(CASE WHEN saldoAtual > 0 THEN 1 ELSE 0 END) AS comSaldo,
+          SUM(CASE WHEN saldoAtual > 0 AND dataValidade IS NOT NULL
+                    AND date(dataValidade) >= date(?) AND date(dataValidade) <= date(?, '+30 days') THEN 1 ELSE 0 END) AS vencendo30,
+          SUM(CASE WHEN saldoAtual > 0 AND dataValidade IS NOT NULL
+                    AND date(dataValidade) < date(?) THEN 1 ELSE 0 END) AS vencidos
+        FROM lotes WHERE ativo = 1`).get(hoje, hoje, hoje);
+      for (const k of ['comSaldo', 'vencendo30', 'vencidos']) resumo[k] = resumo[k] || 0;
+      res.json({ success: true, lotes, resumo, hoje });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -49,9 +71,9 @@ function registrarRotasLotes(app, db) {
         JOIN produtos p ON p.id = l.produtoId
         WHERE l.ativo = 1 AND l.saldoAtual > 0
           AND l.dataValidade IS NOT NULL
-          AND date(l.dataValidade) <= date('now', '+' || ? || ' days')
+          AND date(l.dataValidade) <= date(?, '+' || ? || ' days')
         ORDER BY l.dataValidade ASC
-      `).all(dias);
+      `).all(hojeBelem(), dias);
       res.json({ success: true, lotes, diasJanela: dias });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });

@@ -30,7 +30,7 @@
         <option value="">Todas as categorias</option>
       </select>
       <input type="text" id="qItem" style="flex:1;min-width:220px;"
-             placeholder="Buscar item por descrição ou SKU" autocomplete="off">
+             placeholder="Buscar item por descrição ou código" autocomplete="off">
     </div>
   </div>
   <div id="resultadosItem"></div>
@@ -173,7 +173,7 @@ async function buscarItem() {
     // Sem preço cadastrado o item não pode ser alugado — a lista destaca isso,
     // porque é justamente quem o operador vem procurar aqui.
     box.innerHTML = `<div class="tbl-wrap" style="max-height:260px;overflow:auto;margin-bottom:12px;">
-      <table><thead><tr><th>Item</th><th>SKU</th><th>Categoria</th>
+      <table><thead><tr><th>Item</th><th>Código</th><th>Categoria</th>
         <th style="text-align:center;">Preços</th></tr></thead>
       <tbody>${d.itens.map(i => `
         <tr style="cursor:pointer;" onclick='escolherItem(${JSON.stringify(i).replace(/'/g, "&#39;")})'>

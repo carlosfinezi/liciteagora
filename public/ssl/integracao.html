@@ -216,7 +216,7 @@ async function atualizarPrecos(){
   try {
     // Cria no catálogo o que a API oferece e o tenant não tem: sem o produto
     // cadastrado não há o que vincular a um item de contrato.
-    const criar = confirm('Criar também os produtos que existem na NicSRS e ainda não estão no seu catálogo?\n\nOK = cria (SKU SSL-NICSRS-NNN, markup 100%). Cancelar = só atualiza preços dos já cadastrados.');
+    const criar = confirm('Criar também os produtos que existem na NicSRS e ainda não estão no seu catálogo?\n\nOK = cria (código SSL-NICSRS-NNN, markup 100%). Cancelar = só atualiza preços dos já cadastrados.');
     const r = await fetch('/api/ssl/produtos/atualizar-precos', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ criarFaltantes: criar })

@@ -6,6 +6,15 @@
 <script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* Nesta tabela nada sai com reticências: o nome do produto quebra linha e o
+     resto aparece inteiro. Por isso ela não usa o grid.js: ele mede as colunas
+     uma vez só, com a linha "Carregando…" ainda na tabela, e trava a largura
+     com reticências; o conteúdo que chega depois saía cortado. */
+  .tbl-nao-corta td { white-space: nowrap; }
+  .tbl-nao-corta th { white-space: normal; }
+  .tbl-nao-corta td.col-produto { white-space: normal; min-width: 220px; }
+</style>
 </head>
 <body>
 <div class="layout"><main class="main-content">
@@ -23,9 +32,55 @@
 
   <div id="alertGlobal"></div>
 
+  <!-- ============ SEÇÃO: REPOSIÇÃO DE ESTOQUE (existente) ============ -->
+  <div style="margin-bottom:14px;">
+    <h2 style="margin:0;font-size:1.1em;color:var(--text-1);">📦 Reposição de Estoque</h2>
+    <span style="color:var(--text-3);font-size:13px;">saldo abaixo do ponto de reposição + demanda perdida por falta de estoque</span>
+  </div>
+
+  <div class="kpi-grid" id="kpis"></div>
+  <div id="avisoPerdas"></div>
+
+  <div class="toolbar">
+    <label style="display:inline-flex;align-items:center;gap:6px;color:var(--text-2);">
+      <input type="checkbox" id="checkTodos" onchange="toggleTodos()"> Selecionar todos
+    </label>
+    <input type="text" id="filtQ" placeholder="Filtrar por código ou descrição…" oninput="debounce(renderItens)" style="flex:1;min-width:220px;">
+    <select id="filtFornec" onchange="renderItens()">
+      <option value="">Todos fornecedores</option>
+    </select>
+    <select id="filtOrigem" onchange="renderItens()">
+      <option value="">Todas as origens</option>
+      <option value="parametro">Só ponto de reposição</option>
+      <option value="demanda_perdida">Só demanda perdida</option>
+      <option value="ambos">Ambos</option>
+    </select>
+    <label style="display:inline-flex;align-items:center;gap:6px;color:var(--text-2);" title="Desmarque para ver a sugestão só pelos parâmetros de estoque">
+      <input type="checkbox" id="chkPerdas" checked onchange="carregar()"> Considerar demanda perdida
+    </label>
+  </div>
+
+  <div class="tbl-wrap tbl-nao-corta">
+    <table>
+      <thead><tr>
+        <th style="width:32px;"></th>
+        <th>Código</th><th class="col-produto">Descrição</th>
+        <th style="text-align:right;">Disponível</th>
+        <th style="text-align:right;">Limite</th>
+        <th style="text-align:right;" title="Saídas + demanda perdida por falta de estoque, dividido pela janela">Consumo diário</th>
+        <th style="text-align:right;" title="Quantidade e valor deixados de vender por falta de estoque na janela">Demanda perdida</th>
+        <th style="text-align:right;">Qtd sugerida</th>
+        <th style="text-align:right;">Cobertura proj.</th>
+        <th style="text-align:right;">Custo estimado</th>
+        <th>Fornecedor</th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="11" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
   <!-- ============ SEÇÃO: OPORTUNIDADES DE MERCADO ============ -->
   <!-- Lista modelos com alta demanda em licitações públicas (vide /operacional/inteligencia.html). -->
-  <div id="mercadoSection" style="display:none;margin-bottom:30px;">
+  <div id="mercadoSection" style="display:none;margin-top:30px;">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
       <h2 style="margin:0;font-size:1.1em;color:var(--text-1);">🎯 Oportunidades de Mercado</h2>
       <span style="color:var(--text-3);font-size:13px;" id="mercadoSub">tamanho potencial de mercado · baseado em demanda de licitações públicas (homologado + estimativa do edital)</span>
@@ -54,52 +109,6 @@
         <tbody id="tbMercado"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
-  </div>
-
-  <!-- ============ SEÇÃO: REPOSIÇÃO DE ESTOQUE (existente) ============ -->
-  <div style="margin-bottom:14px;">
-    <h2 style="margin:0;font-size:1.1em;color:var(--text-1);">📦 Reposição de Estoque</h2>
-    <span style="color:var(--text-3);font-size:13px;">saldo abaixo do ponto de reposição + demanda perdida por falta de estoque</span>
-  </div>
-
-  <div class="kpi-grid" id="kpis"></div>
-  <div id="avisoPerdas"></div>
-
-  <div class="toolbar">
-    <label style="display:inline-flex;align-items:center;gap:6px;color:var(--text-2);">
-      <input type="checkbox" id="checkTodos" onchange="toggleTodos()"> Selecionar todos
-    </label>
-    <input type="text" id="filtQ" placeholder="Filtrar por SKU ou descrição…" oninput="debounce(renderItens)" style="flex:1;min-width:220px;">
-    <select id="filtFornec" onchange="renderItens()">
-      <option value="">Todos fornecedores</option>
-    </select>
-    <select id="filtOrigem" onchange="renderItens()">
-      <option value="">Todas as origens</option>
-      <option value="parametro">Só ponto de reposição</option>
-      <option value="demanda_perdida">Só demanda perdida</option>
-      <option value="ambos">Ambos</option>
-    </select>
-    <label style="display:inline-flex;align-items:center;gap:6px;color:var(--text-2);" title="Desmarque para ver a sugestão só pelos parâmetros de estoque">
-      <input type="checkbox" id="chkPerdas" checked onchange="carregar()"> Considerar demanda perdida
-    </label>
-  </div>
-
-  <div class="tbl-wrap" data-grid="sugestao-compra">
-    <table>
-      <thead><tr>
-        <th style="width:32px;"></th>
-        <th>SKU</th><th>Descrição</th>
-        <th style="text-align:right;">Disponível</th>
-        <th style="text-align:right;">Limite</th>
-        <th style="text-align:right;" title="Saídas + demanda perdida por falta de estoque, dividido pela janela">Consumo diário</th>
-        <th style="text-align:right;" title="Quantidade e valor deixados de vender por falta de estoque na janela">Demanda perdida</th>
-        <th style="text-align:right;">Qtd sugerida</th>
-        <th style="text-align:right;">Cobertura proj.</th>
-        <th style="text-align:right;">Custo estimado</th>
-        <th>Fornecedor</th>
-      </tr></thead>
-      <tbody id="tb"><tr><td colspan="11" class="empty">Carregando…</td></tr></tbody>
-    </table>
   </div>
 </main></div>
 
@@ -185,7 +194,7 @@ function renderItens(){
       <td><input type="checkbox" class="check-item" data-id="${i.id}" data-fornec="${i.fornecedorId||''}"
                  data-qtd="${i.quantidadeSugerida}" data-custo="${i.custoMedio||i.precoCusto||0}"></td>
       <td class="mono">${i.sku}</td>
-      <td>${i.descricao} ${ORIGEM_BADGE[i.origemSugestao]||''}</td>
+      <td class="col-produto">${i.descricao} ${ORIGEM_BADGE[i.origemSugestao]||''}</td>
       <td style="text-align:right;color:var(--danger);font-weight:700;">${fmt(i.disponivel)}</td>
       <td style="text-align:right;color:var(--text-2);">${i.limite > 0 ? fmt(i.limite) : '<span class="muted">n/d</span>'}</td>
       <td style="text-align:right;">${fmt(i.consumoDiarioAjustado != null ? i.consumoDiarioAjustado : i.consumoDiarioMedio)}</td>
@@ -269,16 +278,19 @@ async function gerarPedidos(){
 
 // ============ Oportunidades de Mercado ============
 // Carrega ranking de modelos demandados em licitações públicas (vide
-// /api/compras/sugestao-mercado). Permite querystring ?grupoId=N&marca=X
-// para customizar por tenant. Default: grupoId=14 (APENAS NAS do 1bit), marca=TerraMaster.
+// /api/compras/sugestao-mercado). O grupo e a marca são do tenant
+// (config sugestao_mercado_grupo_id e sugestao_mercado_marca), ou da URL
+// (?grupoId=N&marca=X). Sem nenhum dos dois a seção não aparece: até
+// 28/09/2026 esta tela assumia o grupo 14 e a TerraMaster, que são do 1bit.
 async function carregarMercado() {
   const qs = new URLSearchParams(location.search);
-  const grupoId = qs.get('grupoId') || '14';
-  const marca = qs.get('marca') || 'TerraMaster';
+  const p = new URLSearchParams();
+  if (qs.get('grupoId')) p.set('grupoId', qs.get('grupoId'));
+  if (qs.get('marca')) p.set('marca', qs.get('marca'));
   try {
-    const r = await fetch(`/api/compras/sugestao-mercado?grupoId=${grupoId}&marca=${encodeURIComponent(marca)}`);
+    const r = await fetch('/api/compras/sugestao-mercado' + (p.toString() ? '?' + p : ''));
     const d = await r.json();
-    if (!d.success) return;  // silencioso — não tem dados pra esse grupo+marca
+    if (!d.success || d.configurado === false) return;
     if (!d.oportunidades || d.oportunidades.length === 0) return;
 
     document.getElementById('mercadoSection').style.display = 'block';

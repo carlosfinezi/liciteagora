@@ -9,6 +9,7 @@
  */
 
 const path = require('path');
+const { ordemPt } = require('./ordem-pt');
 const fs = require('fs');
 const multer = require('multer');
 const produtosImport = require('./produtos-import');
@@ -58,10 +59,10 @@ function registrarRotasProdutos(app, db) {
       const { q, ativo, incluirOpticos } = req.query;
       let sql = `SELECT p.*,
         f.razaoSocial AS fornecedorNome,
-        COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
+        ROUND(COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
                                   WHEN tipo='saida' THEN -quantidade
                                   ELSE quantidade END)
-                  FROM movimentacoes_estoque WHERE produtoId = p.id), 0) AS saldo
+                  FROM movimentacoes_estoque WHERE produtoId = p.id), 0), 3) + 0 AS saldo
         FROM produtos p
         LEFT JOIN pessoas f ON f.id = p.fornecedorId
         WHERE 1=1`;
@@ -82,7 +83,7 @@ function registrarRotasProdutos(app, db) {
         const like = `%${q}%`;
         params.push(like, like, like);
       }
-      sql += ' ORDER BY p.descricao ASC';
+      sql += ` ORDER BY ${ordemPt('p.descricao')}, p.descricao`;
       const produtos = db.prepare(sql).all(...params);
       res.json({ success: true, produtos });
     } catch (err) {
@@ -107,7 +108,7 @@ function registrarRotasProdutos(app, db) {
          WHERE ativo = 1 AND (LOWER(sku) LIKE ? OR LOWER(descricao) LIKE ?
            OR EXISTS (SELECT 1 FROM produto_codigos pc
                       WHERE pc.produtoId = produtos.id AND pc.ativo = 1 AND LOWER(pc.codigo) LIKE ?))${extra}
-         ORDER BY descricao ASC LIMIT 20`
+         ORDER BY ${ordemPt('descricao')}, descricao LIMIT 20`
       ).all(...params);
       res.json({ success: true, produtos });
     } catch (err) {
@@ -155,9 +156,9 @@ function registrarRotasProdutos(app, db) {
       const p = db.prepare('SELECT * FROM produtos WHERE id = ?').get(req.params.id);
       if (!p) return res.status(404).json({ success: false, error: 'Produto nao encontrado' });
       const saldoRow = db.prepare(`
-        SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
+        SELECT ROUND(COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
                                  WHEN tipo='saida' THEN -quantidade
-                                 ELSE quantidade END), 0) AS saldo
+                                 ELSE quantidade END), 0), 3) + 0 AS saldo
         FROM movimentacoes_estoque WHERE produtoId = ?`).get(req.params.id);
       const opticaSpecs = lerOpticaSpecs(p.id, p.categoria);
       res.json({ success: true, produto: { ...p, saldo: saldoRow.saldo, opticaSpecs } });
@@ -386,7 +387,7 @@ function registrarRotasProdutos(app, db) {
         FROM produto_kit_itens k
         JOIN produtos p ON p.id = k.produtoFilhoId
         WHERE k.produtoPaiId = ?
-        ORDER BY p.descricao`).all(req.params.id);
+        ORDER BY ${ordemPt('p.descricao')}, p.descricao`).all(req.params.id);
       /* Custo do kit = soma do custo atual de cada componente vezes a
          quantidade na composição. É o custo que a venda vai gravar, porque a
          saída é dos componentes (reservas e NFC-e). */
@@ -452,9 +453,9 @@ function registrarRotasProdutos(app, db) {
 
       // Guardas: bloqueia inativação se houver saldo, reservas ativas ou lotes com saldo
       const saldoRow = db.prepare(`
-        SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
+        SELECT ROUND(COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
                                  WHEN tipo='saida' THEN -quantidade
-                                 ELSE quantidade END), 0) AS saldo
+                                 ELSE quantidade END), 0), 3) + 0 AS saldo
         FROM movimentacoes_estoque WHERE produtoId = ?
       `).get(produto.id);
       const saldo = Number(saldoRow?.saldo || 0);

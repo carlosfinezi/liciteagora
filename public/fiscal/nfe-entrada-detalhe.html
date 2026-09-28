@@ -25,7 +25,7 @@
     <h2>Vincular produto ao item</h2>
     <div class="item-origem" id="itemOrigem"></div>
     <label style="color:#888;font-size:0.85em;">Buscar produto existente</label>
-    <input type="text" id="buscaProduto" placeholder="SKU ou descrição..." oninput="debounceBusca()">
+    <input type="text" id="buscaProduto" placeholder="Código ou descrição..." oninput="debounceBusca()">
     <div class="result-list" id="resultList"></div>
     <div class="divider">OU</div>
     <div class="preview-campos" id="previewNovo"></div>
@@ -218,7 +218,7 @@ function render(){
 
 async function vincularTodos(){
   const semVinc = DADOS.itens.filter(i => !i.produtoId).length;
-  if (!confirm(`Criar/vincular produto para ${semVinc} item(ns) sem vínculo?\n\nItens que casarem com produtos existentes (código do fornecedor, EAN ou SKU) são apenas vinculados; os demais ganham um produto novo com os dados da NF-e.`)) return;
+  if (!confirm(`Criar/vincular produto para ${semVinc} item(ns) sem vínculo?\n\nItens que casarem com produtos existentes (código do fornecedor, EAN ou código do produto) são apenas vinculados; os demais ganham um produto novo com os dados da NF-e.`)) return;
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/vincular-todos', { method:'POST' });
     const d = await r.json();
@@ -391,7 +391,7 @@ function abrirVincular(itemId){
   const eanValido = ITEM_ATUAL.ean && ITEM_ATUAL.ean !== 'SEM GTIN' && ITEM_ATUAL.ean.length >= 8;
   document.getElementById('previewNovo').innerHTML = `
     Será criado um produto novo com:<br>
-    <b>SKU:</b> ${eanValido ? ITEM_ATUAL.ean : `NFE-${DADOS.nota.fornecedorId||0}-${ITEM_ATUAL.codigoProduto||'...'}`} &nbsp;
+    <b>Código:</b> ${eanValido ? ITEM_ATUAL.ean : `NFE-${DADOS.nota.fornecedorId||0}-${ITEM_ATUAL.codigoProduto||'...'}`} &nbsp;
     <b>Descrição:</b> ${ITEM_ATUAL.descricao || '—'} &nbsp;
     <b>NCM:</b> ${ITEM_ATUAL.ncm || '—'} &nbsp;
     <b>Unidade:</b> ${ITEM_ATUAL.unidade || 'UN'} &nbsp;

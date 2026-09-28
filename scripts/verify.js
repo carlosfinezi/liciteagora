@@ -608,6 +608,12 @@ const suites = [
   // de promoções, promoção para o visitante e a loja como página inicial. Cada
   // bloco foi sabotado em 27/09 e reprovou; um verde aqui prova alguma coisa.
   ['137. loja de floricultura (test-floricultura)', 'test-floricultura.js'],
+  // Estoque como o dono de mercado lê (28/09): Análises com as abas visíveis,
+  // saldo por quilo sem resíduo, parado sem giro, cobertura pelo histórico
+  // real, lote vencido pela data de Marabá, cartões sobre todos os lotes,
+  // ordem com acento, nada cortado e sugestão de compra sem o mercado do 1bit.
+  // Contra as versões anteriores das rotas e das telas, reprovou em 21 de 22.
+  ['141. estoque e compras para o dono de mercado (test-estoque-mercado)', 'test-estoque-mercado.js'],
 ];
 // ==================== modo rápido: quais suítes ====================
 /**

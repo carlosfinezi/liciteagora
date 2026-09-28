@@ -22,6 +22,7 @@
  */
 
 const { logAction } = require('../audit-log');
+const { ordemPt } = require('../ordem-pt');
 const { initLocacaoSchema } = require('./locacao-schema');
 const {
   FAIXAS_VALIDAS, TIPOS_EXTRA, BASES_CAUCAO, calcularTarifa, normalizarInstante,
@@ -248,7 +249,7 @@ function registrarRotasLocacao(app, db) {
         sql += ' AND s.alugavel = ?';
         params.push(Number(alugavel) ? 1 : 0);
       }
-      sql += ' ORDER BY p.descricao';
+      sql += ` ORDER BY ${ordemPt('p.descricao')}, p.descricao`;
       res.json({ success: true, itens: db.prepare(sql).all(...params) });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
@@ -304,7 +305,7 @@ function registrarRotasLocacao(app, db) {
       if (somenteNovos) {
         sql += ' AND NOT EXISTS (SELECT 1 FROM locacao_item_specs s WHERE s.produtoId = p.id)';
       }
-      sql += ' ORDER BY p.descricao LIMIT 30';
+      sql += ` ORDER BY ${ordemPt('p.descricao')}, p.descricao LIMIT 30`;
 
       const produtos = db.prepare(sql).all(...params);
       // O total serve para a tela dizer "refine a busca" em vez de deixar o

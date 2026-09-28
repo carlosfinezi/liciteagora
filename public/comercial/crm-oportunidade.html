@@ -422,7 +422,7 @@ function addItem(prefill){
   row.style.cssText = 'display:grid;grid-template-columns:1fr 80px 110px 100px 30px;gap:6px;align-items:start;';
   row.innerHTML = `
     <div style="position:relative;">
-      <input type="text" class="op-item-prod" placeholder="SKU ou descrição…" oninput="acProduto(this)" autocomplete="off">
+      <input type="text" class="op-item-prod" placeholder="Código ou descrição…" oninput="acProduto(this)" autocomplete="off">
       <input type="hidden" class="op-item-prod-id">
       <div class="ac-list op-item-ac"></div>
     </div>

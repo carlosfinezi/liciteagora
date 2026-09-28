@@ -122,7 +122,7 @@ function escape(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'
 
 const INFO_POR_TIPO = {
   'pessoas': 'Colunas obrigatórias: <code>cpfCnpj</code>, <code>razaoSocial</code>. Se <code>tipo</code> omitido, é deduzido do CPF/CNPJ (11 dígitos = PF, 14 = PJ). Pessoas com o mesmo CPF/CNPJ serão <strong>atualizadas</strong>.',
-  'produtos': 'Colunas obrigatórias: <code>sku</code>, <code>descricao</code>. Produtos com SKU existente são <strong>atualizados</strong>. Preços aceitam vírgula (R$ 1.234,56).',
+  'produtos': 'Colunas obrigatórias: <code>sku</code>, <code>descricao</code>. Produtos com código existente são <strong>atualizados</strong>. Preços aceitam vírgula (R$ 1.234,56).',
   'saldo-produtos': 'Colunas obrigatórias: <code>sku</code>, <code>quantidade</code>. O produto precisa existir. Lança entrada de estoque com origem <code>importacao-saldo-inicial</code> e recalcula custo médio.',
   'contas-a-pagar': 'Colunas obrigatórias: <code>descricao</code>, <code>valor</code>, <code>dataVencimento</code>. Fornecedor é resolvido pelo <code>fornecedorCpfCnpj</code> (preferencial) ou <code>fornecedorNome</code>. Se não existir, é criado automaticamente.',
   'contas-a-receber': 'Colunas obrigatórias: <code>descricao</code>, <code>valor</code>, <code>dataVencimento</code>. Cliente resolvido por CPF/CNPJ ou nome; se não existir, é criado automaticamente.'

@@ -84,10 +84,10 @@
   <div class="pdv-layout">
     <div>
       <div class="card">
-        <h3>Buscar produto ou cliente (código de barras, SKU, descrição, CPF/CNPJ ou nome)</h3>
+        <h3>Buscar produto ou cliente (código de barras, código, descrição, CPF/CNPJ ou nome)</h3>
         <div class="busca-wrap">
           <input type="text" id="inpBusca" autofocus autocomplete="off"
-                 placeholder="Bipe código, digite SKU/descrição, ou CPF/nome do cliente…"
+                 placeholder="Bipe o código de barras, digite código/descrição, ou CPF/nome do cliente…"
                  oninput="debounce(buscar)" onkeypress="if(event.key==='Enter')buscarEntrar()">
           <button class="btn btn-secondary" onclick="document.getElementById('inpBusca').focus()">🔍</button>
         </div>
@@ -97,7 +97,7 @@
       <div class="card" style="margin-top:16px;">
         <h3>Carrinho</h3>
         <div id="carrinhoArea">
-          <div class="carrinho-vazio">Carrinho vazio. Bipe um produto ou busque pelo SKU/descrição.</div>
+          <div class="carrinho-vazio">Carrinho vazio. Bipe um produto ou busque pelo código/descrição.</div>
         </div>
       </div>
     </div>
@@ -239,7 +239,7 @@ function renderSugestoes(produtos, pessoas, clientePrimeiro){
     ${produtos.map(p => {
       const pj = JSON.stringify(p).replace(/'/g,"&#39;");
       return `<div class="item" onclick='adicionar(${pj});document.getElementById("inpBusca").value="";document.getElementById("sugestoes").style.display="none";document.getElementById("inpBusca").focus();'>
-        <div class="nome">${escape(p.descricao)}<br><span class="sku">SKU: ${escape(p.sku||'')}${p.codigoBarras?' · EAN: '+escape(p.codigoBarras):''}</span></div>
+        <div class="nome">${escape(p.descricao)}<br><span class="sku">Código: ${escape(p.sku||'')}${p.codigoBarras?' · EAN: '+escape(p.codigoBarras):''}</span></div>
         <div class="preco">${p.precoPromocional != null
           ? `R$ ${fmt(p.precoPromocional)} <s style="color:var(--text-3);font-weight:400;">R$ ${fmt(p.precoVenda)}</s>`
           : `R$ ${fmt(p.precoVenda)}`}</div>
@@ -283,7 +283,7 @@ function adicionar(p){
 function renderCarrinho(){
   const area = document.getElementById('carrinhoArea');
   if (!carrinho.length) {
-    area.innerHTML = '<div class="carrinho-vazio">Carrinho vazio. Bipe um produto ou busque pelo SKU/descrição.</div>';
+    area.innerHTML = '<div class="carrinho-vazio">Carrinho vazio. Bipe um produto ou busque pelo código/descrição.</div>';
     recalc();
     return;
   }
@@ -298,7 +298,7 @@ function renderCarrinho(){
       </tr></thead>
       <tbody>
         ${carrinho.map((it, i) => `<tr>
-          <td>${escape(it.descricao)}<br><small style="color:var(--text-3);">SKU: ${escape(it.sku||'')}</small></td>
+          <td>${escape(it.descricao)}<br><small style="color:var(--text-3);">Código: ${escape(it.sku||'')}</small></td>
           <td class="num"><input type="number" value="${it.quantidade}" min="0.001" step="0.001" onchange="atualizarQtd(${i}, this.value)"></td>
           <td class="num"><input type="number" value="${it.precoUnitario.toFixed(2)}" step="0.01" onchange="atualizarPreco(${i}, this.value)"></td>
           <td class="num"><strong>R$ ${fmt(it.quantidade * it.precoUnitario)}</strong></td>

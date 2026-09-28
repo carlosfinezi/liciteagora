@@ -24,6 +24,7 @@
  */
 
 const { normalizarInstante, arredondar } = require('./tarifa');
+const { ordemPt } = require('../ordem-pt');
 const { gerarNumeroOS } = require('./vistoria');
 
 const TIPOS_PLANO = ['horimetro', 'km', 'dias'];
@@ -89,7 +90,7 @@ function planosComSituacao(db, hoje, opts = {}) {
     WHERE p.ativo = 1`;
   const params = [];
   if (opts.produtoId) { sql += ' AND p.produtoId = ?'; params.push(Number(opts.produtoId)); }
-  sql += ' ORDER BY pr.descricao';
+  sql += ` ORDER BY ${ordemPt('pr.descricao')}, pr.descricao`;
 
   const planos = db.prepare(sql).all(...params).map(p => ({ ...p, situacao: situacaoPlano(db, p, hoje) }));
   planos.sort((a, b) => {

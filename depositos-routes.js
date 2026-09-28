@@ -12,6 +12,7 @@
  */
 
 const { logAction } = require('./audit-log');
+const { ordemPt } = require('./ordem-pt');
 const { calcularSaldo, calcularCustoMedio, calcularContextoMovimento, getDepositoPadraoId } = require('./estoque-routes');
 
 function dataBrasilia() {
@@ -43,9 +44,9 @@ function registrarRotasDepositos(app, db) {
       if (req.query.comSaldos === '1') {
         const stmt = db.prepare(`
           SELECT COUNT(DISTINCT m.produtoId) AS produtos,
-                 COALESCE(SUM(CASE WHEN m.tipo='entrada' THEN m.quantidade
+                 ROUND(COALESCE(SUM(CASE WHEN m.tipo='entrada' THEN m.quantidade
                                    WHEN m.tipo='saida' THEN -m.quantidade
-                                   ELSE m.quantidade END), 0) AS qtdTotal
+                                   ELSE m.quantidade END), 0), 3) + 0 AS qtdTotal
           FROM movimentacoes_estoque m WHERE COALESCE(m.depositoId, ?) = ?`);
         depositos = rows.map(d => ({ ...d, ...stmt.get(depPadrao, d.id) }));
       }
@@ -123,14 +124,14 @@ function registrarRotasDepositos(app, db) {
       const depPadrao = getDepositoPadraoId(db);
       const rows = db.prepare(`
         SELECT p.id, p.sku, p.descricao, p.unidade,
-          COALESCE(SUM(CASE WHEN m.tipo='entrada' THEN m.quantidade
+          ROUND(COALESCE(SUM(CASE WHEN m.tipo='entrada' THEN m.quantidade
                             WHEN m.tipo='saida' THEN -m.quantidade
-                            ELSE m.quantidade END), 0) AS saldo
+                            ELSE m.quantidade END), 0), 3) + 0 AS saldo
         FROM movimentacoes_estoque m
         JOIN produtos p ON p.id = m.produtoId
         WHERE COALESCE(m.depositoId, ?) = ?
         GROUP BY p.id HAVING saldo != 0
-        ORDER BY p.descricao`
+        ORDER BY ${ordemPt('p.descricao')}, p.descricao`
       ).all(depPadrao, dep.id);
       res.json({ success: true, deposito: dep, saldos: rows });
     } catch (err) {

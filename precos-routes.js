@@ -15,6 +15,7 @@
  */
 
 const { logAction } = require('./audit-log');
+const { ordemPt } = require('./ordem-pt');
 
 function dataBrasilia() {
   return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -363,7 +364,7 @@ function registrarRotasPrecos(app, db) {
     try {
       const itens = db.prepare(`SELECT i.*, p.sku, p.descricao, p.unidade, p.precoVenda AS precoCadastro, p.precoCusto
         FROM tabela_preco_itens i JOIN produtos p ON p.id = i.produtoId
-        WHERE i.tabelaId = ? ORDER BY p.descricao, i.qtdMinima`).all(req.params.id);
+        WHERE i.tabelaId = ? ORDER BY ${ordemPt('p.descricao')}, p.descricao, i.qtdMinima`).all(req.params.id);
       res.json({ success: true, itens });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });

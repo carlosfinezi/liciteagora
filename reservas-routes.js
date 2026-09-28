@@ -184,9 +184,9 @@ function criarReservasPedido(db, pedidoId) {
     } else {
       // Reserva simples, sem lote
       const saldoFisico = db.prepare(`
-        SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
+        SELECT ROUND(COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
                                  WHEN tipo='saida' THEN -quantidade
-                                 ELSE quantidade END),0) AS s
+                                 ELSE quantidade END),0), 3) + 0 AS s
         FROM movimentacoes_estoque WHERE produtoId = ?
       `).get(it.produtoId).s;
       const reservado = saldoReservado(db, it.produtoId);
@@ -234,9 +234,9 @@ function disponibilidadeDeItens(db, itens) {
     if (!produto) return { ...it, erro: 'produto nao encontrado' };
     const qtd = Number(it.quantidade) || 0;
     const saldo = db.prepare(`
-      SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
+      SELECT ROUND(COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
                                WHEN tipo='saida' THEN -quantidade
-                               ELSE quantidade END),0) AS s
+                               ELSE quantidade END),0), 3) + 0 AS s
       FROM movimentacoes_estoque WHERE produtoId = ?
     `).get(it.produtoId).s;
     const reservado = saldoReservado(db, it.produtoId);
@@ -262,9 +262,9 @@ function disponibilidadeDeItens(db, itens) {
  */
 function saldoFisico(db, produtoId) {
   return db.prepare(`
-    SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
+    SELECT ROUND(COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
                              WHEN tipo='saida' THEN -quantidade
-                             ELSE quantidade END),0) AS s
+                             ELSE quantidade END),0), 3) + 0 AS s
     FROM movimentacoes_estoque WHERE produtoId = ?
   `).get(produtoId).s || 0;
 }
@@ -505,9 +505,9 @@ function criarReservasOS(db, osId) {
       }
     } else {
       const saldoFisico = db.prepare(`
-        SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
+        SELECT ROUND(COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
                                  WHEN tipo='saida' THEN -quantidade
-                                 ELSE quantidade END),0) AS s
+                                 ELSE quantidade END),0), 3) + 0 AS s
         FROM movimentacoes_estoque WHERE produtoId = ?
       `).get(it.produtoId).s;
       const reservado = saldoReservado(db, it.produtoId);

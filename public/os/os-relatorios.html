@@ -278,7 +278,7 @@ const RENDERERS = {
       ${tecs ? tabela(`<th>Técnico</th><th class="num">OS</th><th class="num">Horas apontadas</th><th></th>`, tecs)
              : vazio('Todos os técnicos com hora apontada têm valor/hora cadastrado.')}
       <h3 style="margin-top:20px;">Produtos sem custo conhecido</h3>
-      ${prods ? tabela(`<th>SKU</th><th>Descrição</th><th class="num">OS</th><th class="num">Qtd</th><th class="num">Vendido</th>`, prods)
+      ${prods ? tabela(`<th>Código</th><th>Descrição</th><th class="num">OS</th><th class="num">Qtd</th><th class="num">Vendido</th>`, prods)
               : vazio('Todas as peças consumidas têm custo conhecido.')}`;
   },
 };

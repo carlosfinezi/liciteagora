@@ -1189,7 +1189,7 @@ function linhaHtml(p, ord) {
       ${foto}
       <span class="lp-info">
         <span class="lp-nome">${esc(p.descricao)}</span>
-        <span class="lp-meta">${esc(p.sku || 'sem SKU')}${p.unidade ? ' · ' + esc(p.unidade) : ''}</span>
+        <span class="lp-meta">${esc(p.sku || 'sem código')}${p.unidade ? ' · ' + esc(p.unidade) : ''}</span>
       </span>
       <span class="lp-preco">${brl(p.preco)}</span>
     </button>
@@ -1407,7 +1407,7 @@ function pintarProduto(p, resumo) {
     <div class="pp-sec">
       <h4>Identificação</h4>
       <div class="form-row">
-        <div class="form-group"><label>SKU</label>
+        <div class="form-group"><label>Código</label>
           <input type="text" id="fSku" value="${esc(p.sku || '')}"></div>
         <div class="form-group"><label>Unidade</label>
           <input type="text" id="fUnidade" value="${esc(p.unidade || '')}"></div>

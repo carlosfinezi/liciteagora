@@ -456,7 +456,7 @@ async function pushEstoqueML(db, log = () => {}, opts = {}) {
   const mapeados = db.prepare('SELECT mlItemId, produtoId, qtdML FROM ml_item_map WHERE produtoId IS NOT NULL').all();
   const mudancas = [];
   for (const m of mapeados) {
-    const row = db.prepare(`SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade WHEN tipo='saida' THEN -quantidade ELSE quantidade END),0) s
+    const row = db.prepare(`SELECT ROUND(COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade WHEN tipo='saida' THEN -quantidade ELSE quantidade END),0), 3) + 0 s
       FROM movimentacoes_estoque WHERE produtoId=?`).get(m.produtoId);
     const saldo = Math.max(0, Math.floor(Number(row.s) || 0));
     if (saldo === Number(m.qtdML)) continue;

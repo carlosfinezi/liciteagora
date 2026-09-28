@@ -32,6 +32,7 @@
  */
 
 const { codigoUF, gerarCNF } = require('./nfe-ibge');
+const { ordemPt } = require('./ordem-pt');
 const { montarNFeProc } = require('./nfe-proc');
 const { resolverEstab, serieAtual, avancarSerie } = require('./nfe-emit-routes');
 // O pfx é aberto em memória, sem os arquivos em /tmp que o pacote `pem` gravava
@@ -758,14 +759,14 @@ function registrarRotas(app, db) {
           WHERE p.ativo = 1 AND (LOWER(p.sku) LIKE ? OR LOWER(p.descricao) LIKE ?
                                  OR p.codigoBarras LIKE ? OR LOWER(s.substancia) LIKE ?
                                  OR s.ean LIKE ?)
-          ORDER BY p.descricao ASC LIMIT 20`).all(like, like, `%${q}%`, like, `%${q}%`);
+          ORDER BY ${ordemPt('p.descricao')}, p.descricao LIMIT 20`).all(like, like, `%${q}%`, like, `%${q}%`);
         return res.json({ success: true, produtos: produtos.map(comPromo), farmacia: true });
       }
 
       const produtos = db.prepare(`SELECT id, sku, descricao, unidade, precoVenda, codigoBarras, ncm, cfopPadrao AS cfop
         FROM produtos
         WHERE ativo = 1 AND (LOWER(sku) LIKE ? OR LOWER(descricao) LIKE ? OR codigoBarras LIKE ?)
-        ORDER BY descricao ASC LIMIT 20`).all(like, like, `%${q}%`);
+        ORDER BY ${ordemPt('descricao')}, descricao LIMIT 20`).all(like, like, `%${q}%`);
       res.json({ success: true, produtos: produtos.map(comPromo) });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });

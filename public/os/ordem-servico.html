@@ -136,7 +136,7 @@
           <div class="form-row">
             <div class="form-group" style="flex:2;position:relative;">
               <label>Produto *</label>
-              <input type="text" id="pProdBusca" placeholder="SKU ou descrição…" oninput="acProd()" autocomplete="off">
+              <input type="text" id="pProdBusca" placeholder="Código ou descrição…" oninput="acProd()" autocomplete="off">
               <input type="hidden" id="pProdId">
               <input type="hidden" id="pRastreiaLote">
               <input type="hidden" id="pRastreiaSerial">
@@ -172,7 +172,7 @@
             <button class="btn btn-primary btn-sm" onclick="addPecaPropria()">+ Adicionar peça do estoque</button>
           </div>
           <table style="margin-top:10px;">
-            <thead><tr><th>SKU</th><th>Descrição</th><th class="num">Qtd</th><th class="num">Valor</th><th class="num">Total</th><th>Lote</th><th></th></tr></thead>
+            <thead><tr><th>Código</th><th>Descrição</th><th class="num">Qtd</th><th class="num">Valor</th><th class="num">Total</th><th>Lote</th><th></th></tr></thead>
             <tbody id="tbPecasProprias"></tbody>
           </table>
         </div>
@@ -197,7 +197,7 @@
           <div class="form-row">
             <div class="form-group" style="flex:2;position:relative;">
               <label>Produto do catálogo <small class="muted">(opcional — gera mov. de estoque)</small></label>
-              <input type="text" id="ptProdBusca" placeholder="SKU ou descrição…" oninput="acProdT()" autocomplete="off">
+              <input type="text" id="ptProdBusca" placeholder="Código ou descrição…" oninput="acProdT()" autocomplete="off">
               <input type="hidden" id="ptProdId">
               <div id="acProdListT" class="ac-list"></div>
             </div>
@@ -252,7 +252,7 @@
           <small class="muted">Peças rastreadas por série que foram aplicadas nesta OS. É o que liga a
             garantia à unidade física, não só ao modelo.</small>
           <table style="margin-top:10px;">
-            <thead><tr><th>Peça</th><th>SKU</th><th class="num">Qtd</th><th>Números de série</th><th>Baixa</th></tr></thead>
+            <thead><tr><th>Peça</th><th>Código</th><th class="num">Qtd</th><th>Números de série</th><th>Baixa</th></tr></thead>
             <tbody id="tbPecasSerie"></tbody>
           </table>
         </div>

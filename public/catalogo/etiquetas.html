@@ -35,7 +35,7 @@
   <div id="alertGlobal"></div>
 
   <div class="toolbar">
-    <input type="text" id="buscaProd" placeholder="Buscar produto por SKU, descrição ou código…" style="flex:1;min-width:280px;" onkeydown="if(event.key==='Enter')buscar()">
+    <input type="text" id="buscaProd" placeholder="Buscar produto por código, descrição ou código de barras…" style="flex:1;min-width:280px;" onkeydown="if(event.key==='Enter')buscar()">
     <button class="btn btn-ghost btn-sm" onclick="buscar()">Buscar</button>
   </div>
 
@@ -45,7 +45,7 @@
 
   <div class="tbl-wrap" data-grid="etiquetas-fila">
     <table>
-      <thead><tr><th>SKU</th><th>Descrição</th><th>Cód. barras</th><th style="width:110px;">Cópias</th><th style="width:40px;"></th></tr></thead>
+      <thead><tr><th>Código</th><th>Descrição</th><th>Cód. barras</th><th style="width:110px;">Cópias</th><th style="width:40px;"></th></tr></thead>
       <tbody id="tbFila"><tr><td colspan="5" class="empty">Busque e adicione produtos à fila de impressão</td></tr></tbody>
     </table>
   </div>
@@ -207,7 +207,7 @@ function setCopias(id, v){ const f = fila.get(id); if (f) f.copias = Math.max(1,
 function renderFila(){
   const tb = document.getElementById('tbFila');
   tb.innerHTML = fila.size ? [...fila.values()].map(({produto:p, copias}) =>
-    `<tr><td class="mono">${esc(p.sku)}</td><td>${esc(p.descricao)}</td><td>${esc(p.codigoBarras||'(usa SKU)')}</td>
+    `<tr><td class="mono">${esc(p.sku)}</td><td>${esc(p.descricao)}</td><td>${esc(p.codigoBarras||'(usa o código)')}</td>
      <td><input type="number" min="1" max="500" value="${copias}" style="width:90px;" onchange="setCopias(${p.id}, this.value)"></td>
      <td><button class="btn btn-ghost btn-sm" onclick="rmFila(${p.id})">×</button></td></tr>`
   ).join('') : '<tr><td colspan="5" class="empty">Busque e adicione produtos à fila de impressão</td></tr>';

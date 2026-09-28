@@ -51,7 +51,7 @@
     <div class="sec-body">
       <div class="form-row">
         <div class="form-group">
-          <label>SKU *</label>
+          <label>Código *</label>
           <input type="text" id="sku">
           <small>Identificador único do sistema (imutável após criação)</small>
         </div>
@@ -138,7 +138,7 @@
         <div class="form-group">
           <label>Código CATMAT</label>
           <input type="text" id="codigoCatmat" maxlength="20">
-          <small>Material padronizado — permite casar itens de licitação com este SKU</small>
+          <small>Material padronizado — permite casar itens de licitação com este código</small>
         </div>
         <div class="form-group">
           <label>Código CATSER</label>
@@ -777,7 +777,7 @@ async function salvar(){
   // Anexa specs óticas quando aplicável (módulo ativo + categoria armacao/lente)
   const opticaSpecs = opticaColetarSpecs(body.categoria);
   if (opticaSpecs) body.opticaSpecs = opticaSpecs;
-  if (!body.sku || !body.descricao) return showAlert('SKU e descrição são obrigatórios', 'error');
+  if (!body.sku || !body.descricao) return showAlert('Código e descrição são obrigatórios', 'error');
   try {
     const r = await fetch(id ? '/api/produtos/'+id : '/api/produtos', {
       method: id ? 'PUT' : 'POST',

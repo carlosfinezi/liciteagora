@@ -6,6 +6,18 @@
 <script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* Nesta tabela nada sai com reticências: o nome do produto quebra linha e o
+     resto aparece inteiro. Por isso ela não usa o grid.js: ele mede as colunas
+     uma vez só, com a linha "Carregando…" ainda na tabela, e trava a largura
+     com reticências; o conteúdo que chega depois saía cortado. */
+  .tbl-nao-corta td { white-space: nowrap; }
+  .tbl-nao-corta th { white-space: normal; }
+  .tbl-nao-corta td.col-produto { white-space: normal; min-width: 220px; }
+  /* Validade: vencido em vermelho, até 7 dias em laranja, até 30 em âmbar */
+  .badge.vence-7d { background: #7c2d1260; color: #fb923c; border-color: #c2410c; }
+  [data-theme="claro"] .badge.vence-7d { background: #ffedd5; color: #c2410c; border-color: #fdba74; }
+</style>
 </head>
 <body>
 <div class="layout"><main class="main-content">
@@ -25,7 +37,7 @@
   <div class="kpi-grid" id="kpis"></div>
 
   <div class="toolbar">
-    <input type="text" id="filtProduto" placeholder="Filtrar por produtoId…" oninput="carregar()" style="width:180px;">
+    <input type="text" id="filtProduto" placeholder="Filtrar por produto (nome ou código)" oninput="debounce(carregar)" style="width:280px;">
     <select id="filtStatus" onchange="carregar()">
       <option value="comSaldo">Com saldo</option>
       <option value="todos">Todos (incluindo zerados)</option>
@@ -39,11 +51,11 @@
     </select>
   </div>
 
-  <div class="tbl-wrap" data-grid="estoque-lotes">
+  <div class="tbl-wrap tbl-nao-corta">
     <table>
       <thead><tr>
         <th class="col-editar"></th>
-        <th>Produto</th>
+        <th class="col-produto">Produto</th>
         <th>Lote</th>
         <th>Fabricação</th>
         <th>Validade</th>
@@ -72,7 +84,7 @@
     <div class="form-row">
       <div class="form-group full-width" style="position:relative;">
         <label>Produto *</label>
-        <input type="text" id="mlProdBusca" placeholder="SKU ou descrição…" oninput="acProd()" autocomplete="off">
+        <input type="text" id="mlProdBusca" placeholder="Código ou descrição…" oninput="acProd()" autocomplete="off">
         <input type="hidden" id="mlProdId">
         <div id="mlProdList" class="ac-list"></div>
       </div>
@@ -114,14 +126,23 @@
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
 function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtData(iso){ if(!iso) return '—'; const d=new Date(iso+'T12:00:00'); return isNaN(d)?iso:d.toLocaleDateString('pt-BR'); }
-function diasAte(iso){ if(!iso) return null; const d=new Date(iso+'T12:00:00'); return Math.ceil((d-Date.now())/(1000*60*60*24)); }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn, 300); }
+// Hoje em Marabá, como data. A validade é uma data e se compara com outra
+// data: contar pela hora (Math.ceil de milissegundos) fazia o lote vencido
+// ontem aparecer como "0 dias" e fora dos vencidos.
+function hojeBelem(){ return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Belem' }).format(new Date()); }
+function diasAte(iso){
+  if(!iso) return null;
+  const um = (x) => Date.parse(String(x).slice(0,10) + 'T12:00:00Z');
+  return Math.round((um(iso) - um(hojeBelem())) / 86400000);
+}
 
 async function carregar(){
-  const produtoId=document.getElementById('filtProduto').value;
+  const busca=document.getElementById('filtProduto').value.trim();
   const status=document.getElementById('filtStatus').value;
   const venc=document.getElementById('filtVencimento').value;
   const p=new URLSearchParams();
-  if(produtoId) p.set('produtoId', produtoId);
+  if(busca) p.set('q', busca);
   if(status==='comSaldo') p.set('comSaldo','1');
   if(venc) p.set('vencendoDias', venc);
   const r=await fetch('/api/lotes?'+p);
@@ -129,14 +150,13 @@ async function carregar(){
   if(!d.success) return showAlert(d.error,'error');
 
   const lotes = d.lotes;
-  const comSaldo = lotes.filter(l=>l.saldoAtual>0).length;
-  const vencendoProximos = lotes.filter(l=>{const dd=diasAte(l.dataValidade); return dd!=null && dd>=0 && dd<=30 && l.saldoAtual>0;}).length;
-  const vencidos = lotes.filter(l=>{const dd=diasAte(l.dataValidade); return dd!=null && dd<0 && l.saldoAtual>0;}).length;
+  // Os cartões vêm da API e contam todos os lotes, não a lista filtrada.
+  const rs = d.resumo || {};
   document.getElementById('kpis').innerHTML = `
-    <div class="kpi"><div class="label">Total de lotes</div><div class="value">${lotes.length}</div></div>
-    <div class="kpi success"><div class="label">Com saldo</div><div class="value">${comSaldo}</div></div>
-    <div class="kpi warn"><div class="label">Vencendo em 30d</div><div class="value">${vencendoProximos}</div></div>
-    <div class="kpi danger"><div class="label">Vencidos</div><div class="value">${vencidos}</div></div>
+    <div class="kpi"><div class="label">Total de lotes</div><div class="value">${rs.total ?? 0}</div></div>
+    <div class="kpi success"><div class="label">Com saldo</div><div class="value">${rs.comSaldo ?? 0}</div></div>
+    <div class="kpi warn"><div class="label">Vencendo em 30d</div><div class="value">${rs.vencendo30 ?? 0}</div></div>
+    <div class="kpi danger"><div class="label">Vencidos</div><div class="value">${rs.vencidos ?? 0}</div></div>
   `;
 
   const tb=document.getElementById('tb');
@@ -144,14 +164,16 @@ async function carregar(){
     const dias = diasAte(l.dataValidade);
     let validadeBadge = fmtData(l.dataValidade);
     if (dias != null && l.saldoAtual > 0) {
-      if (dias < 0) validadeBadge = `<span class="badge cancelado">Vencido ${Math.abs(dias)}d</span>`;
-      else if (dias <= 7) validadeBadge = `<span class="badge vencida">${fmtData(l.dataValidade)} (${dias}d)</span>`;
-      else if (dias <= 30) validadeBadge = `<span class="badge em_separacao">${fmtData(l.dataValidade)} (${dias}d)</span>`;
+      const emDias = (n) => n === 1 ? 'amanhã' : `em ${n} dias`;
+      if (dias < 0) validadeBadge = `<span class="badge cancelado">${fmtData(l.dataValidade)} · vencido há ${-dias} ${dias === -1 ? 'dia' : 'dias'}</span>`;
+      else if (dias === 0) validadeBadge = `<span class="badge vence-7d">${fmtData(l.dataValidade)} · vence hoje</span>`;
+      else if (dias <= 7) validadeBadge = `<span class="badge vence-7d">${fmtData(l.dataValidade)} · ${emDias(dias)}</span>`;
+      else if (dias <= 30) validadeBadge = `<span class="badge em_separacao">${fmtData(l.dataValidade)} · ${emDias(dias)}</span>`;
       else validadeBadge = fmtData(l.dataValidade);
     }
     return `<tr>
       <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar lote" onclick="abrirEdicao(${l.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
-      <td><strong>${l.sku}</strong> <span class="muted">${l.descricao}</span></td>
+      <td class="col-produto"><strong>${l.sku}</strong> <span class="muted">${l.descricao}</span></td>
       <td><strong>${l.numero}</strong></td>
       <td>${fmtData(l.dataFabricacao)}</td>
       <td>${validadeBadge}</td>

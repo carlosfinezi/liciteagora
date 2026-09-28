@@ -13,6 +13,7 @@
 
 // Depósito da contagem e do ajuste.
 const { resolverDeposito } = require('./estoque-routes');
+const { ordemPt } = require('./ordem-pt');
 
 function dataBrasilia() {
   const now = new Date();
@@ -107,7 +108,7 @@ function registrarRotasInventario(app, db) {
         JOIN produtos p ON p.id = ii.produtoId
         LEFT JOIN lotes l ON l.id = ii.loteId
         WHERE ii.inventarioId = ?
-        ORDER BY p.descricao ASC, ii.id ASC
+        ORDER BY ${ordemPt('p.descricao')}, p.descricao, ii.id ASC
       `).all(req.params.id);
 
       const estatisticas = {
@@ -154,17 +155,17 @@ function registrarRotasInventario(app, db) {
         //   (para identificar inconsistências entre soma-lotes e saldo-total)
         const produtos = db.prepare(`
           SELECT p.id, p.sku, p.descricao, p.rastreiaLote,
-            COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
+            ROUND(COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
                                       WHEN tipo='saida' THEN -quantidade
                                       ELSE quantidade END)
                       FROM movimentacoes_estoque
                       WHERE produtoId = p.id
-                        AND COALESCE(depositoId, ?) = ?), 0) AS saldo,
+                        AND COALESCE(depositoId, ?) = ?), 0), 3) + 0 AS saldo,
             COALESCE((SELECT custoMedioPosterior FROM movimentacoes_estoque
                       WHERE produtoId = p.id AND custoMedioPosterior IS NOT NULL
                       ORDER BY data DESC, id DESC LIMIT 1), p.precoCusto) AS custoMedio
           FROM produtos p WHERE ${whereProdutos}
-          ORDER BY p.descricao ASC
+          ORDER BY ${ordemPt('p.descricao')}, p.descricao
         `).all(depositoInv, depositoInv);
 
         const insertItem = db.prepare(`

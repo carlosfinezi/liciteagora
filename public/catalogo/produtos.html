@@ -25,7 +25,7 @@
   </div>
 
   <div class="toolbar">
-    <input type="text" id="filtBusca" placeholder="Buscar por SKU, descrição, marca…" oninput="carregarDebounced()" style="flex:1;min-width:240px;">
+    <input type="text" id="filtBusca" placeholder="Buscar por código, descrição, marca…" oninput="carregarDebounced()" style="flex:1;min-width:240px;">
     <button class="btn btn-secondary btn-sm" id="btnFiltros" onclick="togglarPainelFiltros()">Filtros</button>
     <label id="toggleOpticosWrap" style="display:none;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
       <input type="checkbox" id="toggleOpticos" onchange="carregar()"> Mostrar produtos óticos
@@ -184,7 +184,7 @@ function debounce(fn, ms){
 
 const COLUNAS = [
   { key:'imagem',            label:'Img',          tipo:'img',   default:true },
-  { key:'sku',               label:'SKU',          tipo:'txt',   default:true },
+  { key:'sku',               label:'Código',          tipo:'txt',   default:true },
   { key:'codigoInterno',     label:'Cód.Interno',  tipo:'txt',   default:false },
   { key:'referenciaInterna', label:'Ref.Interna',  tipo:'txt',   default:false },
   { key:'codigoBarras',      label:'EAN',          tipo:'txt',   default:false },
@@ -662,7 +662,7 @@ async function buscarItens(){
 const buscarItensDebounced = debounce(buscarItens, 300);
 
 async function importarItem(itemId, desc){
-  const sku = prompt('SKU para "'+desc+'":');
+  const sku = prompt('Código para "'+desc+'":');
   if (!sku) return;
   try {
     const r = await fetch('/api/produtos/importar-item-licitacao', {
@@ -723,7 +723,7 @@ function renderPreviewPlanilha(d){
 
   const det = document.getElementById('planDetalhes');
   if (rows.length) {
-    det.innerHTML = `<div class="tbl-wrap"><table><thead><tr><th>Linha</th><th>Status</th><th>SKU</th><th>Detalhe</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
+    det.innerHTML = `<div class="tbl-wrap"><table><thead><tr><th>Linha</th><th>Status</th><th>Código</th><th>Detalhe</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
       ${d.validas.length>10?`<small class="muted">+ ${d.validas.length-10} linhas válidas não exibidas</small>`:''}`;
   } else {
     det.innerHTML = '<p class="muted">Nenhuma linha processada.</p>';

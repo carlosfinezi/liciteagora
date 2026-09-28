@@ -4,6 +4,80 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-28, estoque e compras como o dono de mercado lê
+
+Saiu do levantamento feito para o vídeo de supermercado, com as regras
+decididas pelo Carlos. São quinze correções em Estoque → Análises, Lotes,
+Estoque e Compras → Sugestão de Compra, e três delas valem para o sistema
+inteiro.
+
+**Telas que quebravam**
+
+- **Estoque → Análises abria em branco, em todas as abas.** O `app-modern.css`
+  esconde toda `.tab-content` sem a classe `active` desde abril (915cb32), e a
+  tela trocava de aba pelo `style.display`, que não vence a regra. Agora a aba
+  aberta ganha a classe. As outras oito telas com o mesmo padrão já usavam a
+  classe e abrem normalmente; a suíte confere as nove.
+- **Sugestão de Compra não assume mais o grupo 14 e a TerraMaster**, que são do
+  1bit. As "Oportunidades de Mercado" só aparecem para o tenant com
+  `sugestao_mercado_grupo_id` e `sugestao_mercado_marca` em `config` (ou com
+  `?grupoId=&marca=` na URL). Sem isso a rota responde `configurado: false` e a
+  tela não mostra nada da seção. A lista de itens sugeridos passou a ser a
+  primeira coisa da tela, e o bloco de mercado foi para o fim.
+- **Saldo de produto vendido por quilo sai arredondado em 3 casas**, com
+  `ROUND(…, 3) + 0` em toda soma de saldo (estoque, alertas, valorização,
+  giro, sugestão, produtos, inventário, depósitos, reservas, NF-e de entrada e
+  Mercado Livre). Zerado, o item somava 1e-13 e dava giro de trilhões, ou
+  -1e-13 e aparecia "-0,00". O `+ 0` existe porque ROUND de um negativo
+  minúsculo devolve -0.
+
+**Datas e números**
+
+- **Validade conta pela data de Marabá.** Lote com validade ontem é vencido;
+  com validade hoje, "vence hoje". A conta antiga arredondava milissegundos
+  para cima e punha o vencido de ontem como "0 dias", fora dos vencidos.
+- **Os cartões de Lotes contam todos os lotes**, e não a lista filtrada: com
+  "vence em 30 dias" marcado, o de vencidos caía a zero. O filtro de validade
+  vai de hoje até hoje + N, sem o dia anterior que compensava o fuso.
+- **Produto parado tem giro 0 e cobertura "—"**, em vez dos números das vendas
+  antigas da janela ao lado do selo PARADO.
+- **Cobertura divide pelo histórico que existe dentro da janela**, por
+  produto, e não por 360 dias fixos: com 6 meses de movimento e a janela de 12,
+  a cobertura saía dobrada.
+
+**Textos, ordem e termos**
+
+- **Nada cortado em Lotes, Estoque e Sugestão.** O nome do produto quebra
+  linha; o resto aparece inteiro. As três tabelas deixaram o `grid.js`, que
+  mede as colunas uma vez só, com a linha "Carregando…" na tabela, e travava a
+  largura com reticências. Perdem o ajuste de largura por arraste.
+- **Listas de produto em ordem de português** (`ordem-pt.js`): "Água" perto
+  do A e "Óleo" perto do O, em 20 consultas de 13 arquivos. É SQL puro, e não
+  função registrada na conexão, para não quebrar quem abre o banco por fora.
+- **O aviso de abaixo do mínimo mostra o nome do produto**, com o que tem e o
+  mínimo.
+- **Saldo zero é SEM ESTOQUE** também na lista de Estoque e em Análises.
+- **"SKU" virou "Código" no que o usuário vê**, em 41 arquivos de tela, e o filtro de
+  Lotes busca por "produto (nome ou código)". Ficaram de fora o anúncio de
+  marketplace (SKU é o termo do canal, e o formato `SKU;URL` é o que se cola),
+  o nome de coluna `sku` da planilha de importação e três arquivos de
+  licitação com trabalho de outra frente sem commit.
+- **Reserva e rastreio só aparecem para quem tem dado deles**: colunas,
+  cartões e os filtros "Só rastreia lote/serial". Conta só produto ativo.
+- **Cores**: "Total movimentado" da curva ABC saiu do vermelho para o cartão
+  padrão; a classe C é cinza no cartão, na barra e na legenda; na validade,
+  vencido é vermelho, até 7 dias laranja e até 30 âmbar.
+- **"Última saída" mostra a data**, e não "132d".
+- De passagem: "% periodo" ganhou o acento, e o fornecedor aparece pelo nome
+  fantasia em Lotes e na Sugestão.
+
+`test-estoque-mercado.js` é a etapa 141 do verify. Contra as versões
+anteriores das rotas e das telas, reprovou em 21 de 22.
+
+**Pendente de restart:** o `liciteagora.service` carrega seis dos arquivos
+alterados (arredondamento e ordem, nada de tela). Reiniciá-lo levaria junto
+trabalho de outras frentes sem commit, e ficou para quando for pedido.
+
 ## 2026-09-28, loja do Cantinho Verde no ar e acabamento do tema da vitrine
 
 ### Acabamento do tema, para qualquer loja

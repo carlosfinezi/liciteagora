@@ -23,6 +23,7 @@
  */
 
 const { agora, FUSO_LOCAL_SQL } = require('./restaurante-comanda');
+const { ordemPt } = require('../ordem-pt');
 
 // Profundidade máxima da explosão. Cinco níveis cobrem qualquer cozinha real
 // (prato → molho → base → fundo → tempero); além disso é erro de cadastro.
@@ -243,7 +244,7 @@ function registrarRotasFicha(app, db, gateFlag) {
         SELECT f.*, p.sku, p.descricao, p.precoVenda,
                (SELECT COUNT(*) FROM rest_ficha_itens fi WHERE fi.fichaId = f.id) AS totalInsumos
           FROM rest_fichas f JOIN produtos p ON p.id = f.produtoId
-         ORDER BY p.descricao
+         ORDER BY ${ordemPt('p.descricao')}, p.descricao
       `).all();
       for (const f of items) {
         const c = custoDaFicha(db, f.produtoId);

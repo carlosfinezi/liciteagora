@@ -32,7 +32,7 @@
   <div id="avisoTrunc"></div>
 
   <div class="toolbar">
-    <input type="text" id="filtQ" placeholder="Buscar por SKU ou descrição…" oninput="debounce(carregarMov)" style="flex:1;min-width:220px;">
+    <input type="text" id="filtQ" placeholder="Buscar por código ou descrição…" oninput="debounce(carregarMov)" style="flex:1;min-width:220px;">
     <label style="display:flex;align-items:center;gap:6px;">De <input type="date" id="filtDe" onchange="carregarMov()"></label>
     <label style="display:flex;align-items:center;gap:6px;">Até <input type="date" id="filtAte" onchange="carregarMov()"></label>
     <select id="filtTipo" onchange="carregarMov()">
@@ -58,7 +58,7 @@
   <div class="tbl-wrap" data-grid="estoque-movimentacoes">
     <table>
       <thead><tr>
-        <th>Data</th><th>SKU</th><th>Descrição</th><th>Tipo</th>
+        <th>Data</th><th>Código</th><th>Descrição</th><th>Tipo</th>
         <th class="num">Qtd</th>
         <th class="num" title="Custo unitário registrado na movimentação">Custo un.</th>
         <th class="num" title="Saldo do produto logo após esta movimentação">Saldo depois</th>

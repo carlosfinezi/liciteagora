@@ -1128,9 +1128,9 @@ function registrarRotas(app, db) {
       const tx = db.transaction(() => {
         for (const it of itens) {
           const saldoRow = db.prepare(`
-            SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
+            SELECT ROUND(COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
                                       WHEN tipo='saida' THEN -quantidade
-                                      ELSE quantidade END), 0) AS saldo
+                                      ELSE quantidade END), 0), 3) + 0 AS saldo
             FROM movimentacoes_estoque WHERE produtoId = ?`).get(it.produtoId);
           const saldoAtual = Number(saldoRow.saldo) || 0;
           const prod = db.prepare('SELECT precoCusto FROM produtos WHERE id = ?').get(it.produtoId);

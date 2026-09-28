@@ -16,6 +16,7 @@
  */
 
 const fs = require('fs');
+const { ordemPt } = require('./ordem-pt');
 const path = require('path');
 
 const API_BASE = 'https://api.mercadolibre.com';
@@ -502,8 +503,8 @@ function produtoDe(db, produtoId) {
 
 function saldoDe(db, produtoId) {
   try {
-    return db.prepare(`SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
-        WHEN tipo='saida' THEN -quantidade ELSE quantidade END), 0) s
+    return db.prepare(`SELECT ROUND(COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
+        WHEN tipo='saida' THEN -quantidade ELSE quantidade END), 0), 3) + 0 s
       FROM movimentacoes_estoque WHERE produtoId = ?`).get(produtoId).s;
   } catch { return 0; }
 }
@@ -1104,7 +1105,7 @@ function candidatos(db, { limit = 200 } = {}) {
     FROM produtos p
     LEFT JOIN ml_anuncios a ON a.produtoId = p.id
     WHERE p.ativo = 1
-    ORDER BY p.descricao LIMIT ?`).all(limit);
+    ORDER BY ${ordemPt('p.descricao')}, p.descricao LIMIT ?`).all(limit);
 
   return linhas.map(l => {
     const saldo = saldoDe(db, l.id);

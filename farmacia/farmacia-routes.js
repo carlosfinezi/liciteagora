@@ -20,6 +20,7 @@
  */
 
 const fs = require('fs');
+const { ordemPt } = require('../ordem-pt');
 const os = require('os');
 const path = require('path');
 const multer = require('multer');
@@ -186,7 +187,7 @@ function registrarRotasFarmacia(app, db) {
       if (tarjaOrigem) { sql += ' AND COALESCE(s.tarjaOrigem, "desconhecida") = ?'; params.push(tarjaOrigem); }
       if (controlados === '1') sql += ' AND (s.listaPortaria344 IS NOT NULL OR s.antimicrobiano = 1)';
       if (semRegistro === '1') sql += ' AND (s.registroAnvisa IS NULL OR s.registroAnvisa = "") AND s.isentoRegistro = 0';
-      sql += ' ORDER BY p.descricao ASC LIMIT ?';
+      sql += ` ORDER BY ${ordemPt('p.descricao')}, p.descricao LIMIT ?`;
       params.push(Number(limit) || 200);
       res.json({ success: true, items: db.prepare(sql).all(...params) });
     } catch (err) {
@@ -370,7 +371,7 @@ function registrarRotasFarmacia(app, db) {
           JOIN farmacia_medicamento_specs s ON s.produtoId = l.produtoId
           WHERE l.ativo = 1 AND l.saldoAtual > 0
             AND (s.listaPortaria344 IS NOT NULL OR s.antimicrobiano = 1)
-          ORDER BY p.descricao`).all();
+          ORDER BY ${ordemPt('p.descricao')}, p.descricao`).all();
         periodoInicio = periodoFim = b.data || new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10);
         xml = montarInventario({ cnpjEmissor, cpfTransmissor, data: periodoInicio, itens });
       } else {

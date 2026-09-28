@@ -23,6 +23,7 @@
  */
 
 const { normalizarInstante, somarHoras } = require('./tarifa');
+const { ordemPt } = require('../ordem-pt');
 const { calcularSaldo } = require('../estoque-routes');
 const { saldoReservado } = require('../reservas-routes');
 
@@ -294,7 +295,7 @@ function calendario(db, de, ate, opts = {}) {
   const params = [];
   if (opts.produtoId) { sqlProdutos += ' AND s.produtoId = ?'; params.push(Number(opts.produtoId)); }
   if (opts.categoria) { sqlProdutos += ' AND p.categoria = ?'; params.push(opts.categoria); }
-  sqlProdutos += ' ORDER BY p.descricao';
+  sqlProdutos += ` ORDER BY ${ordemPt('p.descricao')}, p.descricao`;
   const produtos = db.prepare(sqlProdutos).all(...params);
 
   const dias = [];

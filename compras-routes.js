@@ -110,6 +110,7 @@ function recalcularValorTotal(db, pedidoCompraId) {
 // Fase 3e (2026-05-23): sugestao-mercado migra pra PG (queries
 // puramente em catalog: bi_item_sugestao_produto + itens + licitacoes + resultados_bi).
 const catalogPg = require('./catalog-pg');
+const { ordemPt } = require('./ordem-pt');
 const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
 
 /**
@@ -199,8 +200,18 @@ function registrarRotasCompras(app, db) {
   // Volume e ticket são normalizados pelo máximo do recorte.
   app.get('/api/compras/sugestao-mercado', async (req, res) => {
     try {
-      const grupoId = parseInt(req.query.grupoId, 10);
-      const marca = String(req.query.marca || '').trim();
+      // Grupo e marca vêm da URL ou da configuração do tenant
+      // (sugestao_mercado_grupo_id e sugestao_mercado_marca). Não há padrão:
+      // até 28/09/2026 a tela mandava o grupo 14 e a TerraMaster, que são do
+      // 1bit, e um supermercado via NAS de licitação na sugestão de compra.
+      const cfg = (chave) => {
+        try { return (db.prepare('SELECT valor FROM config WHERE chave = ?').get(chave) || {}).valor || ''; } catch { return ''; }
+      };
+      const grupoId = parseInt(req.query.grupoId || cfg('sugestao_mercado_grupo_id'), 10);
+      const marca = String(req.query.marca || cfg('sugestao_mercado_marca') || '').trim();
+      if (!req.query.grupoId && !req.query.marca && (!grupoId || !marca)) {
+        return res.json({ success: true, configurado: false, oportunidades: [] });
+      }
       const scoreMin = parseInt(req.query.scoreMin, 10) || 70;
       if (!grupoId || isNaN(grupoId)) return res.status(400).json({ error: 'grupoId obrigatório' });
       if (!marca) return res.status(400).json({ error: 'marca obrigatória' });
@@ -393,26 +404,27 @@ function registrarRotasCompras(app, db) {
       const rows = db.prepare(`
         SELECT p.id, p.sku, p.descricao, p.unidade, p.precoCusto,
           p.estoqueMinimo, p.pontoReposicao, p.estoqueMaximo, p.leadTimeDias,
-          p.fornecedorId, f.razaoSocial AS fornecedorNome,
-          COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
+          p.fornecedorId, COALESCE(NULLIF(f.nomeFantasia, ''), f.razaoSocial) AS fornecedorNome,
+          ROUND(COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
                                     WHEN tipo='saida' THEN -quantidade
                                     ELSE quantidade END)
-                    FROM movimentacoes_estoque WHERE produtoId = p.id), 0) AS saldo,
-          COALESCE((SELECT SUM(quantidade) FROM reservas_estoque
-                    WHERE produtoId = p.id AND status = 'ativa'), 0) AS reservado,
+                    FROM movimentacoes_estoque WHERE produtoId = p.id), 0), 3) + 0 AS saldo,
+          ROUND(COALESCE((SELECT SUM(quantidade) FROM reservas_estoque
+                    WHERE produtoId = p.id AND status = 'ativa'), 0), 3) + 0 AS reservado,
           COALESCE((SELECT custoMedioPosterior FROM movimentacoes_estoque
                     WHERE produtoId = p.id AND custoMedioPosterior IS NOT NULL
                     ORDER BY data DESC, id DESC LIMIT 1), p.precoCusto) AS custoMedio,
-          COALESCE((SELECT SUM(quantidade) FROM movimentacoes_estoque
+          ROUND(COALESCE((SELECT SUM(quantidade) FROM movimentacoes_estoque
                     WHERE produtoId = p.id AND tipo = 'saida'
-                      AND data >= date('now', '-${JANELA_DIAS} days')), 0) AS saida90d${colsPerda}
+                      AND data >= date('now', '-${JANELA_DIAS} days')), 0), 3) + 0 AS saida90d${colsPerda}
         FROM produtos p
         LEFT JOIN pessoas f ON f.id = p.fornecedorId
         WHERE p.ativo = 1 AND (p.estoqueMinimo > 0 OR p.pontoReposicao > 0${filtroPerda})
+        ORDER BY ${ordemPt('p.descricao')}, p.descricao
       `).all(...params);
 
       const itens = rows.map(r => {
-        const disponivel = r.saldo - r.reservado;
+        const disponivel = Math.round((r.saldo - r.reservado) * 1000) / 1000 + 0;   // ver estoque-routes.calcularSaldo
         const limite = r.pontoReposicao > 0 ? r.pontoReposicao : r.estoqueMinimo;
         const parametrizado = r.estoqueMinimo > 0 || r.pontoReposicao > 0;
         const perdaQtd = comPerdas ? (r.perdaQtd90d || 0) : 0;
@@ -534,7 +546,7 @@ function registrarRotasCompras(app, db) {
         FROM pedido_compra_itens pci
         JOIN produtos p ON p.id = pci.produtoId
         WHERE pci.pedidoCompraId = ?
-        ORDER BY p.descricao ASC
+        ORDER BY ${ordemPt('p.descricao')}, p.descricao
       `).all(req.params.id);
 
       // Como este fornecedor recebe o pedido: define o rótulo do botão, a
@@ -572,7 +584,7 @@ function registrarRotasCompras(app, db) {
         FROM pedido_compra_itens pci
         LEFT JOIN produtos p ON p.id = pci.produtoId
         WHERE pci.pedidoCompraId = ?
-        ORDER BY p.descricao ASC
+        ORDER BY ${ordemPt('p.descricao')}, p.descricao
       `).all(req.params.id);
 
       // Emitente é a nossa empresa: quem compra. Estabelecimento matriz, com

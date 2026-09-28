@@ -19,7 +19,7 @@
   <div id="alertGlobal"></div>
 
   <div class="toolbar">
-    <input type="text" id="q" placeholder="Buscar por descrição ou SKU" style="flex:1;min-width:260px;"
+    <input type="text" id="q" placeholder="Buscar por descrição ou código" style="flex:1;min-width:260px;"
            onkeydown="if(event.key==='Enter')carregar()">
     <select id="fCategoria" style="width:200px;" onchange="carregar()">
       <option value="">Todas as categorias</option>
@@ -31,7 +31,7 @@
   <div class="tbl-wrap">
     <table>
       <thead><tr>
-        <th>Produto</th><th>SKU</th><th>Categoria</th>
+        <th>Produto</th><th>Código</th><th>Categoria</th>
         <th title="Se cada unidade é identificada por número de série">Nº de série</th>
         <th style="text-align:right;" title="Garantia exigida do cliente">Caução</th>
         <th style="text-align:right;" title="Cobrado se o item não voltar">Se não voltar</th>
@@ -61,7 +61,7 @@
               <option value="">Todas as categorias</option>
             </select>
             <input type="text" id="qProduto" style="flex:1;"
-                   placeholder="Descrição, SKU ou código de barras" autocomplete="off">
+                   placeholder="Descrição, código ou código de barras" autocomplete="off">
           </div>
           <small class="muted">Escolha a categoria para listar os produtos dela, ou digite para buscar no catálogo inteiro.</small>
           <div id="resultadosProduto"></div>
