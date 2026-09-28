@@ -1521,6 +1521,7 @@ async function abrirAparencia() {
   const tema = { corPrimaria: '#0E6B63', fundo: 'claro', fonte: 'neutra', raio: 10, fonteTitulo: 'igual',
                  ...(l.tema || {}), ...(CFG_AP.tema || {}) };
   const opt = (v, atual, rotulo) => `<option value="${v}"${atual === v ? ' selected' : ''}>${rotulo}</option>`;
+  const d = tema.destaque || {};
 
   const paletas = Object.entries(PRESETS_TEMA).map(([nome, p]) =>
     `<button type="button" class="ap-paleta" data-paleta="${esc(nome)}"
@@ -1565,12 +1566,12 @@ async function abrirAparencia() {
             </select></div>
           <div class="form-group"><label for="apFonteTitulo">Tipografia dos títulos</label>
             <select id="apFonteTitulo">
-              ${opt('igual', tema.fonteTitulo, 'A mesma do texto')}${opt('elegante', tema.fonteTitulo, 'Elegante')}${opt('classica', tema.fonteTitulo, 'Clássica')}${opt('manuscrita', tema.fonteTitulo, 'Manuscrita')}${opt('moderna', tema.fonteTitulo, 'Moderna')}
+              ${opt('igual', tema.fonteTitulo, 'A mesma do texto')}${opt('elegante', tema.fonteTitulo, 'Elegante')}${opt('classica', tema.fonteTitulo, 'Clássica')}${opt('serifa', tema.fonteTitulo, 'Serifada (Georgia)')}${opt('manuscrita', tema.fonteTitulo, 'Manuscrita')}${opt('moderna', tema.fonteTitulo, 'Moderna')}
             </select></div>
         </div>
         <div class="form-row">
           <div class="form-group"><label for="apRaio">Cantos <small class="muted" id="apRaioVal"></small></label>
-            <input type="range" id="apRaio" min="0" max="24" step="2" value="${Number(tema.raio) || 0}"></div>
+            <input type="range" id="apRaio" min="0" max="32" step="2" value="${Number(tema.raio) || 0}"></div>
           <div class="form-group"><label>Ícone da aba</label>
             <div style="display:flex;gap:8px;align-items:center;">
               <img id="apFavicon" alt="" style="width:32px;height:32px;border-radius:6px;object-fit:cover;border:1px solid var(--border);"
@@ -1581,12 +1582,46 @@ async function abrirAparencia() {
               <input type="file" id="arqFavicon" accept="image/png,image/jpeg,image/webp,image/gif" hidden onchange="enviarFavicon(this)">
             </div></div>
         </div>
+        <div class="form-row">
+          <div class="form-group"><label for="apCorFundoHex">Cor do fundo</label>
+            <input type="text" id="apCorFundoHex" value="${esc(tema.corFundo || '')}" maxlength="7" placeholder="a do fundo escolhido"></div>
+          <div class="form-group"><label for="apCorApoioHex">Cor de apoio</label>
+            <input type="text" id="apCorApoioHex" value="${esc(tema.corApoio || '')}" maxlength="7" placeholder="igual à secundária"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label for="apEfeito">Efeito do fundo</label>
+            <select id="apEfeito">${opt('liso', tema.fundoEfeito || 'liso', 'Liso')}${opt('aquarela', tema.fundoEfeito, 'Aquarela')}</select></div>
+          <div class="form-group"><label for="apSombra">Sombras</label>
+            <select id="apSombra">${opt('nenhuma', tema.sombra || 'nenhuma', 'Sem sombra')}${opt('suave', tema.sombra, 'Suaves')}${opt('profunda', tema.sombra, 'Profundas')}</select></div>
+          <div class="form-group"><label for="apTopo">Barra do topo</label>
+            <select id="apTopo">${opt('solido', tema.topo || 'solido', 'Sólida')}${opt('translucido', tema.topo, 'Translúcida')}</select></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label for="apSigla">Sigla sem logo</label>
+            <input id="apSigla" maxlength="3" value="${esc(tema.sigla || '')}" placeholder="CV" style="max-width:90px;"></div>
+          <div class="form-group"><label for="apSlogan">Slogan</label>
+            <input id="apSlogan" maxlength="40" value="${esc(tema.slogan || '')}" placeholder="Flores & afeto"></div>
+        </div>
         <div class="form-group"><label for="apFaixa">Faixa de aviso no topo</label>
           <input id="apFaixa" maxlength="140" value="${esc(tema.faixaTexto || '')}"
                  placeholder="Entregamos em toda a cidade"></div>
         <div class="form-group"><label for="apRodape">Texto do rodapé</label>
           <input id="apRodape" maxlength="200" value="${esc(CFG_AP.rodapeTexto || '')}"
                  placeholder="© ${new Date().getFullYear()} ${esc(l.nome || 'Sua loja')}"></div>
+        <fieldset style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-top:12px;">
+          <legend style="font-weight:600;padding:0 6px;">Destaque do topo</legend>
+          <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+            <input type="checkbox" id="apDqAtivo" ${d.ativo ? 'checked' : ''}> Mostrar no topo da vitrine</label>
+          <div class="form-group"><label for="apDqSelo">Selo</label><input id="apDqSelo" maxlength="40" value="${esc(d.selo || '')}"></div>
+          <div class="form-group"><label for="apDqTitulo">Título</label><input id="apDqTitulo" maxlength="90" value="${esc(d.titulo || '')}"></div>
+          <div class="form-group"><label for="apDqTexto">Texto</label><textarea id="apDqTexto" maxlength="280" rows="3">${esc(d.texto || '')}</textarea></div>
+          <div class="form-row">
+            <div class="form-group"><label for="apDqBotao">Botão para os produtos</label><input id="apDqBotao" maxlength="30" value="${esc(d.botao || '')}"></div>
+            <div class="form-group"><label for="apDqZap">Botão do WhatsApp</label><input id="apDqZap" maxlength="30" value="${esc(d.botaoWhatsapp || '')}"></div>
+          </div>
+          <div class="form-group"><label for="apDqEtiqueta">Etiqueta sobre a imagem</label><input id="apDqEtiqueta" maxlength="30" value="${esc(d.etiqueta || '')}"></div>
+          <p class="muted" style="font-size:.82em;margin:6px 0 0;">A imagem do destaque é a capa do catálogo.</p>
+        </fieldset>
         <p class="muted" style="font-size:.82em;margin:10px 0 0;">
           O logotipo e a capa se trocam no próprio cabeçalho desta tela, junto
           do "Ajustar" de cada um.</p>
@@ -1607,7 +1642,7 @@ async function abrirAparencia() {
     </div>`;
 
   document.getElementById('apPvNome').textContent = l.nome || 'Sua loja';
-  for (const id of ['apCor', 'apFundo', 'apFonte', 'apFonteTitulo', 'apRaio', 'apFaixa']) {
+  for (const id of ['apCor', 'apFundo', 'apFonte', 'apFonteTitulo', 'apRaio', 'apFaixa', 'apCorFundoHex']) {
     document.getElementById(id).addEventListener('input', pintarPrevia);
   }
   document.getElementById('apCorHex').addEventListener('change', () => {
@@ -1652,6 +1687,7 @@ const AP_FONTES = {
 };
 const AP_TITULOS = {
   elegante: "'Playfair Display', Georgia, serif",
+  serifa: "Georgia, 'Times New Roman', serif",
   classica: "'Cormorant Garamond', Georgia, serif",
   manuscrita: "'Dancing Script', cursive",
   moderna: "Poppins, Inter, sans-serif",
@@ -1681,7 +1717,8 @@ function pintarPrevia() {
   document.getElementById('apRaioVal').textContent = raio + 'px';
   const tela = document.getElementById('apTela');
   const [bg, fg] = AP_FUNDOS[fundo] || AP_FUNDOS.claro;
-  tela.style.background = bg;
+  const corFundo = (document.getElementById('apCorFundoHex') || {}).value || '';
+  tela.style.background = /^#[0-9a-f]{6}$/i.test(corFundo.trim()) ? corFundo.trim() : bg;
   tela.style.color = fg;
   tela.style.fontFamily = AP_FONTES[fonte] || AP_FONTES.neutra;
   document.getElementById('apPvNome').style.fontFamily = AP_TITULOS[titulo] || '';
@@ -1735,7 +1772,14 @@ async function salvarAparencia() {
                 fonteTitulo: v('apFonteTitulo'),
                 corSecundaria: v('apCor2Hex').trim() || null,
                 corTema: v('apCorTemaHex').trim() || null,
-                faixaTexto: v('apFaixa').trim() || null },
+                faixaTexto: v('apFaixa').trim() || null,
+                corFundo: v('apCorFundoHex').trim() || null,
+                corApoio: v('apCorApoioHex').trim() || null,
+                fundoEfeito: v('apEfeito'), sombra: v('apSombra'), topo: v('apTopo'),
+                sigla: v('apSigla').trim() || null, slogan: v('apSlogan').trim() || null,
+                destaque: { ativo: document.getElementById('apDqAtivo').checked, selo: v('apDqSelo'),
+                  titulo: v('apDqTitulo'), texto: v('apDqTexto'), botao: v('apDqBotao'),
+                  botaoWhatsapp: v('apDqZap'), etiqueta: v('apDqEtiqueta') } },
         rodapeTexto: v('apRodape'),
       }),
     });

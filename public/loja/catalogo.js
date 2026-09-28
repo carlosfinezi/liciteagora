@@ -819,10 +819,37 @@ function irPara(hash) {
   else location.hash = hash;
 }
 
+let DESTAQUE_ATIVO = false;
+
+/** Destaque do topo da vitrine: selo, título, texto, dois botões e a capa. */
+function pintarDestaque(dq) {
+  const mostrar = (id, texto) => { const el = $(id); el.hidden = !texto; if (texto) el.textContent = texto; };
+  $('dqSelo').hidden = !dq.selo;
+  if (dq.selo) $('dqSelo').querySelector('span').textContent = dq.selo;
+  $('dqTitulo').textContent = dq.titulo;
+  mostrar('dqTexto', dq.texto);
+  mostrar('dqBt1', dq.botao);
+  // Rola até os produtos sem trocar o hash: o hash é a rota da vitrine.
+  $('dqBt1').onclick = (e) => { e.preventDefault(); $('cabecalhoBusca').scrollIntoView({ behavior: 'smooth' }); };
+  // O segundo botão só existe com WhatsApp configurado: sem número, não leva a lugar nenhum.
+  const zap = linkZap('Olá! Vim pelo site.');
+  mostrar('dqBt2', zap ? dq.botaoWhatsapp : null);
+  if (zap) $('dqBt2').href = zap;
+  $('destaque').classList.toggle('sem-imagem', !LOJA.banner);
+  if (LOJA.banner) {
+    $('dqImg').src = LOJA.banner;
+    aplicarFoco($('dqImg'), LOJA.bannerFoco);
+    $('dqImagem').hidden = false;
+    mostrar('dqEtiqueta', dq.etiqueta);
+  }
+}
+
 async function rotear() {
   const h = location.hash || '#/';
   const topo = $('cabecalhoBusca');
   window.scrollTo(0, 0);
+  // O destaque é da página inicial; nas outras telas ele sai do caminho.
+  $('destaque').hidden = !(DESTAQUE_ATIVO && !/^#\/(p\/|sacola|checkout|pedido\/)/.test(h));
 
   // A busca e as categorias só fazem sentido na home; nas outras telas somem.
   // Quem volta ao início é a marca do cabeçalho, que é link.
@@ -1087,11 +1114,19 @@ async function carregar() {
   aplicarFavicon(LOJA.favicon);
   document.title = LOJA.nome;
   if (LOJA.tema && LOJA.tema.faixaTexto) { $('faixa').textContent = LOJA.tema.faixaTexto; $('faixa').hidden = false; }
+  const tema = LOJA.tema || {};
   $('nomeLoja').textContent = LOJA.nome;
-  $('descLoja').textContent = LOJA.descricao || '';
+  // Slogan curto, em caixa alta, no lugar da apresentação quando houver.
+  $('descLoja').textContent = tema.slogan || LOJA.descricao || '';
+  $('descLoja').classList.toggle('slogan', !!tema.slogan);
   if (LOJA.logo) { const el = $('logo'); el.src = LOJA.logo; el.alt = LOJA.nome; el.hidden = false;
     aplicarFoco(el, LOJA.logoFoco); }
-  if (LOJA.banner) {
+  else if (tema.sigla) { $('sigla').textContent = tema.sigla; $('sigla').hidden = false; }
+  // Com o destaque ligado, a capa vira a imagem dele, e não a faixa do topo.
+  const dq = tema.destaque;
+  DESTAQUE_ATIVO = !!(dq && dq.ativo && dq.titulo);
+  if (DESTAQUE_ATIVO) pintarDestaque(dq);
+  else if (LOJA.banner) {
     $('capa').innerHTML = `<img src="${esc(LOJA.banner)}" alt="">`;
     $('capa').hidden = false;
     aplicarFoco($('capa').querySelector('img'), LOJA.bannerFoco);

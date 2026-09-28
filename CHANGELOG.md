@@ -4,6 +4,37 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-28, loja do Cantinho Verde no ar e acabamento do tema da vitrine
+
+### Acabamento do tema, para qualquer loja
+
+Para a vitrine chegar ao visual do protótipo do cliente sem CSS livre, o tema
+ganhou: cor do fundo, cor de apoio, fundo "aquarela" (dois brilhos suaves),
+sombras suaves ou profundas, barra do topo translúcida, sigla em círculo para
+quem não tem logo, slogan em caixa alta sob o nome, fonte de título Georgia
+("serifada") e cantos até 32. E o **destaque do topo**: selo, título, texto,
+um botão que rola até os produtos, um botão de WhatsApp (só com número
+configurado) e a capa como imagem, com etiqueta. Tudo opcional, e sem escolha
+a loja fica como era. Os campos estão no modal de Aparência.
+
+De passagem: a linha do preço do card passou a reservar a zona do "+". Um nome
+longo numa linha só descia até o botão e passava por baixo dele no celular.
+
+### Cantinho Verde
+
+A loja do tenant `floricultura` está publicada e é a página inicial do
+endereço, com o visual do protótipo: vinho, rosa e verde-sálvia sobre fundo
+creme, títulos em Georgia, barra translúcida, sigla CV e o destaque do topo. A
+capa, as fotos e o ícone da aba foram desenhados com a própria arte do
+protótipo (as rosas em CSS), renderizada em PNG, sem imagem de terceiros.
+
+Exemplos: 4 rosas avulsas, 3 insumos fora da vitrine (papel, fita, cartão) e
+5 buquês prontos como kit, com os preços da tabela do protótipo. Todos com SKU
+`EXEMPLO-` e a observação "EXEMPLO criado em 28/09/2026 para mostrar a loja.
+Apagar antes de vender."
+
+Suíte: etapa 137 ganhou o caso do acabamento.
+
 ## 2026-09-28, certificado em memória e status da SEFAZ no PA
 
 ### O pfx e a senha deixaram de passar por /tmp

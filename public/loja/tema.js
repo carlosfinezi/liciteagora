@@ -42,6 +42,8 @@ const FONTES = {
 const FONTES_TITULO = {
   elegante:   `"Playfair Display", Georgia, serif`,
   classica:   `"Cormorant Garamond", Georgia, serif`,
+  // Serifa do sistema: não baixa nada, e é a do protótipo do Cantinho Verde.
+  serifa:     `Georgia, "Times New Roman", serif`,
   manuscrita: `"Dancing Script", cursive`,
   moderna:    `Poppins, Inter, ${SISTEMA}`,
 };
@@ -93,7 +95,8 @@ function aplicarTema(t) {
     '--primaria-texto': textoSobre(t.corPrimaria),
     '--secundaria': secundaria,
     '--secundaria-texto': textoSobre(secundaria),
-    '--ground':  f.ground,
+    '--ground':  t.corFundo || f.ground,
+    '--apoio':   t.corApoio || secundaria,
     '--surface': f.surface,
     '--ink':     f.ink,
     '--ink-2':   f.ink2,
@@ -104,6 +107,11 @@ function aplicarTema(t) {
   };
   for (const [k, val] of Object.entries(v)) document.documentElement.style.setProperty(k, val);
   document.documentElement.style.colorScheme = escuro ? 'dark' : 'light';
+  // Acabamento: a folha da página lê estes marcadores (ver index.html).
+  const html = document.documentElement;
+  html.dataset.fundoEfeito = t.fundoEfeito || 'liso';
+  html.dataset.sombra = t.sombra || 'nenhuma';
+  html.dataset.topo = t.topo || 'solido';
   carregarFonte(t.fonte);
   carregarFonte(t.fonteTitulo);
   const meta = document.querySelector('meta[name="theme-color"]');

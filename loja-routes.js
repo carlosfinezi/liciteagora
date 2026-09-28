@@ -46,8 +46,25 @@ const TEMA_PADRAO = {
      `faixaTexto` é a faixa de aviso no topo da página. */
   corSecundaria: null,
   corTema: null,
-  fonteTitulo: 'igual',  // igual | elegante | classica | manuscrita | moderna
+  fonteTitulo: 'igual',  // igual | elegante | classica | serifa | manuscrita | moderna
   faixaTexto: null,
+  /* Vitrine com acabamento (2026-09-28), para chegar ao visual de um
+     protótipo de cliente sem CSS livre. Todos opcionais, e os padrões deixam
+     a loja exatamente como era: `corFundo` troca a cor da página; `corApoio`
+     é a terceira cor (o segundo brilho do fundo aquarela); `fundoEfeito`
+     'aquarela' desenha dois brilhos suaves nas cores secundária e de apoio;
+     `sombra` dá profundidade a cards e botões; `topo` 'translucido' deixa a
+     barra do topo sem fundo branco nem linha; `sigla` é o círculo com as
+     iniciais quando não há logo; `slogan` é a linha curta em caixa alta sob o
+     nome; `destaque` é o bloco do topo da vitrine, com a capa como imagem. */
+  corFundo: null,
+  corApoio: null,
+  fundoEfeito: 'liso',   // liso | aquarela
+  sombra: 'nenhuma',     // nenhuma | suave | profunda
+  topo: 'solido',        // solido | translucido
+  sigla: null,
+  slogan: null,
+  destaque: null,        // { ativo, selo, titulo, texto, botao, botaoWhatsapp, etiqueta }
 };
 
 /* Valores aceitos de cada escolha do tema. A validação do PUT e a tela do
@@ -56,8 +73,24 @@ const TEMA_PADRAO = {
 const OPCOES_TEMA = {
   fundo: ['claro', 'suave', 'escuro'],
   fonte: ['neutra', 'tecnica', 'editorial', 'amigavel'],
-  fonteTitulo: ['igual', 'elegante', 'classica', 'manuscrita', 'moderna'],
+  fonteTitulo: ['igual', 'elegante', 'classica', 'serifa', 'manuscrita', 'moderna'],
+  fundoEfeito: ['liso', 'aquarela'],
+  sombra: ['nenhuma', 'suave', 'profunda'],
+  topo: ['solido', 'translucido'],
 };
+
+/* Textos do destaque do topo, com o limite de cada um. Texto a mais é
+   cortado, e não recusado: quem cola um parágrafo longo quer ver o começo
+   dele, não uma mensagem de erro. */
+const LIMITES_DESTAQUE = { selo: 40, titulo: 90, texto: 280, botao: 30, botaoWhatsapp: 30, etiqueta: 30 };
+function lerDestaque(bruto) {
+  if (!bruto || typeof bruto !== 'object') return null;
+  const d = { ativo: !!bruto.ativo };
+  for (const [campo, max] of Object.entries(LIMITES_DESTAQUE)) {
+    d[campo] = bruto[campo] == null ? null : String(bruto[campo]).trim().slice(0, max) || null;
+  }
+  return d;
+}
 
 const PRESETS = {
   neutro:     { corPrimaria: '#0E6B63', fundo: 'claro',  fonte: 'neutra',    raio: 10 },
@@ -1780,16 +1813,23 @@ function registrarRotasLojaAdmin(app, db) {
       }
       // Cores opcionais: vazio desliga, e qualquer outra coisa que não seja
       // #RRGGBB é recusada, porque o valor vai direto para o CSS da vitrine.
-      for (const [campo, nome] of [['corSecundaria', 'Cor secundária'], ['corTema', 'Cor da barra do navegador']]) {
+      for (const [campo, nome] of [['corSecundaria', 'Cor secundária'], ['corTema', 'Cor da barra do navegador'],
+                                   ['corFundo', 'Cor do fundo'], ['corApoio', 'Cor de apoio']]) {
         if (tema[campo] == null || tema[campo] === '') { tema[campo] = null; continue; }
         if (!/^#[0-9a-f]{6}$/i.test(String(tema[campo]))) {
           return res.status(400).json({ success: false, error: `${nome} deve estar no formato #RRGGBB` });
         }
       }
-      tema.raio = Math.max(0, Math.min(24, Number(tema.raio) || 0));
+      tema.raio = Math.max(0, Math.min(32, Number(tema.raio) || 0));
       if (!OPCOES_TEMA.fundo.includes(tema.fundo)) tema.fundo = 'claro';
       if (!OPCOES_TEMA.fonte.includes(tema.fonte)) tema.fonte = 'neutra';
       if (!OPCOES_TEMA.fonteTitulo.includes(tema.fonteTitulo)) tema.fonteTitulo = 'igual';
+      if (!OPCOES_TEMA.fundoEfeito.includes(tema.fundoEfeito)) tema.fundoEfeito = 'liso';
+      if (!OPCOES_TEMA.sombra.includes(tema.sombra)) tema.sombra = 'nenhuma';
+      if (!OPCOES_TEMA.topo.includes(tema.topo)) tema.topo = 'solido';
+      tema.sigla = tema.sigla == null ? null : String(tema.sigla).trim().slice(0, 3) || null;
+      tema.slogan = tema.slogan == null ? null : String(tema.slogan).trim().slice(0, 40) || null;
+      tema.destaque = lerDestaque(tema.destaque);
       tema.faixaTexto = tema.faixaTexto == null ? null : String(tema.faixaTexto).trim().slice(0, 140) || null;
 
       const modo = MODOS_PAGAMENTO.includes(b.pagamentoModo) ? b.pagamentoModo : (atual.pagamentoModo || 'nenhum');

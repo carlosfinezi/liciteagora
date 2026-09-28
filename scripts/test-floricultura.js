@@ -462,6 +462,25 @@ t('I3. personalizações: kit não pode ser insumo; grupo em uso não se apaga; 
   assert(lista.find(x => x.id === g).produtos === 1, 'contagem de uso');
 });
 
+t('I4. acabamento do tema: cores, efeitos, sigla, slogan e destaque saneados', () => {
+  const db = montar(); const app = montarApp(db);
+  assert(app.chamar('PUT', '/api/loja/config', { tema: { corFundo: 'rosa' } }).status === 400, 'cor de fundo inválida aceita');
+  assert(app.chamar('PUT', '/api/loja/config', { tema: { corApoio: '#12' } }).status === 400, 'cor de apoio inválida aceita');
+  const r = app.chamar('PUT', '/api/loja/config', { tema: {
+    corFundo: '#FFFAF9', corApoio: '#6F866F', fundoEfeito: 'neon', sombra: 'suave', topo: 'translucido',
+    fonteTitulo: 'serifa', raio: 99, sigla: '  cvx9 ', slogan: 'x'.repeat(60),
+    destaque: { ativo: 1, selo: 'Feito do seu jeito', titulo: 't'.repeat(200), texto: 'Texto', botao: 'Ver', etiqueta: '' } } });
+  assert(r.body.success, JSON.stringify(r.body));
+  const tema = JSON.parse(db.prepare('SELECT tema FROM loja_config').get().tema);
+  assert(tema.fundoEfeito === 'liso', 'efeito desconhecido não voltou ao padrão');
+  assert(tema.sombra === 'suave' && tema.topo === 'translucido' && tema.fonteTitulo === 'serifa', JSON.stringify(tema));
+  assert(tema.raio === 32, 'raio acima do teto: ' + tema.raio);
+  assert(tema.sigla === 'cvx' && tema.slogan.length === 40, 'sigla/slogan sem limite');
+  assert(tema.destaque.ativo === true && tema.destaque.titulo.length === 90 && tema.destaque.etiqueta === null, JSON.stringify(tema.destaque));
+  const pub = app.chamar('GET', '/loja/api/config').body.loja.tema;
+  assert(pub.destaque && pub.destaque.selo === 'Feito do seu jeito' && pub.corFundo === '#FFFAF9', 'a vitrine pública não recebe o acabamento');
+});
+
 // ─────────────────────────── execução ───────────────────────────
 for (const [nome, fn] of fila) {
   try { fn(); ok++; console.log('  ok  ' + nome); }
