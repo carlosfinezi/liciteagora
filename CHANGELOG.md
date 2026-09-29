@@ -4,6 +4,34 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-29, a coluna do montador volta a ser um bloco só
+
+Correção do que o fechamento anterior deixou: presos separadamente, prévia e
+resumo passavam um por cima do outro. Medido antes da correção, com o cartão
+escolhido: no computador (1280×700) eles ocupavam a mesma faixa por 1.000 px
+de rolagem, e no celular (390 px) a prévia tapava a data, o total e os botões
+por 440 px.
+
+- **No computador a coluna é um bloco só** (`public/loja/index.html`):
+  prévia em cima, resumo embaixo, sem se sobrepor. Onde ela para é medido no
+  navegador pelo `ajustarLadoMontador()`, que escreve o `--mt-top`, porque
+  depende da altura da barra, do bloco e da janela. Cabendo inteiro, o topo
+  para logo abaixo da barra (1280×1000: 780 px de rolagem assim). Não
+  cabendo, o `--mt-top` fica negativo e é o FIM do bloco que fica à vista —
+  o resumo com o total e os botões —, com a prévia passando por baixo da
+  barra. Entre os dois, é o resumo que precisa ser alcançado.
+- **No celular a prévia solta quando os passos terminam**
+  (`public/loja/catalogo.js`): ela continua presa sob o cabeçalho enquanto a
+  pessoa percorre os passos (1.140 px de rolagem em 390 px), e a classe
+  `mt-solta` a libera no fim deles. O deslocamento é congelado no instante da
+  troca, medido na hora, então a prévia não se move um pixel ao soltar.
+
+Provado no Chrome headless varrendo a rolagem inteira de 10 em 10 px, em
+1280×700, 1280×1000, 1440×620, 390×844 e 360×740, com e sem cartão de
+mensagem: zero pixel de sobreposição em todas, resumo inteiro à vista em
+todas, e a prévia nunca presa depois do fim dos passos. Com o desenho
+anterior reposto por CSS, a mesma checagem reprova nos dois casos.
+
 ## 2026-09-29, a barra do topo por medida, a sacola no fluxo e o montável sempre no montador
 
 Dois pedidos seguidos sobre a loja do Cantinho Verde, e tudo vale para

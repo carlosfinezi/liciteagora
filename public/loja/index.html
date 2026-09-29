@@ -630,15 +630,18 @@ footer.rodape { border-top: 1px solid var(--line); color: var(--ink-2); font-siz
   border-radius: calc(var(--raio) * .6); padding: 12px 13px; font: inherit; font-size: 16px; color: var(--ink); }
 .mt-campo textarea { min-height: 52px; resize: vertical; }
 .mt-campo textarea[rows="3"] { min-height: 88px; }
-/* A prévia e o resumo acompanham a rolagem, mas cada um por si.
-   Juntos eles passam de 800px e não cabem na tela abaixo da barra: com o
-   bloco inteiro preso, o fim do resumo ficava fora do alcance, e ao chegar ao
-   pé da coluna ele era empurrado para cima, com o título entrando por baixo do
-   cabeçalho. Presos separadamente, os dois param no mesmo ponto — logo abaixo
-   da barra — e o resumo, que é opaco, cobre a prévia quando alcança. */
-.mt-lado { align-self: stretch; display: flex; flex-direction: column; gap: 14px; }
-.mt-resumo-wrap { position: sticky; top: 88px; z-index: 2; }
-.mt-previa { position: sticky; top: 88px; z-index: 1; height: 330px; border-radius: calc(var(--raio) + 6px); overflow: hidden;
+/* A coluna da direita acompanha a rolagem como UM bloco: prévia em cima,
+   resumo embaixo, sem nunca se sobrepor.
+
+   Onde o bloco para depende da altura da janela, e quem mede é o
+   `ajustarLadoMontador()`, que escreve o `--mt-top`. Cabendo inteiro, o topo
+   para logo abaixo da barra. Não cabendo, o que fica à vista é o FIM do
+   bloco — o resumo com o total e os botões —, e a prévia é que passa por
+   baixo da barra: entre as duas, é o resumo que a pessoa precisa alcançar.
+   Um `top` fixo só serviria à primeira das duas janelas. */
+.mt-lado { align-self: start; position: sticky; top: var(--mt-top, 88px);
+  display: flex; flex-direction: column; gap: 14px; }
+.mt-previa { position: relative; height: 330px; border-radius: calc(var(--raio) + 6px); overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--primaria) 8%, transparent); box-shadow: var(--sombra-forte);
   background: radial-gradient(circle at 50% 42%, var(--surface), color-mix(in srgb, var(--secundaria) 12%, var(--surface)) 50%,
     color-mix(in srgb, var(--secundaria) 22%, var(--surface)) 100%); }
@@ -700,9 +703,17 @@ footer.rodape { border-top: 1px solid var(--line); color: var(--ink-2); font-siz
      o aside deixa de ser caixa, e cada filho entra na ordem da grade. */
   .mt-lado { display: contents; }
   .mt-cab { order: -2; }
-  /* A prévia fica presa sob o cabeçalho enquanto a pessoa escolhe: é ali que
-     ela vê o buquê mudar. Mais baixa, para não tomar a tela. */
+  /* A prévia fica presa sob o cabeçalho enquanto a pessoa percorre os passos:
+     é ali que ela vê o buquê mudar. Mais baixa, para não tomar a tela.
+
+     Ela SOLTA quando os passos terminam, e quem manda nisso é a classe
+     `mt-solta`, posta pelo `ajustarLadoMontador()`: presa até o fim da
+     página, ela taparia o resumo, que é onde estão a data, o total e os
+     botões. O `--mt-previa-parada` é o deslocamento congelado no instante da
+     soltura, medido no navegador — com ele a troca não move a prévia um pixel
+     sequer, e daí em diante ela sobe junto com a página. */
   .mt-previa { order: -1; position: sticky; top: var(--topo-h, 72px); z-index: 5; height: 200px; }
+  .mt-previa.mt-solta { position: relative; top: var(--mt-previa-parada, 0px); }
   .mt-previa .bq { transform: translateX(-50%) scale(.66); transform-origin: bottom center; }
   .mt-previa .mt-preco { padding: 8px 12px; }
   .mt-previa .mt-preco strong { font-size: 19px; }

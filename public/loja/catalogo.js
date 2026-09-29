@@ -1057,12 +1057,71 @@ function pintarMontador() {
     <div class="mt-barra"><div><span>Total</span><strong id="mtTotalBarra">—</strong></div>
       <button type="button" id="mtSeguirBarra">Continuar</button></div>`;
   document.body.classList.add('com-mt');
-  // A prévia presa no celular encosta no cabeçalho, sem fresta por onde o texto passe.
-  const topo = document.querySelector('header.topo');
-  if (topo) document.body.style.setProperty('--topo-h', topo.offsetHeight + 'px');
   montarBuque();
   atualizarMontador();
+  ajustarLadoMontador();
 }
+
+/* Folga entre a barra do topo e o que fica preso embaixo dela. */
+const MT_FOLGA = 12;
+
+/**
+ * Onde a coluna da direita para ao rolar.
+ *
+ * São duas contas diferentes, e as duas dependem de medida real — altura da
+ * barra, do bloco e da janela —, por isso vivem aqui e não no CSS.
+ *
+ * **No computador** a coluna é um bloco só (prévia em cima, resumo embaixo).
+ * Cabendo inteiro na janela, o topo dela para logo abaixo da barra. Não
+ * cabendo, o `--mt-top` fica negativo: a prévia passa por baixo da barra e o
+ * FIM do bloco — o resumo, com o total e os botões — é o que fica à vista. É
+ * a escolha entre os dois, e quem precisa ser alcançado é o resumo.
+ *
+ * **No celular** a prévia fica presa sozinha, e precisa SOLTAR quando os
+ * passos terminam: presa até o fim da página, ela taparia o resumo. A troca
+ * congela o deslocamento em que ela estava, medido na hora, então a prévia
+ * não se move no instante em que solta.
+ */
+function ajustarLadoMontador() {
+  const lado = document.querySelector('.mt-lado');
+  const previa = document.querySelector('.mt-previa');
+  const passos = document.querySelector('.mt-passos');
+  if (!lado || !previa || !passos) return;
+
+  const topo = document.querySelector('header.topo');
+  const alturaTopo = topo ? topo.offsetHeight : 68;
+  document.body.style.setProperty('--topo-h', alturaTopo + 'px');
+
+  if (window.innerWidth > 900) {
+    previa.classList.remove('mt-solta');
+    const cabe = alturaTopo + MT_FOLGA;
+    const fim = window.innerHeight - lado.offsetHeight - MT_FOLGA;
+    lado.style.setProperty('--mt-top', Math.min(cabe, fim) + 'px');
+    return;
+  }
+
+  lado.style.removeProperty('--mt-top');
+  // O retângulo dos passos não depende da prévia, então serve de régua nos
+  // dois sentidos da rolagem: a mesma conta solta e volta a prender.
+  const acabou = passos.getBoundingClientRect().bottom <= alturaTopo + previa.offsetHeight;
+  if (acabou === previa.classList.contains('mt-solta')) return;
+  if (!acabou) { previa.classList.remove('mt-solta'); return; }
+  const antes = previa.getBoundingClientRect().top;
+  previa.classList.add('mt-solta');
+  previa.style.setProperty('--mt-previa-parada', '0px');
+  previa.style.setProperty('--mt-previa-parada',
+    (antes - previa.getBoundingClientRect().top) + 'px');
+}
+
+/* O celular precisa da conta a cada rolagem — é ela que solta a prévia no fim
+   dos passos. `passive` porque nada aqui cancela o gesto. */
+window.addEventListener('scroll', () => {
+  if (document.body.classList.contains('com-mt')) ajustarLadoMontador();
+}, { passive: true });
+
+window.addEventListener('resize', () => {
+  if (document.body.classList.contains('com-mt')) ajustarLadoMontador();
+});
 
 /** Amostra do mix: as cores com estoque, em fatias. */
 function amostraMix(m) {
@@ -1176,6 +1235,9 @@ function atualizarMontador() {
     + (nAtend ? `<p class="mt-nota">${esc(nAtend)}</p>` : '');
   const nota = $('mtNotaAtend');
   if (nota) { nota.textContent = nAtend || ''; nota.hidden = !nAtend; }
+  // Marcar um adicional cresce o resumo, e com ele o bloco: onde a coluna
+  // para muda junto.
+  ajustarLadoMontador();
 }
 
 function itemDaMontagem() {
