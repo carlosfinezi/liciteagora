@@ -4,6 +4,33 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-29, o root com o mesmo ambiente do carlosfinezi
+
+As sessões deste projeto rodam como root e só carregavam o que é do root, então
+as skills, o plugin e o CLAUDE.md global do carlosfinezi nunca valeram aqui.
+Nenhuma sessão que mexeu em `public/loja/` usou o Impeccable ou o
+motion-design. Tudo o que entrou fica fora desta árvore, é de posse do root e
+não executa arquivo da home do carlosfinezi. O `CLAUDE.md` registra como cada
+peça se atualiza.
+
+- **Impeccable e motion-design**: as duas skills foram copiadas. O Impeccable
+  veio da cópia do `~/.claude` (4.3.1), e não da variante do Codex, que manda
+  usar ferramentas do Codex. Dela vieram só as cinco regras do
+  `craft-floor.md` que faltavam, aplicadas também à cópia do carlosfinezi. O
+  launcher vem sem permissão de execução e passou a tê-la nas duas cópias.
+- **Ponytail 4.9.0**, com os ganchos, no mesmo commit do carlosfinezi
+  (`356918e`), por um clone do repositório usado como marketplace, porque o
+  `main` já está na 4.10.0.
+- **Graphify 0.9.56** numa venv do root, e a skill com uma regra que, nesta
+  árvore, troca a construção pela consulta ao grafo do carlosfinezi pelo
+  lançador `graphify-liciteagora`. O lançador é só leitura e não deixa o
+  carimbo de consulta na pasta do grafo.
+- **CLAUDE.md global do root** trocado pelo do carlosfinezi, com o Karpathy
+  Guidelines guardado ao lado.
+- **Gancho do Impeccable ligado** no `settings.json` global do root. O cache
+  dele vai para `/root/.impeccable`, e no repositório ele só acrescenta, uma
+  vez, um bloco ao `.git/info/exclude`, que não é versionado.
+
 ## 2026-09-29, topo em degradê e a floricultura vira cantinhoverde
 
 **Barra do topo em degradê**, nova opção do tema de qualquer loja (Catálogo
