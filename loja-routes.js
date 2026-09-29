@@ -2771,7 +2771,7 @@ function lerVitrineDoBanco(db) {
 /* Toda requisição do tenant passa por aqui, inclusive as do ERP: o cache de
    15 s evita uma consulta por requisição. Quem grava a configuração chama
    `esquecerVitrine`, então a mudança vale na hora para o processo que gravou. */
-function vitrineComoInicio(req) {
+function vitrinePublicada(req) {
   const slug = req.tenant && req.tenant.slug;
   if (!slug || !req.tenantDb) return null;
   const agora = Date.now();
@@ -2781,7 +2781,12 @@ function vitrineComoInicio(req) {
     CACHE_VITRINE.set(slug, e);
   }
   const v = e.v;
-  return v && Number(v.ativa) === 1 && Number(v.paginaInicial) === 1 ? v : null;
+  return v && Number(v.ativa) === 1 ? v : null;
+}
+
+function vitrineComoInicio(req) {
+  const v = vitrinePublicada(req);
+  return v && Number(v.paginaInicial) === 1 ? v : null;
 }
 
 function esquecerVitrine(req) {
@@ -2828,10 +2833,17 @@ function vitrineAntesDoLogin(req, res, next) {
 
 const PAGINA_404 = path.join(RAIZ_PUBLICA, 'loja', '404.html');
 
+/* Dentro de /loja/ o 404 é o da loja sempre que ela está publicada, seja ou
+   não a página inicial (29/09): o endereço divulgado é o /loja/, e um link
+   quebrado ali não deve levar o cliente ao login do ERP. Fora de /loja/, só
+   com a loja como página inicial. */
 function vitrineNaBarreira(req, res, next) {
   if (req.method !== 'GET' && req.method !== 'HEAD') return next();
   if (req.path.startsWith('/api/') || req.headers['x-api-key']) return next();
-  if (!vitrineComoInicio(req) || logado(req)) return next();
+  const v = vitrinePublicada(req);
+  if (!v || logado(req)) return next();
+  const naLoja = req.path === '/loja' || req.path.startsWith('/loja/');
+  if (!naLoja && Number(v.paginaInicial) !== 1) return next();
   res.status(404).sendFile(PAGINA_404);
 }
 

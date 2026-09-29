@@ -415,6 +415,28 @@ t('H5. loja fechada (tenant suspenso) tem a cara da loja, sem slug nem cobrança
   assert(require('../loja-routes').responderLojaFechada(manager, { path: '/login.html' }, r, { slug: 'x' }) === false,
     'o login do dono também virou loja fechada');
 });
+t('H7. loja publicada sem ser o início: 404 e loja fechada da loja só dentro de /loja/', () => {
+  const db = montar(); db.prepare('UPDATE loja_config SET paginaInicial = 0, ativa = 1').run();
+  const { vitrineNaBarreira, vitrineAntesDoLogin, responderLojaFechada } = require('../loja-routes');
+  for (const p of ['/loja/nao-existe', '/loja/x/y.html']) {
+    const r = res(); vitrineNaBarreira(req(db, p), r, () => { throw new Error(`${p} foi ao login`); });
+    assert(r.st === 404 && /loja[\/\\]404\.html$/.test(r.file || ''), `${p}: ${r.st} ${r.file}`);
+  }
+  let passou = 0;
+  vitrineAntesDoLogin(req(db, '/'), res(), () => passou++);
+  vitrineNaBarreira(req(db, '/'), res(), () => passou++);
+  vitrineNaBarreira(req(db, '/catalogo/produtos.html'), res(), () => passou++);
+  vitrineNaBarreira(req(db, '/loja/nao-existe', { session: { userId: 1 } }), res(), () => passou++);
+  assert(passou === 4, `fora de /loja/ ou logado foi desviado: ${passou} de 4`);
+  const r = { status() { return r; }, set() { return r; }, type() { return r; }, send() { return r; } };
+  const manager = { getDb: () => db };
+  assert(responderLojaFechada(manager, { path: '/loja/' }, r, { slug: 'x' }) === true, 'loja fechada sumiu de /loja/');
+  assert(responderLojaFechada(manager, { path: '/' }, r, { slug: 'x' }) === false, 'a raiz virou loja fechada');
+  db.prepare('UPDATE loja_config SET ativa = 0').run();
+  let desp = 0;
+  vitrineNaBarreira(req(db, '/loja/nao-existe'), res(), () => desp++);
+  assert(desp === 1, 'loja despublicada respondeu com o 404 da loja');
+});
 t('H6. o 404 da loja não carrega nada do ERP', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'loja', '404.html'), 'utf8');
   for (const p of ['Licite', 'favicon.svg', 'manifest.webmanifest', 'sw.js', 'pwa.js']) {

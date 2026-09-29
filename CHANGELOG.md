@@ -4,6 +4,19 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-29, a raiz do cantinhoverde volta ao login, e a loja fica em /loja/
+
+- `loja_config.paginaInicial` do `cantinhoverde` desligado (dado): `/` abre o
+  login, como nos outros tenants, e o endereço divulgado é o `/loja/`.
+- `loja-routes.js`: dentro de `/loja/…`, basta a loja publicada para um
+  caminho inexistente receber o 404 da loja, e não o login. A loja fechada do
+  tenant suspenso já valia ali. Fora de `/loja/`, o 404 e a loja fechada
+  continuam exigindo a loja como página inicial. Vale para toda loja
+  publicada: no `1bit` e no `produtosbomgosto`, `/loja/inexistente` deixou de
+  levar ao login.
+- Etapa H7 de `test-floricultura`: 404 da loja em `/loja/…`, raiz e ERP
+  intocados, dono logado passa, loja despublicada não intercepta.
+
 ## 2026-09-29, o root com o mesmo ambiente do carlosfinezi
 
 As sessões deste projeto rodam como root e só carregavam o que é do root, então
