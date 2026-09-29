@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Montagem pelo cliente — Catálogo Online</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/app-modern.css">
+<link rel="stylesheet" href="/css/sidebar.css">
+<style>
+.mv { margin-bottom: 18px; }
+.mv-cab { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.mv-cab h2 { margin: 0; font-size: 1.05em; }
+.grade2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.campo { display: flex; flex-direction: column; gap: 5px; }
+.campo label { font-size: .82em; font-weight: 600; color: var(--text-2); }
+.campo input, .campo select { padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--bg-0); color: var(--text-1); font-family: inherit; font-size: 16px; min-height: 44px; }
+.bloco { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 12px 14px; margin-top: 12px; background: var(--bg-1); }
+.bloco h3 { margin: 0 0 8px; font-size: .92em; }
+.linha { display: grid; gap: 8px; align-items: end; margin-top: 8px; }
+.linha.preco { grid-template-columns: 110px 140px 44px; }
+.linha.insumo { grid-template-columns: minmax(0, 1fr) 110px 44px; }
+.linha.cor { grid-template-columns: minmax(0, 1fr) 64px minmax(0, 1.4fr) 90px 44px; }
+.linha input, .linha select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--bg-0); color: var(--text-1); font-family: inherit; font-size: 16px; min-height: 42px; }
+.linha input[type="color"] { padding: 3px; }
+.linha .mix { display: flex; align-items: center; gap: 6px; font-size: .86em; min-height: 42px; }
+.bt-x { background: none; border: 1px solid var(--border); border-radius: 6px; min-height: 42px; cursor: pointer; color: var(--text-3); }
+.bt-x:hover { color: var(--danger, #B3261E); }
+.rot { font-size: .75em; text-transform: uppercase; letter-spacing: .05em; color: var(--text-3); }
+@media (max-width: 720px) {
+  .linha.cor { grid-template-columns: 1fr 64px; }
+  .linha.cor select, .linha.cor .mix { grid-column: 1 / -1; }
+}
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Montagem pelo cliente</h1>
+      <small>Produtos que o cliente monta na loja, com tabela de preço por quantidade</small>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn btn-secondary" onclick="location.href='/catalogo/catalogo-online.html'">← Catálogo Online</button>
+      <button type="button" class="btn btn-secondary" onclick="novo()">+ Tornar um produto montável</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div id="lista"><em class="muted">Carregando…</em></div>
+
+  <p class="muted" style="font-size:.86em;">Os adicionais (bombom, fotos, cartão, mensagem) são as personalizações do
+    produto, na ficha dele em Catálogo › Produtos, seção "Personalizações na loja".</p>
+
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('loja');</script>
+<script>
+/* Montagem pelo cliente.
+ *
+ * Cada produto montável tem formatos (com a tabela de preço por quantidade e o
+ * que cada formato gasta de insumo) e cores (cada uma ligada ao item de estoque
+ * que sai). O preço cobrado é o da linha da tabela. Gravar manda o montável
+ * inteiro, e o servidor preserva o id de formato e cor que já existiam.
+ */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => { const d = document.createElement('div'); d.textContent = String(s == null ? '' : s); return d.innerHTML; };
+let DADOS = { montaveis: [], produtos: [] };
+
+function showAlert(m, t = 'success') {
+  const e = $('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 6000);
+}
+async function api(url, opt) {
+  const r = await fetch(url, opt);
+  if (r.status === 401) { window.location.href = '/login.html'; throw new Error('sessão'); }
+  const d = await r.json().catch(() => null);
+  if (!r.ok || !d || !d.success) throw new Error((d && d.error) || 'Não foi possível concluir a operação.');
+  return d;
+}
+
+const opcoesProduto = (sel) => '<option value="">Escolha o item de estoque</option>' + DADOS.produtos
+  .filter((p) => p.tipoProduto !== 'kit')
+  .map((p) => `<option value="${p.id}" ${Number(sel) === p.id ? 'selected' : ''}>${esc(p.descricao)}${p.sku ? ' · ' + esc(p.sku) : ''}</option>`).join('');
+
+function htmlPreco(p) {
+  return `<div class="linha preco" data-preco>
+    <input type="number" min="1" step="1" value="${p ? p.quantidade : ''}" data-q aria-label="Quantidade">
+    <input type="number" min="0.01" step="0.01" value="${p ? Number(p.preco).toFixed(2) : ''}" data-p aria-label="Preço (R$)">
+    <button type="button" class="bt-x" data-tirar aria-label="Tirar">✕</button></div>`;
+}
+function htmlInsumo(i) {
+  return `<div class="linha insumo" data-insumo>
+    <select data-prod aria-label="Insumo">${opcoesProduto(i && i.insumoProdutoId)}</select>
+    <input type="number" min="0.01" step="0.01" value="${i ? i.quantidade : 1}" data-q aria-label="Quantidade do insumo">
+    <button type="button" class="bt-x" data-tirar aria-label="Tirar">✕</button></div>`;
+}
+function htmlFormato(f) {
+  return `<div class="bloco" data-formato="${f && f.id ? f.id : ''}">
+    <div class="grade2">
+      <div class="campo"><label>Formato</label><input data-nome value="${esc(f ? f.nome : '')}" placeholder="Buquê, Cone, Avulsa…"></div>
+      <div class="campo"><label>Descrição curta (opcional)</label><input data-desc value="${esc(f && f.descricao ? f.descricao : '')}" maxlength="120"></div>
+    </div>
+    <h3 style="margin-top:12px;">Tabela de preço</h3>
+    <div class="linha preco"><span class="rot">Quantidade</span><span class="rot">Preço (R$)</span><span></span></div>
+    <div data-precos>${(f && f.precos.length ? f.precos : [null]).map(htmlPreco).join('')}</div>
+    <button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;" data-add-preco>+ Quantidade</button>
+    <h3 style="margin-top:14px;">Insumos por montagem</h3>
+    <div data-insumos>${(f ? f.insumos : []).map(htmlInsumo).join('')}</div>
+    <button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;" data-add-insumo>+ Insumo</button>
+    <div style="text-align:right;margin-top:8px;"><button type="button" class="btn btn-ghost btn-sm" data-tirar-formato>Remover formato</button></div>
+  </div>`;
+}
+function htmlCor(c) {
+  return `<div class="linha cor" data-cor="${c && c.id ? c.id : ''}">
+    <input data-nome value="${esc(c ? c.nome : '')}" placeholder="Vermelha" aria-label="Nome da cor">
+    <input type="color" data-hex value="${c && c.corHex ? c.corHex : '#c6284e'}" aria-label="Cor na prévia">
+    <select data-prod aria-label="Item de estoque" ${c && c.mix ? 'disabled' : ''}>${opcoesProduto(c && c.insumoProdutoId)}</select>
+    <label class="mix"><input type="checkbox" data-mix ${c && c.mix ? 'checked' : ''}> Mix</label>
+    <button type="button" class="bt-x" data-tirar aria-label="Tirar">✕</button></div>`;
+}
+
+function htmlMontavel(m) {
+  return `<section class="card mv" data-montavel="${m.produtoId}">
+    <div class="mv-cab"><h2>${esc(m.descricao)}</h2>
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="btn btn-ghost btn-sm" data-desligar>Deixar de ser montável</button>
+        <button type="button" class="btn btn-primary btn-sm" data-salvar>Salvar</button></div></div>
+    <div class="grade2">
+      <div class="campo"><label>Unidade (singular)</label><input data-unidade value="${esc(m.unidade)}" placeholder="rosa"></div>
+      <div class="campo"><label>Unidade (plural)</label><input data-plural value="${esc(m.plural)}" placeholder="rosas"></div>
+    </div>
+    <div data-formatos>${m.formatos.map(htmlFormato).join('')}</div>
+    <button type="button" class="btn btn-secondary btn-sm" style="margin-top:10px;" data-add-formato>+ Formato</button>
+    <div class="bloco"><h3>Cores</h3>
+      <p class="muted" style="margin:0 0 6px;font-size:.84em;">Cada cor tira do estoque o item escolhido. O mix reparte a quantidade
+        entre as outras cores, uma de cada, e cor sem estoque aparece apagada na loja. Com uma cor só, o cliente não escolhe cor.</p>
+      <div data-cores>${m.cores.map(htmlCor).join('')}</div>
+      <button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;" data-add-cor>+ Cor</button>
+    </div>
+  </section>`;
+}
+
+function pintar() {
+  $('lista').innerHTML = DADOS.montaveis.length
+    ? DADOS.montaveis.map(htmlMontavel).join('')
+    : '<section class="card"><p class="muted" style="margin:0;">Nenhum produto montável ainda.</p></section>';
+}
+
+function lerMontavel(sec) {
+  const num = (v) => Number(String(v).replace(',', '.'));
+  return {
+    unidade: sec.querySelector('[data-unidade]').value.trim(),
+    plural: sec.querySelector('[data-plural]').value.trim(),
+    formatos: [...sec.querySelectorAll('[data-formato]')].map((f) => ({
+      id: Number(f.dataset.formato) || null,
+      nome: f.querySelector('[data-nome]').value.trim(),
+      descricao: f.querySelector('[data-desc]').value.trim(),
+      precos: [...f.querySelectorAll('[data-preco]')].filter((l) => l.querySelector('[data-q]').value !== '')
+        .map((l) => ({ quantidade: num(l.querySelector('[data-q]').value), preco: num(l.querySelector('[data-p]').value) })),
+      insumos: [...f.querySelectorAll('[data-insumo]')].filter((l) => l.querySelector('[data-prod]').value)
+        .map((l) => ({ insumoProdutoId: Number(l.querySelector('[data-prod]').value), quantidade: num(l.querySelector('[data-q]').value) })),
+    })),
+    cores: [...sec.querySelectorAll('[data-cor]')].map((c) => ({
+      id: Number(c.dataset.cor) || null,
+      nome: c.querySelector('[data-nome]').value.trim(),
+      corHex: c.querySelector('[data-hex]').value,
+      mix: c.querySelector('[data-mix]').checked,
+      insumoProdutoId: Number(c.querySelector('[data-prod]').value) || null,
+    })),
+  };
+}
+
+$('lista').addEventListener('change', (e) => {
+  if (e.target.matches('[data-mix]')) e.target.closest('[data-cor]').querySelector('[data-prod]').disabled = e.target.checked;
+});
+
+$('lista').addEventListener('click', async (e) => {
+  const sec = e.target.closest('[data-montavel]');
+  if (!sec) return;
+  const id = Number(sec.dataset.montavel);
+  if (e.target.closest('[data-tirar]')) return e.target.closest('[data-tirar]').parentElement.remove();
+  if (e.target.closest('[data-tirar-formato]')) return e.target.closest('[data-formato]').remove();
+  if (e.target.closest('[data-add-preco]')) return e.target.closest('[data-formato]').querySelector('[data-precos]').insertAdjacentHTML('beforeend', htmlPreco(null));
+  if (e.target.closest('[data-add-insumo]')) return e.target.closest('[data-formato]').querySelector('[data-insumos]').insertAdjacentHTML('beforeend', htmlInsumo(null));
+  if (e.target.closest('[data-add-formato]')) return sec.querySelector('[data-formatos]').insertAdjacentHTML('beforeend', htmlFormato(null));
+  if (e.target.closest('[data-add-cor]')) return sec.querySelector('[data-cores]').insertAdjacentHTML('beforeend', htmlCor(null));
+  try {
+    if (e.target.closest('[data-salvar]')) {
+      await api('/api/loja/montagem/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(lerMontavel(sec)) });
+      showAlert('Montagem salva. A loja já mostra a tabela nova.');
+      await carregar();
+    } else if (e.target.closest('[data-desligar]')) {
+      if (!window.confirm('Este produto deixa de ser montável na loja. A configuração fica guardada. Continuar?')) return;
+      await api('/api/loja/montagem/' + id, { method: 'DELETE' });
+      await carregar();
+    }
+  } catch (err) { showAlert(err.message, 'error'); }
+});
+
+/* Tornar montável: o produto ganha um formato e uma cor em branco para preencher. */
+function novo() {
+  const livres = DADOS.produtos.filter((p) => !p.componentes && !DADOS.montaveis.some((m) => m.produtoId === p.id));
+  const nome = window.prompt('Nome ou SKU do produto que o cliente vai montar (cadastre-o antes em Catálogo › Produtos):');
+  if (!nome) return;
+  const alvo = livres.find((p) => p.descricao.toLowerCase() === nome.trim().toLowerCase() || String(p.sku).toLowerCase() === nome.trim().toLowerCase());
+  if (!alvo) return showAlert('Produto não encontrado, ou já é um kit com composição.', 'error');
+  DADOS.montaveis.push({ produtoId: alvo.id, descricao: alvo.descricao, unidade: '', plural: '',
+    formatos: [{ nome: '', precos: [], insumos: [] }], cores: [{ nome: '' }] });
+  pintar();
+}
+
+async function carregar() {
+  try { DADOS = await api('/api/loja/montagem'); pintar(); }
+  catch (e) { showAlert(e.message, 'error'); }
+}
+carregar();
+</script>
+</body>
+</html>

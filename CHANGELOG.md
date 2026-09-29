@@ -4,6 +4,65 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-29, monte seu buquê, adicionais e Pix da loja
+
+Para o Cantinho Verde, com a tabela de preços do dono. O que serve para
+qualquer loja ficou disponível para qualquer loja.
+
+**Produto que o cliente monta** (`loja-montagem.js`, tela `#/montar` da
+vitrine, cadastro em Catálogo Online › Montagem pelo cliente)
+
+- O lojista declara formatos (Avulsa, Cone, Buquê…) com a tabela de preço por
+  quantidade, o insumo que cada formato gasta, e as cores, cada uma ligada ao
+  item de estoque que sai. O preço é o da linha da tabela, e quantidade fora
+  dela não se vende: 7 rosas custam R$ 189,90, e o cone só existe de 1 a 3.
+- Cor sem estoque aparece apagada, e o servidor recusa mesmo forçada. O mix
+  reparte a quantidade entre as cores com estoque, uma de cada, em rodízio.
+- A composição escolhida vira linhas de `pedido_item_opcoes` com o insumo, e a
+  explosão que já existia reserva e baixa cada rosa e o papel, com o custo na
+  saída. O montável é um kit sem componentes fixos.
+- Os adicionais são as personalizações que todo produto já tinha: Ferrero,
+  fotos polaroid (com o aviso de mandar as fotos pelo WhatsApp), cartão em
+  quatro modelos, mensagem e "para quem é". A data desejada vai para
+  `pedidos.dataEntregaPrevista`.
+- A tela tem a prévia do buquê, que ganha flores e muda de cor, o resumo com o
+  total e a tabela de preços inteira.
+- Tabelas novas, só aditivas: `loja_montaveis`, `loja_montavel_formatos`,
+  `loja_montavel_precos`, `loja_montavel_insumos`, `loja_montavel_cores`.
+
+**Pix pelo site** (`loja-pagamento.js`)
+
+- Com a loja em "Pix na hora" e uma conta Asaas ativa, o checkout oferece só o
+  Pix e pede o CPF, que o Asaas exige. Na retirada, o Pix nasce logo depois do
+  pedido, com QR e copia e cola, em `/loja/#/pagar/<token>`. A página confere
+  a cada 5 s e mostra "Pagamento recebido" quando o aviso do Asaas baixa a
+  conta a receber. É o `sincronizarPagamentoPedido` que já existia que deixa
+  o pedido pago.
+- Entrega com o frete novo "a combinar": o pedido entra sem cobrança. Na aba
+  Pagamento do pedido, a loja lança a taxa, gera o Pix do total e abre o
+  WhatsApp com a mensagem pronta para o cliente, com o total e o link. Trocar
+  a taxa cancela o Pix anterior no Asaas, e Pix já pago não é cancelado. Com o
+  frete por bairro, a taxa entra no Pix do checkout.
+- O link de pagamento usa um token próprio (`loja_pagamentos`), e não o
+  `tokenPublico` do pedido, que abre o orçamento com os dados do cliente. A
+  página pública não mostra nome, telefone nem documento.
+- Falha do Asaas no checkout não perde o pedido: o cliente fica sabendo que a
+  loja manda o Pix, e gerar de novo reaproveita a conta a receber.
+- `scripts/provar-asaas-sandbox.js` faz a prova contra o sandbox do Asaas de
+  verdade, numa cópia do banco, quando houver uma chave `$aact_hmlg_`.
+
+**Consertos de passagem**
+
+- O webhook do Asaas baixava Pix como "boleto" na forma de pagamento. O
+  polling já separava os dois (`boleto-orchestrator.js`).
+- A linha do pedido mostrava o texto livre com o id do grupo como rótulo
+  ("12: Feliz aniversário"). Agora sai com o nome ("Mensagem do cartão: …"). O
+  limite da descrição subiu de 300 para 600 caracteres, para a mensagem não ser
+  cortada. A NF-e e a NFC-e cortam o `xProd` em 120 por conta própria.
+
+Suíte: etapa 146 (`test-montagem-pix`), 20 casos com o Asaas falso no lugar do
+`fetch`. Sabotada em sete pontos, reprovou nos sete.
+
 ## 2026-09-28, estoque e compras como o dono de mercado lê
 
 Saiu do levantamento feito para o vídeo de supermercado, com as regras

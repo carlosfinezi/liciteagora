@@ -105,6 +105,10 @@ table.bairros td.acoes { text-align: right; white-space: nowrap; }
         <input type="radio" name="freteModo" value="bairro" onchange="pintarModos()">
         <span><strong>Por bairro</strong><span>Uma taxa para cada bairro atendido.</span></span>
       </label>
+      <label class="modo" id="modoCombinar">
+        <input type="radio" name="freteModo" value="combinar" onchange="pintarModos()">
+        <span><strong>A combinar</strong><span>O pedido entra sem taxa. Você lança a taxa na tela do pedido e manda o Pix do total.</span></span>
+      </label>
     </div>
     <div class="campo-valor" id="campoFixo" hidden>
       <label for="freteValor">Taxa fixa (R$)</label>
@@ -170,7 +174,7 @@ function pintarModos() {
   const modo = modoAtual();
   $('secFrete').style.opacity = temDelivery ? '' : '.5';
   $('secFrete').style.pointerEvents = temDelivery ? '' : 'none';
-  for (const [id, v] of [['modoGratis', 'gratis'], ['modoFixo', 'fixo'], ['modoBairro', 'bairro']]) {
+  for (const [id, v] of [['modoGratis', 'gratis'], ['modoFixo', 'fixo'], ['modoBairro', 'bairro'], ['modoCombinar', 'combinar']]) {
     $(id).classList.toggle('on', modo === v);
   }
   $('campoFixo').hidden = modo !== 'fixo';

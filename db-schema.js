@@ -2902,6 +2902,12 @@ require('./producao/perfis').garantirSeed(db);
 // criadas acima. Idempotente: no-op depois da primeira passada.
 require('./migracao-fornecedores-pessoas').migrarFornecedoresParaPessoas(db);
 
+// Produto que o cliente monta na loja (formatos, tabela de preço por
+// quantidade, cores ligadas ao estoque) e o Pix do pedido da loja (token do
+// link de pagamento e entrega a combinar). Tabelas novas, só aditivas (29/09).
+require('./loja-montagem').migrarMontagem(db);
+require('./loja-pagamento').migrarPagamento(db);
+
 }
 
 module.exports = { initSchema };

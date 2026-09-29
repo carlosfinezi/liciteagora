@@ -614,6 +614,13 @@ const suites = [
   // ordem com acento, nada cortado e sugestão de compra sem o mercado do 1bit.
   // Contra as versões anteriores das rotas e das telas, reprovou em 21 de 22.
   ['141. estoque e compras para o dono de mercado (test-estoque-mercado)', 'test-estoque-mercado.js'],
+  // Monte seu buquê e Pix da loja (29/09), com o Asaas falso no lugar do
+  // fetch: tabela de preço por quantidade, cor pelo estoque, mix em rodízio,
+  // baixa com custo, Pix no checkout, aviso do Asaas, entrega a combinar e
+  // troca de Pix. Sabotadas (preço fora da tabela, webhook baixando Pix como
+  // boleto, cor sem olhar o estoque, montagem sem componentes, Pix sem CPF,
+  // link com o nome do cliente, troca sem conferir o pago), reprovou nas sete.
+  ['146. monte seu buquê e Pix da loja (test-montagem-pix)', 'test-montagem-pix.js'],
 ];
 // ==================== modo rápido: quais suítes ====================
 /**

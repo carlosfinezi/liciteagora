@@ -27,6 +27,8 @@ const { resolverDeposito } = require('./estoque-routes');
 const { reentrarContextoTenant } = require('./tenant-middleware');
 const { criarReservasPedido } = require('./reservas-routes');
 const semDoc = require('./pessoa-sem-documento');
+const montagem = require('./loja-montagem');
+const pagamentoLoja = require('./loja-pagamento');
 
 const RAIZ_PUBLICA = path.join(__dirname, 'public');
 const SUBDIR_LOJA = 'uploads/loja';
@@ -156,7 +158,7 @@ const COLUNAS_INFO_LOJA = [
    * pressupõe alguém para entregar. Ligar delivery por padrão prometeria ao
    * consumidor um serviço que ninguém combinou.
    *
-   * `freteModo` tem três valores e só três: 'gratis', 'fixo', 'bairro'. Cálculo
+   * `freteModo` vale 'gratis', 'fixo', 'bairro' ou 'combinar' (MODOS_FRETE). Cálculo
    * por quilômetro, polígono e faixa de distância ficaram de fora por decisão —
    * exigem mapa, e o combinado é uma solução simples antes de uma cara.
    *
@@ -249,8 +251,9 @@ function lerFoco(bruto) {
   };
 }
 
-/** Os três modos de frete desta fase. Fora disto, o servidor recusa. */
-const MODOS_FRETE = ['gratis', 'fixo', 'bairro'];
+/** Os modos de frete. Fora disto, o servidor recusa. Em 'combinar' a entrega
+ *  entra sem taxa, e a loja a lança depois na tela do pedido. */
+const MODOS_FRETE = ['gratis', 'fixo', 'bairro', 'combinar'];
 
 function migrarLojaDB(db) {
   db.exec(`
@@ -588,11 +591,17 @@ const ROTULO_PAGAMENTO = { pix: 'PIX', dinheiro: 'Dinheiro', cartao: 'Cartão na
 function descricaoDoItem(item) {
   const partes = [item.descricao];
   for (const o of item.opcoes) partes.push(o.nome);
-  for (const [rotulo, valor] of Object.entries(item.textos || {})) {
-    if (valor) partes.push(`${rotulo}: ${valor}`);
+  if (item.textosNomeados) {
+    for (const t of item.textosNomeados) if (t.texto) partes.push(`${t.nome}: ${t.texto}`);
+  } else {
+    for (const [rotulo, valor] of Object.entries(item.textos || {})) {
+      if (valor) partes.push(`${rotulo}: ${valor}`);
+    }
   }
   if (item.comentario) partes.push(`Obs.: ${item.comentario}`);
-  return partes.join(' · ').slice(0, 300);
+  // 600 cabe a montagem, os adicionais e a mensagem do cartão inteira. A NF-e
+  // e a NFC-e cortam o xProd em 120 por conta própria.
+  return partes.join(' · ').slice(0, 600);
 }
 
 /**
@@ -1037,6 +1046,9 @@ function registrarRotasLojaPublica(app, db) {
         bannerFoco: lerFoco(c.bannerFoco),
         mostrarPreco: !!c.mostrarPreco, mostrarEstoque: !!c.mostrarEstoque, tema: c.tema,
         pagamento: c.pagamentoModo || 'nenhum',
+        // Pix no fechamento do pedido: a loja cobra assim E há provedor que gere.
+        // Nesse caso o checkout oferece só o Pix e pede CPF, que o Asaas exige.
+        pixNoSite: pagamentoLoja.pixNoCheckout(c) && pagamentoLoja.provedorPixPronto(db),
         favicon: c.faviconPath || null,
         rodape: c.rodapeTexto || null,
       } });
@@ -1072,6 +1084,18 @@ function registrarRotasLojaPublica(app, db) {
       // login numa vitrine B2B. Visitante anônimo depende da chave do lojista.
       const pessoaId = pessoaLogada(req);
       const produtos = linhas.map(p => {
+        /* Montável: o preço é o da tabela, e o card mostra o menor dela. Não
+           tem saldo próprio (as flores têm), então não leva rótulo de estoque. */
+        if (montagem.ehMontavel(db, p.id)) {
+          return {
+            id: p.id, sku: p.sku, descricao: p.descricao, modelo: p.modelo,
+            categoria: p.categoria, unidade: p.unidade, destaque: !!p.destaque,
+            marca: marcaVisivel(p.marca), montavel: true,
+            preco: c.mostrarPreco ? montagem.precoInicial(db, p.id) : null,
+            precoAnterior: null, temPersonalizacao: true, estoque: null,
+            fotos: fotosDe(p.id, p.imagemPath),
+          };
+        }
         const disp = disponivelDe(db, p.id);
         const preco = precoVisivel(c, p, pessoaId);
         return {
@@ -1095,6 +1119,32 @@ function registrarRotasLojaPublica(app, db) {
       res.json({ success: true, total: produtos.length, categorias, produtos });
     } catch (e) { return erroInterno(res, '/loja/api/produtos', e); }
   });
+
+  /* O montador: flores, formatos com a tabela, cores com o que o estoque fecha
+     e os adicionais de cada montável publicado. */
+  app.get('/loja/api/montagem', (req, res) => {
+    try {
+      const c = lerConfig(db);
+      if (!c.ativa) return res.status(404).json({ success: false, error: 'Loja não publicada' });
+      let ids = [];
+      try {
+        ids = db.prepare(`SELECT m.produtoId FROM loja_montaveis m JOIN produtos p ON p.id = m.produtoId
+          WHERE m.ativo = 1 AND p.ativo = 1 AND p.publicadoNaLoja = 1
+          ORDER BY m.ordem, COALESCE(p.ordemVitrine, 0), p.descricao`).all().map((r) => r.produtoId);
+      } catch { /* tenant sem a tabela */ }
+      const montaveis = ids.map((id) => {
+        const p = db.prepare('SELECT id, descricao, observacoes, imagemPath FROM produtos WHERE id = ?').get(id);
+        const m = montagem.montavelPublico(db, id, { mostrarPreco: !!c.mostrarPreco, disponivelDe: (pid) => disponivelDe(db, pid) });
+        if (!m || !m.formatos.length) return null;
+        return { ...m, descricao: p.descricao, observacoes: p.observacoes || null,
+                 foto: fotosDe(p.id, p.imagemPath)[0] || null, adicionais: personalizacoesDe(db, id) };
+      }).filter(Boolean);
+      res.set('Cache-Control', 'no-store');
+      res.json({ success: true, montaveis });
+    } catch (e) { return erroInterno(res, '/loja/api/montagem', e); }
+  });
+
+  pagamentoLoja.registrarRotasPagamentoPublico(app, db);
 
   // ---------- área do comprador (login do portal) ----------
   // O comprador da vitrine é o mesmo cliente do portal: mesma tabela de
@@ -1329,12 +1379,26 @@ function registrarRotasLojaPublica(app, db) {
         return { erro: validado.erro, status: 422, item: i, produtoId };
       }
 
-      const precoBase = precoVisivel(c, p, pessoaId);
+      /* Montável: o preço é o da linha da tabela e a quantidade é sempre 1,
+         porque cada montagem é um presente. O que vai dentro (flores e papel)
+         segue em `componentes`, para o pedido baixar do estoque. */
+      let mont = null;
+      if (montagem.ehMontavel(db, p.id)) {
+        if (quantidade !== 1) return { erro: 'Cada montagem entra uma vez na sacola.', status: 422, item: i, produtoId };
+        mont = montagem.resolverMontagem(db, p.id, entrada.montagem,
+          { mostrarPreco: !!c.mostrarPreco, disponivelDe: (pid) => disponivelDe(db, pid) });
+        if (mont.erro) return { erro: mont.erro, status: 422, item: i, produtoId };
+      } else if (entrada.montagem) {
+        return { erro: 'Este produto não é montável.', status: 422, item: i, produtoId };
+      }
+
+      const precoBase = mont ? mont.preco : precoVisivel(c, p, pessoaId);
       const adicional = validado.opcoes.reduce((s, o) => s + o.precoAdicional, 0);
       const unitario = precoBase == null ? null : r2c(precoBase + adicional);
 
       itens.push({
-        produtoId: p.id, sku: p.sku, descricao: p.descricao,
+        produtoId: p.id, sku: p.sku, descricao: mont ? `${p.descricao} — ${mont.detalhe}` : p.descricao,
+        ...(mont ? { montagem: mont.montagem, componentes: mont.componentes, dataDesejada: mont.dataDesejada } : {}),
         marca: marcaVisivel(p.marca), unidade: p.unidade,
         foto: (fotosDe(p.id, p.imagemPath)[0] || null),
         quantidade,
@@ -1343,6 +1407,10 @@ function registrarRotasLojaPublica(app, db) {
         opcoes: validado.opcoes.map((o) => ({ id: o.id, grupoId: o.grupoId, nome: o.nome,
                                               precoAdicional: o.precoAdicional })),
         textos: validado.textos,
+        // O texto livre com o NOME do grupo ("Mensagem do cartão"), que é o que
+        // a linha do pedido precisa mostrar; `textos` é chaveado pelo id.
+        textosNomeados: Object.entries(validado.textos).map(([gid, texto]) => ({
+          nome: (grupos.find((g) => g.id === Number(gid)) || {}).nome || 'Texto', texto })),
         comentario: entrada.comentario == null ? null : String(entrada.comentario).trim().slice(0, 300) || null,
       });
     }
@@ -1426,8 +1494,12 @@ function registrarRotasLojaPublica(app, db) {
     }
 
     const c = lerConfig(db);
+    const lp = (() => { try { return db.prepare('SELECT token, freteACombinar FROM loja_pagamentos WHERE pedidoId = ?').get(pedido.id); } catch { return null; } })();
+    const pixNoSite = pagamentoLoja.pixNoCheckout(c) && pagamentoLoja.provedorPixPronto(db);
     return res.json({
       success: true, repetido: true,
+      freteACombinar: !!(lp && lp.freteACombinar), pixNoSite, link: lp ? lp.token : null,
+      cobranca: pixNoSite ? pagamentoLoja.estadoDoPedido(db, pedido.id) : null,
       numero: p.numero, total: r2c(p.valorTotal),
       subtotal: r2c(p.valorTotal - (p.valorFrete || 0)), frete: r2c(p.valorFrete || 0),
       atendimento: p.tipoAtendimento,
@@ -1436,7 +1508,7 @@ function registrarRotasLojaPublica(app, db) {
     });
   }
 
-  app.post('/loja/api/pedido/finalizar', (req, res) => {
+  app.post('/loja/api/pedido/finalizar', async (req, res) => {
     /* Erro do cliente é mensagem que ele entende. Nada de SQL, stack, id
        interno ou nome de tenant — a rota é pública. */
     const recusa = (status, error, extra) =>
@@ -1467,6 +1539,10 @@ function registrarRotasLojaPublica(app, db) {
       }
 
       const b = req.body || {};
+      /* Pix no site: a loja cobra por Pix no fechamento E há provedor que o
+         gere. Aí o Pix é a única forma, e o CPF passa a ser obrigatório,
+         porque o Asaas não emite cobrança sem ele. */
+      const pixNoSite = pagamentoLoja.pixNoCheckout(c) && pagamentoLoja.provedorPixPronto(db);
 
       // ── chave da tentativa ────────────────────────────────────────────
       const chave = txtPub(b.idempotencyKey, 100);
@@ -1486,8 +1562,9 @@ function registrarRotasLojaPublica(app, db) {
       const docBruto = b.cliente && b.cliente.cpfCnpj;
       if (docBruto != null && String(docBruto).trim() !== '') {
         documento = documentoValido(docBruto);
-        if (!documento) return recusa(422, 'CPF/CNPJ inválido. Confira ou deixe em branco.');
+        if (!documento) return recusa(422, pixNoSite ? 'CPF/CNPJ inválido. Confira os números.' : 'CPF/CNPJ inválido. Confira ou deixe em branco.');
       }
+      if (pixNoSite && !documento) return recusa(422, 'Informe seu CPF. O pagamento por Pix precisa dele.');
 
       // E-mail é opcional; informado, precisa ser um e-mail. O aceite de
       // promoções vai para o cadastro (contato-marketing.js).
@@ -1513,6 +1590,9 @@ function registrarRotasLojaPublica(app, db) {
       if (!PAGAMENTOS_CHECKOUT[pagamento]) {
         return recusa(422, 'Escolha uma forma de pagamento.');
       }
+      if (pixNoSite && pagamento !== 'pix') {
+        return recusa(422, 'Esta loja recebe pelo Pix.');
+      }
 
       // ── itens, com autoridade do servidor ─────────────────────────────
       const bruto = Array.isArray(b.itens) ? b.itens : [];
@@ -1531,6 +1611,7 @@ function registrarRotasLojaPublica(app, db) {
       // ── endereço e frete, quando é entrega ────────────────────────────
       let frete = 0;
       let end = null;
+      let freteACombinar = false;
       if (atendimento === 'entrega') {
         const e = b.endereco || {};
         end = {
@@ -1550,6 +1631,7 @@ function registrarRotasLojaPublica(app, db) {
         const modo = MODOS_FRETE.includes(c.freteModo) ? c.freteModo : 'gratis';
         if (modo === 'gratis') frete = 0;
         else if (modo === 'fixo') frete = r2c(c.freteValor);
+        else if (modo === 'combinar') freteACombinar = true;   // a loja lança na tela do pedido
         else {
           const lista = bairrosCobertura(db);
           const alvo = end.bairro.toLowerCase();
@@ -1589,6 +1671,7 @@ function registrarRotasLojaPublica(app, db) {
          extenso porque é onde quem separa e entrega vai olhar. */
       const observacao = ['[Catálogo Online]',
         `Pagamento: ${ROTULO_PAGAMENTO[pagamento]}`,
+        freteACombinar ? 'Taxa de entrega a combinar' : null,
         linhaTroco,
         end && end.referencia ? `Referência: ${end.referencia}` : null,
         obsCliente,
@@ -1663,8 +1746,14 @@ function registrarRotasLojaPublica(app, db) {
             const itemId = ins.run(pedidoId, i.produtoId, descricaoDoItem(i), i.quantidade,
                     i.precoUnitario, i.total).lastInsertRowid;
             gravarEscolhasDoItem(db, pedidoId, itemId, i);
+            // As flores e o papel da montagem, como insumo do item.
+            if (i.componentes) montagem.gravarComponentes(db, pedidoId, itemId, i.componentes);
           }
           recalcularTotal(db, pedidoId);
+          // A data desejada da montagem vira a entrega prevista (a mais cedo).
+          const datas = itens.map((i) => i.dataDesejada).filter(Boolean).sort();
+          if (datas.length) db.prepare('UPDATE pedidos SET dataEntregaPrevista = ? WHERE id = ?').run(datas[0], pedidoId);
+          const token = pagamentoLoja.registrarPedido(db, pedidoId, { freteACombinar });
 
           /* A MESMA confirmação do ERP: valida cliente, itens, atendimento,
              alçada e estoque, e cria a reserva. Devolve `{ok:false}` em vez
@@ -1676,7 +1765,7 @@ function registrarRotasLojaPublica(app, db) {
             e.detalhe = conf;
             throw e;
           }
-          return { id: pedidoId, numero };
+          return { id: pedidoId, numero, token };
         })();
       } catch (e) {
         /* Corrida: a outra requisição criou o pedido entre a consulta e o
@@ -1701,6 +1790,15 @@ function registrarRotasLojaPublica(app, db) {
         throw e;
       }
 
+      /* O Pix nasce DEPOIS do commit: é chamada de rede ao provedor, e o
+         pedido já existe e vale mesmo que ela falhe. Nesse caso o cliente fica
+         sabendo que a loja manda o Pix, e a tela do pedido gera de novo. */
+      let pixErro = null;
+      if (pixNoSite && !freteACombinar && total > 0) {
+        try { await pagamentoLoja.emitirPixDoPedido(db, criado.id, { vencimentoDias: c.pagamentoVencimentoDias ?? 1 }); }
+        catch (e) { pixErro = e.message; console.error(`[loja] Pix do pedido ${criado.numero}:`, e.message); }
+      }
+
       const p = db.prepare('SELECT numero, valorTotal FROM pedidos WHERE id = ?').get(criado.id);
       return res.json({
         success: true,
@@ -1710,6 +1808,11 @@ function registrarRotasLojaPublica(app, db) {
         atendimento,
         pagamento: { codigo: pagamento, rotulo: ROTULO_PAGAMENTO[pagamento] },
         whatsapp: whatsappNormalizado(c.whatsapp || (empresaDe(db) || {}).telefone),
+        freteACombinar,
+        pixNoSite,
+        link: criado.token,
+        cobranca: pixNoSite ? pagamentoLoja.estadoDoPedido(db, criado.id) : null,
+        pixFalhou: !!pixErro,
       });
     } catch (e) {
       /* Nada do erro real vai para a rua: ele pode carregar SQL, nome de
@@ -1771,6 +1874,8 @@ const uploadLogo = multer({ storage: multer.memoryStorage(), limits: { fileSize:
 
 function registrarRotasLojaAdmin(app, db) {
   migrarLojaDB(db);
+  montagem.registrarRotasMontagemAdmin(app, db);       // /api/loja/montagem
+  pagamentoLoja.registrarRotasPagamentoAdmin(app, db); // /api/pedidos/:id/pix
 
   app.get('/api/loja/config', (req, res) => {
     try {

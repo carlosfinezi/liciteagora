@@ -504,9 +504,12 @@ async function processarWebhook(db, nomeProvedor, req) {
     const cr = db.prepare('SELECT status, contaFinanceiraId FROM contas_a_receber WHERE id = ?').get(evento.contaReceberId);
     if (cr && cr.status !== 'paga' && cr.status !== 'cancelada') {
       let contaFinanceiraId = cr.contaFinanceiraId;
+      let tipoCobranca = 'boleto';
       if (evento.boletoId) {
-        const b = db.prepare('SELECT contaFinanceiraId FROM boletos WHERE id = ?').get(evento.boletoId);
+        const b = db.prepare(`SELECT contaFinanceiraId, COALESCE(tipoCobranca, 'boleto') AS tipoCobranca
+          FROM boletos WHERE id = ?`).get(evento.boletoId);
         if (b && b.contaFinanceiraId) contaFinanceiraId = b.contaFinanceiraId;
+        if (b) tipoCobranca = b.tipoCobranca;
       }
       try {
         const { registrarBaixaCR } = require('./contas-receber-routes');
@@ -514,7 +517,9 @@ async function processarWebhook(db, nomeProvedor, req) {
           contaReceberId: evento.contaReceberId,
           dataPagamento: evento.dataPagamento || undefined,
           contaFinanceiraId,
-          formaPagamento: 'boleto',
+          // Era 'boleto' fixo, e o Pix pago pelo webhook entrava como boleto na
+          // conciliação por forma de pagamento. O polling já separava os dois.
+          formaPagamento: tipoCobranca === 'pix' ? 'pix' : 'boleto',
           origem: `webhook_${nomeProvedor}`,
           observacoes: `Baixa automática via webhook ${nomeProvedor}${evento.boletoId ? ` (boleto #${evento.boletoId})` : ''}`,
         });
