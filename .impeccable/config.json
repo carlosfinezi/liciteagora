@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "pulsing-dot",
+        "value": "*",
+        "files": [
+          "public/loja/index.html"
+        ],
+        "createdAt": "2026-09-29T14:52:33.006Z",
+        "reason": "Usuário confirmou em 29/09/2026: o .pg-espera pisca enquanto a loja espera a confirmação do Pix, estado real e que muda; para com prefers-reduced-motion"
+      },
+      {
+        "rule": "radial-halo",
+        "value": "*",
+        "files": [
+          "public/loja/index.html"
+        ],
+        "createdAt": "2026-09-29T14:52:33.047Z",
+        "reason": "Usuário confirmou em 29/09/2026: é o miolo do girassol desenhado no montador (.fl.girassol), uma flor e não um brilho de fundo"
+      }
+    ]
+  }
+}

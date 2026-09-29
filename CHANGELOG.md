@@ -4,6 +4,15 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-29, duas exceções do detector da Impeccable na vitrine
+
+`.impeccable/config.json`, novo: as regras `pulsing-dot` e `radial-halo`
+deixam de valer só em `public/loja/index.html`, a pedido. O ponto que pulsa
+é o `.pg-espera` do Pix, que indica a espera real pela confirmação do
+pagamento e para com a redução de movimento. O "halo" é o miolo do girassol
+desenhado no montador (`.fl.girassol`). As demais regras seguem valendo no
+arquivo, e as duas seguem valendo no resto do projeto.
+
 ## 2026-09-29, a barra do protótipo, as microinterações e a rosa como ícone da loja
 
 - **Topo em degradê** (`public/loja/index.html`): passou a ser a regra
