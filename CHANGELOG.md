@@ -4,6 +4,49 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-29, sete ajustes no montador, na sacola e no checkout
+
+- **A prévia encolhe antes de o bloco passar sob a barra**
+  (`public/loja/catalogo.js`, `index.html`). A conta de onde a coluna para
+  ganhou uma ordem: primeiro reduz a prévia (330 px até 170 px, com o buquê
+  escalando junto) para o bloco caber abaixo da barra; só quando nem a prévia
+  mínima faz caber é que o `--mt-top` fica negativo. Numa janela de 1316×906 a
+  prévia passava sob a barra por 810 px de rolagem; agora fica em 274 px e o
+  bloco não entra sob a barra enquanto a caixa de montar não termina.
+- **Com um modelo de cartão escolhido, a mensagem e o "para quem é" são
+  obrigatórios.** A cobrança é da tela: o cadastro do lojista marca esses
+  grupos como opcionais, e a regra "cartão pede mensagem" é de atendimento,
+  não de integridade do pedido — o servidor continua aceitando.
+- **O que falta é marcado onde falta**, e não numa caixa dentro do resumo:
+  borda vermelha no campo ou no grupo, uma frase curta embaixo ("Falta
+  preencher", "Escolha retirada ou entrega"), rolagem até o primeiro e foco
+  nele. A marca some no primeiro caractere digitado. A faixa vermelha que
+  sobrou é só para recusa do SERVIDOR, e foi para o alto dos passos.
+- **"Aproveite e leve também" voltou para dentro da coluna.** A seção tinha
+  `wrap` e `secao` no mesmo elemento, e a `margin` de `.secao`, declarada
+  depois, anulava o `margin: 0 auto` que centraliza — ela ia para a borda
+  esquerda da janela. O `.wrap` agora é o elemento de fora.
+- **Os adicionais da sacola dizem de que são**: "Cartão de mensagem: Modelo 1"
+  no lugar de "Modelo 1". O `grupoNome` passou a viajar junto da opção
+  (`loja-routes.js`, `validarEscolhas`), porque quem sabe a que grupo a opção
+  pertence é o servidor.
+- **Cada buquê da sacola ganhou "Editar"**: abre `#/montar/<produto>/<n>` com
+  as escolhas daquele item e, ao salvar, TROCA o item em vez de somar outro.
+  Trocar de flor no meio da edição a encerra.
+- **O montador guarda rascunho no navegador**, por produto
+  (`loja-montagem-v1`), e o repõe ao voltar à página. Até aqui, um F5 ou a
+  seta do navegador zeravam o buquê. O rascunho é conferido contra o montável
+  de agora (formato, cor e opção que saíram do cadastro são descartados) e
+  morre quando o buquê entra na sacola.
+- **O checkout ganhou "← Voltar à sacola" no alto** (só havia um no pé da
+  página), e o que foi digitado passa a sobreviver à ida e volta: `corpoDoPedido`
+  lê do DOM, e o DOM é remontado a cada entrada na tela.
+
+Provado no Chrome headless contra a loja publicada, em 1316×906, 1280×1000,
+1440×760, 1280×620, 390×844 e 360×740: a rolagem inteira de 10 em 10 px, a
+tentativa de continuar com campos vazios, o editar, o voltar e o F5. Com a
+conta anterior reposta, a checagem da prévia reprova na janela relatada.
+
 ## 2026-09-29, a coluna do montador volta a ser um bloco só
 
 Correção do que o fechamento anterior deixou: presos separadamente, prévia e

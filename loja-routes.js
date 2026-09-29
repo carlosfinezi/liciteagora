@@ -836,7 +836,9 @@ function validarEscolhas(grupos, idsEscolhidos, textos) {
       return { erro: `"${g.nome}" aceita no máximo ${g.maxEscolhas} opção(ões)` };
     }
     for (const o of doGrupo) {
-      validas.push({ id: o.id, grupoId: g.id, nome: o.nome, precoAdicional: r2c(o.precoAdicional) });
+      // `grupoNome` junto: na sacola, "Modelo 4" sozinho não diz de que é.
+      validas.push({ id: o.id, grupoId: g.id, grupoNome: g.nome, nome: o.nome,
+                     precoAdicional: r2c(o.precoAdicional) });
     }
   }
   return { opcoes: validas, textos: textosOk };
@@ -1456,8 +1458,8 @@ function registrarRotasLojaPublica(app, db) {
         quantidade,
         precoBase, adicional: r2c(adicional), precoUnitario: unitario,
         total: unitario == null ? null : r2c(unitario * quantidade),
-        opcoes: validado.opcoes.map((o) => ({ id: o.id, grupoId: o.grupoId, nome: o.nome,
-                                              precoAdicional: o.precoAdicional })),
+        opcoes: validado.opcoes.map((o) => ({ id: o.id, grupoId: o.grupoId, grupoNome: o.grupoNome,
+                                              nome: o.nome, precoAdicional: o.precoAdicional })),
         textos: validado.textos,
         // O texto livre com o NOME do grupo ("Mensagem do cartão"), que é o que
         // a linha do pedido precisa mostrar; `textos` é chaveado pelo id.

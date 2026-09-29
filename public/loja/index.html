@@ -137,6 +137,9 @@ header.topo img.logo { width: 52px; height: 52px; border-radius: 50%; aspect-rat
    foi preenchido. */
 .chk { display: flex; flex-direction: column; gap: 18px; padding-bottom: 20px; }
 .chk h1 { font-size: 1.35rem; margin: 18px 0 0; }
+/* O voltar do alto: alinhado à esquerda e colado no topo da tela, onde a
+   pessoa procura quando quer mexer na sacola. */
+.chk-voltar { align-self: flex-start; padding: 0; margin-top: 14px; }
 .chk-bloco { background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--raio); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
 .chk-bloco h2 { font-size: 1rem; margin: 0; }
@@ -341,6 +344,8 @@ header.topo img.logo { width: 52px; height: 52px; border-radius: 50%; aspect-rat
 .excluir { background: none; border: 0; color: var(--ink-2); font-size: 13px; cursor: pointer;
   font-family: inherit; min-height: 44px; padding: 0 4px; }
 .excluir:hover { color: #B3261E; }
+/* Mesmo tamanho e lugar do Excluir, sem o vermelho: editar não apaga nada. */
+.excluir.editar:hover { color: var(--primaria); }
 
 /* ---------- barra fixa do carrinho ---------- */
 .barra { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
@@ -595,7 +600,9 @@ footer.rodape { border-top: 1px solid var(--line); color: var(--ink-2); font-siz
 .mt-passos { background: color-mix(in srgb, var(--surface) 80%, transparent); border: 1px solid var(--line);
   border-radius: calc(var(--raio) + 4px); padding: 22px; box-shadow: var(--sombra); min-width: 0; }
 .mt-passo { padding: 18px 0; border-bottom: 1px solid var(--line); }
-.mt-passo:first-child { padding-top: 0; }
+/* `first-of-type`, e não `first-child`: a faixa de erro do servidor mora no
+   alto desta caixa, e com ela o primeiro passo deixou de ser o primeiro filho. */
+.mt-passo:first-of-type { padding-top: 0; }
 .mt-passo:last-child { border-bottom: 0; padding-bottom: 0; }
 .mt-tit { display: flex; gap: 11px; align-items: center; margin-bottom: 14px; }
 .mt-num { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0;
@@ -633,15 +640,15 @@ footer.rodape { border-top: 1px solid var(--line); color: var(--ink-2); font-siz
 /* A coluna da direita acompanha a rolagem como UM bloco: prévia em cima,
    resumo embaixo, sem nunca se sobrepor.
 
-   Onde o bloco para depende da altura da janela, e quem mede é o
-   `ajustarLadoMontador()`, que escreve o `--mt-top`. Cabendo inteiro, o topo
-   para logo abaixo da barra. Não cabendo, o que fica à vista é o FIM do
-   bloco — o resumo com o total e os botões —, e a prévia é que passa por
-   baixo da barra: entre as duas, é o resumo que a pessoa precisa alcançar.
-   Um `top` fixo só serviria à primeira das duas janelas. */
+   Quem mede é o `ajustarLadoMontador()`, e ele tem uma ordem de preferência:
+   primeiro ENCOLHE a prévia (de 330px até 170px) para o bloco caber com o
+   topo logo abaixo da barra; só quando nem a prévia mínima faz caber é que o
+   `--mt-top` fica negativo e a prévia passa por baixo da barra. Antes de
+   29/09 a conta pulava direto para o `top` negativo, e numa janela de 906px
+   a prévia entrava sob a barra com folga de sobra na tela. */
 .mt-lado { align-self: start; position: sticky; top: var(--mt-top, 88px);
   display: flex; flex-direction: column; gap: 14px; }
-.mt-previa { position: relative; height: 330px; border-radius: calc(var(--raio) + 6px); overflow: hidden;
+.mt-previa { position: relative; height: var(--mt-previa-h, 330px); border-radius: calc(var(--raio) + 6px); overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--primaria) 8%, transparent); box-shadow: var(--sombra-forte);
   background: radial-gradient(circle at 50% 42%, var(--surface), color-mix(in srgb, var(--secundaria) 12%, var(--surface)) 50%,
     color-mix(in srgb, var(--secundaria) 22%, var(--surface)) 100%); }
@@ -651,8 +658,11 @@ footer.rodape { border-top: 1px solid var(--line); color: var(--ink-2); font-siz
   border-radius: calc(var(--raio) * .8); padding: 10px 15px; box-shadow: 0 14px 26px color-mix(in srgb, var(--primaria) 22%, transparent); }
 .mt-preco small { display: block; opacity: .82; font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em; }
 .mt-preco strong { font-size: 22px; letter-spacing: -.03em; }
-/* O buquê: embrulho, hastes e flores posicionadas pelo JS. */
-.bq { position: absolute; left: 50%; bottom: 8px; width: 300px; height: 300px; transform: translateX(-50%); }
+/* O buquê: embrulho, hastes e flores posicionadas pelo JS. A escala
+   acompanha a altura da prévia quando ela encolhe — o desenho tem 300px
+   fixos, e sem isso o buquê vazaria pela borda de cima. */
+.bq { position: absolute; left: 50%; bottom: 8px; width: 300px; height: 300px;
+  transform: translateX(-50%) scale(var(--bq-escala, 1)); transform-origin: bottom center; }
 .bq-emb { position: absolute; left: 14%; right: 14%; bottom: 2%; height: 56%; border-radius: 16px;
   background: linear-gradient(140deg, #f5e5e3, #fff7f4 52%, #eecfd4);
   clip-path: polygon(6% 0, 94% 0, 70% 100%, 30% 100%); filter: drop-shadow(0 16px 20px rgba(63,24,37,.14));
@@ -695,7 +705,19 @@ footer.rodape { border-top: 1px solid var(--line); color: var(--ink-2); font-siz
 .mt-bt.claro { background: #fff; color: var(--ink); }
 .mt-bt.linha { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.22); margin-top: 10px; font-weight: 700; }
 .mt-bt:disabled { opacity: .5; cursor: default; }
-.mt-erro { background: #FDECEA; color: #8A1C13; border-radius: calc(var(--raio) * .6); padding: 10px 12px; font-size: 13.5px; margin: 10px 0 0; }
+/* Recusa do SERVIDOR (estoque, tabela, adicional): faixa no alto dos passos,
+   e não dentro do resumo. O que falta preencher não vem para cá — é marcado
+   no próprio campo, logo abaixo. */
+.mt-erro { background: #FDECEA; color: #8A1C13; border-radius: calc(var(--raio) * .6);
+  padding: 10px 12px; font-size: 13.5px; margin: 0 0 14px; }
+/* O que falta, marcado onde falta. A borda é o sinal, e a frase diz o quê:
+   cor sozinha não informa quem não a distingue. */
+.mt-falta { border-color: #B3261E !important; }
+.mt-falta:focus { box-shadow: 0 0 0 4px color-mix(in srgb, #B3261E 12%, transparent) !important;
+  border-color: #B3261E !important; }
+.mt-ops.mt-falta { border: 0 !important; }
+.mt-ops.mt-falta .mt-op { border-color: #B3261E; }
+.mt-diz-falta { color: #B3261E; font-size: 13px; font-weight: 600; margin: 6px 0 0; }
 .mt-barra { display: none; }
 @media (max-width: 900px) {
   .mt { grid-template-columns: 1fr; }
@@ -849,11 +871,18 @@ footer.rodape { border-top: 1px solid var(--line); color: var(--ink-2); font-siz
 
 <!-- As sugestões vêm DEPOIS da escolha de receber: acima dela, pareciam
      parte do caminho até o pagamento. Fora de #conteudo pelo mesmo motivo da
-     barra — e porque é este o lugar delas na página. -->
-<section class="wrap secao" id="secSugestoes" hidden>
-  <h2>Aproveite e leve também</h2>
-  <div class="grade" id="sugestoes"></div>
-</section>
+     barra — e porque é este o lugar delas na página.
+
+     O `.wrap` é o de fora, e não a própria seção: `.secao` declara `margin`
+     depois de `.wrap`, e a margem dela anulava o `margin: 0 auto` que
+     centraliza a coluna. Com as duas classes no mesmo elemento, a seção
+     inteira ia para a borda esquerda da janela. -->
+<div class="wrap">
+  <section class="secao" id="secSugestoes" hidden>
+    <h2>Aproveite e leve também</h2>
+    <div class="grade" id="sugestoes"></div>
+  </section>
+</div>
 
 <footer class="rodape">
   <div class="wrap rodape-grade">

@@ -103,6 +103,48 @@ function remover(indice) {
   return recalcular();
 }
 
+/** Troca um item no lugar: é o que o "Editar" do buquê faz ao salvar. */
+function substituirNaSacola(indice, item) {
+  const itens = lerCarrinho();
+  if (!itens[indice]) return adicionar(item);
+  itens[indice] = item;
+  gravarCarrinho(itens);
+  return recalcular();
+}
+
+/* ===================== rascunho do montador ================================
+   Montar um buquê leva vários passos, e até 29/09 um F5 ou o botão de voltar
+   do navegador zeravam tudo: MT só existia em memória. O rascunho é por
+   PRODUTO — trocar de flor e voltar reencontra o que já estava escolhido — e
+   guarda só referências (ids e textos), como o carrinho. Ele morre quando o
+   buquê entra na sacola.
+   ========================================================================= */
+
+const CHAVE_RASCUNHO = 'loja-montagem-v1';
+
+function lerRascunhos() {
+  try {
+    const o = JSON.parse(localStorage.getItem(CHAVE_RASCUNHO) || '{}');
+    return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+  } catch { return {}; }
+}
+
+function gravarRascunho(produtoId, dados) {
+  try {
+    const todos = lerRascunhos();
+    todos[produtoId] = dados;
+    localStorage.setItem(CHAVE_RASCUNHO, JSON.stringify(todos));
+  } catch { /* modo privado: a montagem segue, só não sobrevive ao F5 */ }
+}
+
+function esquecerRascunho(produtoId) {
+  try {
+    const todos = lerRascunhos();
+    delete todos[produtoId];
+    localStorage.setItem(CHAVE_RASCUNHO, JSON.stringify(todos));
+  } catch { /* idem */ }
+}
+
 /** O servidor recalcula tudo. Só o que volta daqui é mostrado como dinheiro. */
 async function recalcular() {
   const itens = lerCarrinho();
@@ -417,6 +459,16 @@ function ligarProduto() {
 
 /* ===================== SACOLA ============================================== */
 
+/**
+ * O adicional dito por inteiro: "Cartão de mensagem: Modelo 4".
+ *
+ * Só a opção ("Modelo 4", "12 unidades", "3 fotos") não diz de que ela é, e
+ * na sacola as três aparecem em sequência. O nome do grupo vem do servidor,
+ * que é quem sabe a que grupo a opção pertence. Item antigo, gravado antes
+ * disso, continua mostrando só a opção em vez de uma linha vazia.
+ */
+const nomeDoAdicional = (o) => (o.grupoNome ? `${o.grupoNome}: ${o.nome}` : o.nome);
+
 async function pintarSacola() {
   await recalcular();
   const alvo = $('conteudo');
@@ -432,7 +484,7 @@ async function pintarSacola() {
         ? `<img src="${esc(i.foto)}" alt="">` : '<span class="sem-foto">—</span>'}</div>
       <div class="is-txt">
         <strong>${esc(i.descricao)}</strong>
-        ${i.opcoes.length ? `<span class="is-op">${i.opcoes.map((o) => esc(o.nome)).join(', ')}</span>` : ''}
+        ${i.opcoes.length ? `<span class="is-op">${i.opcoes.map(nomeDoAdicional).map(esc).join(', ')}</span>` : ''}
         ${(i.textosNomeados || []).map((t) => `<span class="is-op">${esc(t.nome)}: “${esc(t.texto)}”</span>`).join('')}
         ${i.comentario ? `<span class="is-op">“${esc(i.comentario)}”</span>` : ''}
         <span class="is-preco">${i.total == null ? 'a combinar' : brl(i.total)}</span>
@@ -443,6 +495,7 @@ async function pintarSacola() {
           <output>${i.quantidade}</output>
           <button data-mais-item="${idx}" aria-label="Aumentar">+</button>
         </div>`}
+        ${i.montagem ? `<button class="excluir editar" data-editar="${idx}">Editar</button>` : ''}
         <button class="excluir" data-remover="${idx}" aria-label="Remover">Excluir</button>
       </div>
     </li>`).join('');
@@ -472,7 +525,26 @@ async function pintarSacola() {
    ========================================================================= */
 
 /** Estado do formulário. Só vive enquanto a aba está aberta. */
-let CHECKOUT = { atendimento: null, pagamento: null, chave: null, enviando: false };
+/* `campos` guarda o que foi digitado no checkout, por id do campo. Sem ele,
+   ir à sacola trocar um item e voltar apagava nome, telefone e endereço: o
+   `corpoDoPedido()` lê do DOM, e o DOM é remontado a cada entrada na tela. */
+let CHECKOUT = { atendimento: null, pagamento: null, chave: null, enviando: false, campos: {} };
+
+/** Grava o que a pessoa digitou, para a tela voltar como ela deixou. */
+function guardarCampoCheckout(el) {
+  if (!el || !el.id || !el.id.startsWith('chk')) return;
+  CHECKOUT.campos[el.id] = el.type === 'checkbox' ? el.checked : el.value;
+}
+
+/** Repõe no DOM o que já tinha sido digitado. */
+function reporCamposCheckout() {
+  for (const [id, valor] of Object.entries(CHECKOUT.campos)) {
+    const el = $(id);
+    if (!el) continue;
+    if (el.type === 'checkbox') el.checked = !!valor;
+    else el.value = valor;
+  }
+}
 
 /**
  * A chave da tentativa.
@@ -514,6 +586,10 @@ async function pintarCheckout() {
 
   alvo.innerHTML = `
     <div class="chk">
+      <!-- Sem isto o checkout era uma rua sem retorno: quem quisesse mexer na
+           sacola só voltava pela seta do navegador, e nem toda pessoa a usa
+           num site aberto pelo WhatsApp. -->
+      <button type="button" class="btn-linha chk-voltar" data-voltar-sacola="1">← Voltar à sacola</button>
       <h1>Finalizar pedido</h1>
 
       <section class="chk-bloco">
@@ -644,6 +720,7 @@ async function pintarCheckout() {
       <button type="button" class="btn-linha" data-voltar-sacola="1">Voltar à sacola</button>
     </div>`;
 
+  reporCamposCheckout();
   pintarEscolhas();
 }
 
@@ -914,7 +991,7 @@ function mtAjustarQuantidade() {
   }
 }
 
-function iniciarMontagem(m) {
+function iniciarMontagem(m, guardadas) {
   const antes = MT;
   const cores = m.cores;
   const cor = cores.find((c) => !c.mix && c.quantidades.length) || cores.find((c) => c.quantidades.length) || cores[0];
@@ -926,15 +1003,60 @@ function iniciarMontagem(m) {
     opcoes: new Set(), textos: {},
     data: antes ? antes.data : '',
     atend: antes ? antes.atend : (SERVICO === 'delivery' ? 'entrega' : (SERVICO === 'retirada' ? 'retirada' : null)),
-    erro: null,
+    faltas: new Set(), editando: null,
   };
   // Começa no primeiro formato que a cor consegue montar.
   const f = m.formatos.find((x) => x.precos.some((p) => mtPossivel(cor, p.quantidade)));
   if (f) MT.formatoId = f.id;
+  if (guardadas) aplicarEscolhas(m, guardadas);
   mtAjustarQuantidade();
 }
 
-async function abrirMontador(idTxt) {
+/**
+ * Repõe escolhas vindas de FORA (rascunho do navegador ou item da sacola).
+ *
+ * Cada uma é conferida contra o montável de agora: formato, cor e opção que
+ * saíram do cadastro, ou cor que perdeu o estoque, são descartadas em vez de
+ * entrar como id solto. A quantidade passa pelo `mtAjustarQuantidade` depois,
+ * que é quem sabe o que a cor escolhida fecha.
+ */
+function aplicarEscolhas(m, e) {
+  if (m.formatos.some((f) => f.id === Number(e.formatoId))) MT.formatoId = Number(e.formatoId);
+  if (Number(e.quantidade) > 0) MT.quantidade = Number(e.quantidade);
+  const cor = m.cores.find((c) => c.id === Number(e.corId));
+  if (cor && cor.quantidades.length) MT.corId = cor.id;
+  const validas = new Set();
+  for (const g of m.adicionais) for (const o of (g.opcoes || [])) validas.add(o.id);
+  MT.opcoes = new Set((e.opcoes || []).map(Number).filter((id) => validas.has(id)));
+  const textos = {};
+  for (const g of m.adicionais) {
+    const t = e.textos && (e.textos[g.id] ?? e.textos[String(g.id)]);
+    if (t) textos[g.id] = String(t).slice(0, 300);
+  }
+  MT.textos = textos;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(e.data || ''))) MT.data = e.data;
+  if (e.atend === 'entrega' || e.atend === 'retirada') MT.atend = e.atend;
+}
+
+/** As escolhas de agora, no formato que o rascunho e o carrinho guardam. */
+function escolhasDaMontagem() {
+  return {
+    formatoId: MT.formatoId, quantidade: MT.quantidade, corId: MT.corId,
+    opcoes: [...MT.opcoes], textos: MT.textos, data: MT.data || '', atend: MT.atend || null,
+  };
+}
+
+/** O item da sacola virando escolhas do montador, para o "Editar". */
+function escolhasDoItem(item) {
+  const mt = item.montagem || {};
+  return {
+    formatoId: mt.formatoId, quantidade: mt.quantidade, corId: mt.corId,
+    opcoes: item.opcoes || [], textos: item.textos || {},
+    data: mt.dataDesejada || '', atend: null,
+  };
+}
+
+async function abrirMontador(idTxt, indiceTxt) {
   const alvo = $('conteudo');
   alvo.innerHTML = '<div class="vazio-msg">Carregando…</div>';
   try {
@@ -950,9 +1072,19 @@ async function abrirMontador(idTxt) {
     return;
   }
   const id = Number(idTxt);
-  const m = MONTAVEIS.find((x) => x.produtoId === id) || MONTAVEIS[0];
-  if (!MT || MT.m.produtoId !== m.produtoId) iniciarMontagem(m);
-  else MT.m = m;              // voltou ao montador: mantém as escolhas, com o estoque de agora
+  const indice = indiceTxt == null || indiceTxt === '' ? null : Number(indiceTxt);
+  const item = indice != null ? lerCarrinho()[indice] : null;
+  const m = MONTAVEIS.find((x) => x.produtoId === (item ? item.produtoId : id)) || MONTAVEIS[0];
+
+  if (item && item.montagem) {
+    // Editar um buquê da sacola: as escolhas vêm dele, não do rascunho.
+    iniciarMontagem(m, escolhasDoItem(item));
+    MT.editando = indice;
+  } else if (!MT || MT.m.produtoId !== m.produtoId) {
+    iniciarMontagem(m, lerRascunhos()[m.produtoId]);
+  } else {
+    MT.m = m;                 // voltou ao montador: mantém as escolhas, com o estoque de agora
+  }
   pintarMontador();
 }
 
@@ -1016,25 +1148,31 @@ function pintarMontador() {
     }).join('')));
   }
   if (textos.length && mtTemCartao()) {
-    blocos.push(passo('Mensagem', textos.map((g) => `
-      <div class="mt-campo"><label for="mtT${g.id}">${esc(g.nome)}</label>
+    blocos.push(passo('Mensagem', textos.map((g) => {
+      const falta = MT.faltas.has('texto-' + g.id);
+      return `<div class="mt-campo"><label for="mtT${g.id}">${esc(g.nome)}</label>
         ${g.descricao ? `<p class="mt-aviso" style="margin:0">${esc(g.descricao)}</p>` : ''}
-        <textarea id="mtT${g.id}" data-mt-texto="${g.id}" rows="${textos[0] === g ? 3 : 1}" maxlength="300">${esc(MT.textos[g.id] || '')}</textarea></div>`).join('')));
+        <textarea id="mtT${g.id}" data-mt-texto="${g.id}" rows="${textos[0] === g ? 3 : 1}" maxlength="300"
+          class="${falta ? 'mt-falta' : ''}" ${falta ? 'aria-invalid="true"' : ''}>${esc(MT.textos[g.id] || '')}</textarea>
+        ${falta ? '<p class="mt-diz-falta">Falta preencher</p>' : ''}</div>`;
+    }).join('')));
   }
+  const faltaAtend = MT.faltas.has('atend');
   blocos.push(passo('Quando e como?', `
     <div class="mt-campo" style="margin-top:0"><label for="mtData">Data desejada</label>
       <input type="date" id="mtData" min="${hojeIso()}" value="${esc(MT.data || '')}"></div>
-    ${servs.length ? `<div class="mt-ops" style="margin-top:12px">${servs.map((sv) => {
+    ${servs.length ? `<div class="mt-ops ${faltaAtend ? 'mt-falta' : ''}" id="mtAtendOps" style="margin-top:12px">${servs.map((sv) => {
       const v = sv.valor === 'delivery' ? 'entrega' : 'retirada';
       return `<button type="button" class="mt-op ${MT.atend === v ? 'on' : ''}" aria-pressed="${MT.atend === v}" data-mt-atend="${v}">
         <strong>${sv.icone} ${esc(sv.rotulo)}</strong><small>${v === 'entrega' ? 'Entregamos no endereço' : 'Você busca na loja'}</small></button>`;
     }).join('')}</div>` : ''}
+    ${faltaAtend ? '<p class="mt-diz-falta">Escolha retirada ou entrega</p>' : ''}
     <p class="mt-aviso" id="mtNotaAtend"></p>`));
 
   $('conteudo').innerHTML = `
     <div class="mt">
       <div class="mt-cab"><h1>${esc(m.descricao)}</h1></div>
-      <div class="mt-passos">${blocos.join('')}</div>
+      <div class="mt-passos"><p class="mt-erro" id="mtErro" hidden></p>${blocos.join('')}</div>
       <aside class="mt-lado">
         <div class="mt-previa">
           <span class="mt-etq">Prévia</span>
@@ -1049,7 +1187,6 @@ function pintarMontador() {
             <div class="mt-total"><span>Total</span><strong id="mtTotal">—</strong></div>
             <button type="button" class="mt-bt claro" id="mtSeguir">Continuar para o pagamento</button>
             <button type="button" class="mt-bt linha" id="mtSacola">Adicionar à sacola</button>
-            <p class="mt-erro" id="mtErro" hidden></p>
           </div>
         </div>
       </aside>
@@ -1062,8 +1199,12 @@ function pintarMontador() {
   ajustarLadoMontador();
 }
 
-/* Folga entre a barra do topo e o que fica preso embaixo dela. */
+/* Folga entre a barra do topo e o que fica preso embaixo dela, e os limites
+   de altura da prévia no computador: ela encolhe para o bloco caber, mas
+   abaixo de 170px o buquê deixa de ser reconhecível. */
 const MT_FOLGA = 12;
+const MT_PREVIA_MAX = 330;
+const MT_PREVIA_MIN = 170;
 
 /**
  * Onde a coluna da direita para ao rolar.
@@ -1094,13 +1235,25 @@ function ajustarLadoMontador() {
 
   if (window.innerWidth > 900) {
     previa.classList.remove('mt-solta');
-    const cabe = alturaTopo + MT_FOLGA;
-    const fim = window.innerHeight - lado.offsetHeight - MT_FOLGA;
-    lado.style.setProperty('--mt-top', Math.min(cabe, fim) + 'px');
+    const resumo = document.querySelector('.mt-resumo-wrap');
+    const gap = parseFloat(getComputedStyle(lado).rowGap) || 14;
+    const alturaResumo = resumo ? resumo.offsetHeight : 0;
+    const topoDoBloco = alturaTopo + MT_FOLGA;
+    // O que sobra de tela para a prévia, com o bloco encostado na barra.
+    const sobra = window.innerHeight - topoDoBloco - MT_FOLGA - alturaResumo - gap;
+    const h = Math.min(MT_PREVIA_MAX, Math.max(MT_PREVIA_MIN, Math.floor(sobra)));
+    previa.style.setProperty('--mt-previa-h', h + 'px');
+    // O buquê tem 300px de desenho: encolhendo a prévia, ele encolhe junto.
+    previa.style.setProperty('--bq-escala', Math.min(1, (h - 20) / (MT_PREVIA_MAX - 20)).toFixed(3));
+    const alturaBloco = h + gap + alturaResumo;
+    const fim = window.innerHeight - alturaBloco - MT_FOLGA;
+    lado.style.setProperty('--mt-top', Math.min(topoDoBloco, fim) + 'px');
     return;
   }
 
   lado.style.removeProperty('--mt-top');
+  previa.style.removeProperty('--mt-previa-h');
+  previa.style.removeProperty('--bq-escala');
   // O retângulo dos passos não depende da prévia, então serve de régua nos
   // dois sentidos da rolagem: a mesma conta solta e volta a prender.
   const acabou = passos.getBoundingClientRect().bottom <= alturaTopo + previa.offsetHeight;
@@ -1238,6 +1391,9 @@ function atualizarMontador() {
   // Marcar um adicional cresce o resumo, e com ele o bloco: onde a coluna
   // para muda junto.
   ajustarLadoMontador();
+  // Editando um item da sacola, as escolhas são DAQUELE buquê: gravá-las como
+  // rascunho apagaria o que a pessoa tinha começado a montar do zero.
+  if (MT.editando == null) gravarRascunho(m.produtoId, escolhasDaMontagem());
 }
 
 function itemDaMontagem() {
@@ -1248,16 +1404,52 @@ function itemDaMontagem() {
   };
 }
 
+/**
+ * O que falta preencher, na ordem em que aparece na tela.
+ *
+ * Com um modelo de cartão escolhido, a mensagem e para quem é passam a ser
+ * obrigatórias: o cartão é impresso com o que está escrito nelas, e um cartão
+ * em branco chega à floricultura sem ninguém para perguntar o que ia nele.
+ * Sem cartão, os mesmos campos não existem na tela e não são cobrados.
+ *
+ * Como o cadastro do lojista marca esses grupos como opcionais, quem exige é
+ * ESTA tela — o servidor continua aceitando o pedido sem eles, e isso é de
+ * propósito: a regra "cartão pede mensagem" é de atendimento, não de
+ * integridade do pedido.
+ */
+function mtFaltando(seguir) {
+  const fora = [];
+  if (mtTemCartao()) {
+    for (const g of MT.m.adicionais) {
+      if (g.tipo !== 'texto') continue;
+      if (!String(MT.textos[g.id] || '').trim()) fora.push('texto-' + g.id);
+    }
+  }
+  if (seguir && servicosDaLoja().length && !MT.atend) fora.push('atend');
+  return fora;
+}
+
+/** Leva à primeira falta e põe o foco nela. */
+function mtIrAteAFalta(chave) {
+  const el = chave === 'atend'
+    ? document.querySelector('[data-mt-atend]')
+    : $('mtT' + chave.slice(6));
+  if (!el) return;
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.focus({ preventScroll: true });
+}
+
 let MT_ENVIANDO = false;
 async function concluirMontagem(seguir) {
-  const erro = $('mtErro');
-  erro.hidden = true;
-  if (seguir && servicosDaLoja().length && !MT.atend) {
-    erro.textContent = 'Escolha se vai retirar na loja ou receber em casa.';
-    erro.hidden = false;
-    erro.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const faltas = mtFaltando(seguir);
+  MT.faltas = new Set(faltas);
+  if (faltas.length) {
+    pintarMontadorMantendo();
+    mtIrAteAFalta(faltas[0]);
     return;
   }
+  const erro = $('mtErro');
+  if (erro) erro.hidden = true;
   // Dois toques rápidos punham dois buquês na sacola: a montagem nunca se funde.
   if (MT_ENVIANDO) return;
   MT_ENVIANDO = true;
@@ -1275,12 +1467,18 @@ async function concluirMontagemAgora(seguir, erro) {
     body: JSON.stringify({ itens: [item] }),
   }).then((x) => x.json()).catch(() => null);
   if (!r || !r.success) {
-    erro.textContent = (r && r.error) || 'Não foi possível adicionar agora.';
-    erro.hidden = false;
-    erro.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (erro) {
+      erro.textContent = (r && r.error) || 'Não foi possível adicionar agora.';
+      erro.hidden = false;
+      erro.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
     return;
   }
-  await adicionar(item);
+  // Editando um buquê da sacola, ele é TROCADO: somar outro igual seria o
+  // contrário do que quem clicou em "Editar" pediu.
+  if (MT.editando != null) await substituirNaSacola(MT.editando, item);
+  else await adicionar(item);
+  esquecerRascunho(MT.m.produtoId);
   if (MT.atend) { SERVICO = MT.atend === 'entrega' ? 'delivery' : 'retirada'; CHECKOUT.atendimento = MT.atend; }
   MT = null;                               // a próxima montagem começa do zero
   irPara(seguir ? '#/checkout' : '#/sacola');
@@ -1291,7 +1489,13 @@ function tratarCliqueMontador(e) {
   const flor = e.target.closest('[data-mt-flor]');
   if (flor) {
     const m = MONTAVEIS.find((x) => x.produtoId === Number(flor.dataset.mtFlor));
-    if (m && m.produtoId !== MT.m.produtoId) { iniciarMontagem(m); history.replaceState(null, '', '#/montar/' + m.produtoId); pintarMontador(); }
+    if (m && m.produtoId !== MT.m.produtoId) {
+      // Trocar de flor no meio de uma edição deixa de ser edição: o buquê da
+      // sacola continua como está até alguém salvar outro por cima.
+      iniciarMontagem(m, MT.editando == null ? lerRascunhos()[m.produtoId] : null);
+      history.replaceState(null, '', '#/montar/' + m.produtoId);
+      pintarMontador();
+    }
     return true;
   }
   const fmt = e.target.closest('[data-mt-formato]');
@@ -1326,7 +1530,7 @@ function tratarCliqueMontador(e) {
     return true;
   }
   const at = e.target.closest('[data-mt-atend]');
-  if (at) { MT.atend = at.dataset.mtAtend; pintarMontadorMantendo(); return true; }
+  if (at) { MT.atend = at.dataset.mtAtend; MT.faltas.delete('atend'); pintarMontadorMantendo(); return true; }
   if (e.target.closest('#mtSeguir') || e.target.closest('#mtSeguirBarra')) { concluirMontagem(true); return true; }
   if (e.target.closest('#mtSacola')) { concluirMontagem(false); return true; }
   return false;
@@ -1351,9 +1555,23 @@ function pintarMontadorMantendo() {
 }
 
 document.addEventListener('input', (e) => {
+  guardarCampoCheckout(e.target);
   if (!MT) return;
   const t = e.target.closest('[data-mt-texto]');
-  if (t) { MT.textos[Number(t.dataset.mtTexto)] = t.value; atualizarMontador(); return; }
+  if (t) {
+    const g = Number(t.dataset.mtTexto);
+    MT.textos[g] = t.value;
+    // A marca some ao preencher, sem esperar outro clique em Continuar. Só a
+    // classe sai: repintar aqui tiraria o cursor do campo a cada tecla.
+    if (MT.faltas.delete('texto-' + g)) {
+      t.classList.remove('mt-falta');
+      t.removeAttribute('aria-invalid');
+      const diz = t.parentElement && t.parentElement.querySelector('.mt-diz-falta');
+      if (diz) diz.remove();
+    }
+    atualizarMontador();
+    return;
+  }
   if (e.target.id === 'mtData') { MT.data = e.target.value; atualizarMontador(); }
 });
 
@@ -1513,7 +1731,10 @@ async function rotear() {
     pintarSucesso(h.slice(9));
   } else if (h.startsWith('#/montar')) {
     topo.hidden = true;
-    await abrirMontador(h.slice(9));
+    // `#/montar/<produto>` monta um novo; `#/montar/<produto>/<n>` edita o
+    // item n da sacola.
+    const [idTxt, indice] = h.slice(9).split('/');
+    await abrirMontador(idTxt, indice);
   } else if (h.startsWith('#/pagar/')) {
     topo.hidden = true;
     await pintarPagamento(decodeURIComponent(h.slice(8)));
@@ -1945,6 +2166,7 @@ async function carregar() {
 
 /* O troco e o frete dependem de campos que mudam sem clique. */
 document.addEventListener('change', (e) => {
+  guardarCampoCheckout(e.target);
   if (e.target.id === 'chkPrecisaTroco') {
     const cx = $('chkTrocoValor');
     if (cx) cx.hidden = !e.target.checked;
@@ -2019,6 +2241,13 @@ document.addEventListener('click', async (e) => {
   if (maisItem) { await mudarQuantidade(Number(maisItem.dataset.maisItem), 1); return pintarSacola(); }
   const rem = e.target.closest('[data-remover]');
   if (rem) { await remover(Number(rem.dataset.remover)); return pintarSacola(); }
+  const editar = e.target.closest('[data-editar]');
+  if (editar) {
+    const idx = Number(editar.dataset.editar);
+    const item = lerCarrinho()[idx];
+    if (item) return irPara('#/montar/' + item.produtoId + '/' + idx);
+    return;
+  }
 
   /* ---- como você quer receber (barra inferior da sacola) ---- */
   const serv = e.target.closest('[data-servico]');
