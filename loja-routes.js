@@ -56,14 +56,15 @@ const TEMA_PADRAO = {
      é a terceira cor (o segundo brilho do fundo aquarela); `fundoEfeito`
      'aquarela' desenha dois brilhos suaves nas cores secundária e de apoio;
      `sombra` dá profundidade a cards e botões; `topo` 'translucido' deixa a
-     barra do topo sem fundo branco nem linha; `sigla` é o círculo com as
+     barra do topo sem fundo branco nem linha, e 'degrade' (29/09) tira a
+     caixa de vez: o fundo e o desfoque somem até a base; `sigla` é o círculo com as
      iniciais quando não há logo; `slogan` é a linha curta em caixa alta sob o
      nome; `destaque` é o bloco do topo da vitrine, com a capa como imagem. */
   corFundo: null,
   corApoio: null,
   fundoEfeito: 'liso',   // liso | aquarela
   sombra: 'nenhuma',     // nenhuma | suave | profunda
-  topo: 'solido',        // solido | translucido
+  topo: 'solido',        // solido | translucido | degrade
   sigla: null,
   slogan: null,
   destaque: null,        // { ativo, selo, titulo, texto, botao, botaoWhatsapp, etiqueta }
@@ -78,7 +79,7 @@ const OPCOES_TEMA = {
   fonteTitulo: ['igual', 'elegante', 'classica', 'serifa', 'manuscrita', 'moderna'],
   fundoEfeito: ['liso', 'aquarela'],
   sombra: ['nenhuma', 'suave', 'profunda'],
-  topo: ['solido', 'translucido'],
+  topo: ['solido', 'translucido', 'degrade'],
 };
 
 /* Textos do destaque do topo, com o limite de cada um. Texto a mais é

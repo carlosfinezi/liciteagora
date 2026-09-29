@@ -4,6 +4,44 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-29, topo em degradê e a floricultura vira cantinhoverde
+
+**Barra do topo em degradê**, nova opção do tema de qualquer loja (Catálogo
+Online › Aparência › Barra do topo › Degradê). A barra deixa de ser caixa: o
+fundo vai de 96% a 78% e a transparente, na cor de fundo da loja, com
+desfoque de 12 px que some junto, por máscara, sem borda nem linha na base.
+`loja-routes.js` aceita `topo: 'degrade'`, e a folha fica no
+`public/loja/index.html`. A etapa I4 de `test-floricultura` prova que o valor
+grava e que um desconhecido volta a `solido`.
+
+**Loja do Cantinho Verde** (dados, pela API da loja): logo real no lugar do
+círculo "CV", recortada em quadrado rente ao anel; o ícone da aba continua o
+"CV", porque a logo não se lê a 16 e 32 px. Destaque do topo com o selo
+"Feito do seu jeito", o título "Monte um carinho em forma de flores." e o
+texto novo. Topo em degradê.
+
+**Tenant de teste `cantinhoverde` apagado**, a pedido. Criado às 08:54 do
+mesmo dia, tinha só as sementes de tenant novo, o `admin` com um login e oito
+módulos ligados. Saíram o cadastro do `control.db` (módulos pelo `CASCADE`),
+o vhost e o certificado. A pasta foi para `/tmp/cantinhoverde-removido-2026-09-29`
+e o banco segue no backup `2026-09-29-0947`.
+
+**`floricultura` passou a ser `cantinhoverde`** (`cantinhoverde.liciteagora.app`),
+com dados, loja, produtos, usuário, tema e configurações: o cadastro 28
+trocou `slug` e `db_path`, a pasta mudou de nome, os dois serviços
+reiniciaram às 09:51 para largar as conexões antigas, o vhost e o certificado
+do `floricultura` saíram e o `cantinhoverde` ganhou vhost e certificado novos.
+As duas ações estão no `tenant_audit`. FIM resselado com os quatro arquivos
+de `/etc/nginx/conf.d/domains/`. O caminho ficou descrito no CLAUDE.md.
+
+**Verify** (rodada das 09:52, 147 etapas, 1.492 s): a 21 é a falha conhecida
+do menu ⚙️. A **25** (`test-catalogo-publico-49`, B-carrinho e
+B-checkout-livre) e a **26** (`test-catalogo-fase50`, B6) reprovam no caminho
+sacola → checkout, e são da frente da sacola: o `public/loja/catalogo.js` da
+árvore tirou o `#btIrCheckout` do rodapé e os botões de serviço, e esse
+arquivo não entra neste commit. A regra do degradê só vale com
+`data-topo="degrade"`, que nenhuma das duas liga.
+
 ## 2026-09-29, monte seu buquê, adicionais e Pix da loja
 
 Para o Cantinho Verde, com a tabela de preços do dono. O que serve para

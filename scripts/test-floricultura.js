@@ -479,6 +479,10 @@ t('I4. acabamento do tema: cores, efeitos, sigla, slogan e destaque saneados', (
   assert(tema.destaque.ativo === true && tema.destaque.titulo.length === 90 && tema.destaque.etiqueta === null, JSON.stringify(tema.destaque));
   const pub = app.chamar('GET', '/loja/api/config').body.loja.tema;
   assert(pub.destaque && pub.destaque.selo === 'Feito do seu jeito' && pub.corFundo === '#FFFAF9', 'a vitrine pública não recebe o acabamento');
+  assert(app.chamar('PUT', '/api/loja/config', { tema: { topo: 'degrade' } }).body.success, 'topo degradê recusado');
+  assert(JSON.parse(db.prepare('SELECT tema FROM loja_config').get().tema).topo === 'degrade', 'topo degradê não gravado');
+  app.chamar('PUT', '/api/loja/config', { tema: { topo: 'vidro' } });
+  assert(JSON.parse(db.prepare('SELECT tema FROM loja_config').get().tema).topo === 'solido', 'topo desconhecido não voltou ao padrão');
 });
 
 // ─────────────────────────── execução ───────────────────────────

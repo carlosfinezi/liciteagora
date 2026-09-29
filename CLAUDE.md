@@ -88,7 +88,27 @@ alguns armam temporizadores. Sem devolver o controle ao event loop até o
 `process.exit`, nenhum dispara, e o script não vira uma segunda produção.
 `--plano-id 4` é o Vitalício/Interno: os planos Trial e Mensal vencem e
 suspendem o tenant sozinhos. Foi assim que nasceu o `floricultura`, em
-27/09/2026.
+27/09/2026, que desde 29/09 é o `cantinhoverde` (ver abaixo).
+
+### Trocar o slug de um tenant: não há rota, e a ordem importa
+
+Feito uma vez, em 29/09/2026 (`floricultura` → `cantinhoverde`, depois de
+apagar um `cantinhoverde` de teste). O slug é o endereço, o nome da pasta
+em `data/tenants/` e a chave do pool de conexões dos dois processos:
+
+1. backup;
+2. no `control.db`, `UPDATE tenants SET slug, db_path` e uma linha em
+   `tenant_audit` (`RENAME_SLUG`). Apagar tenant é `DELETE FROM tenants` com
+   `PRAGMA foreign_keys=ON`, que leva módulos e cobrança pelo `CASCADE`;
+3. `mv` da pasta em `data/tenants/`;
+4. **restart dos dois serviços na hora.** O pool guarda a conexão pelo slug:
+   sem o restart, o slug reaproveitado continuaria servindo o banco antigo;
+5. `v-delete-web-domain carlosfinezi <antigo>.liciteagora.app yes` e
+   `/usr/local/sbin/liciteagora-provision-vhost <novo>`;
+6. resselar o FIM com os arquivos de `/etc/nginx/conf.d/domains/` que mudaram.
+
+As imagens da loja guardam o slug antigo no nome do arquivo
+(`logo-floricultura-…`). Isso é só nome, e continua servindo.
 
 ### Chave do certificado A1: `/etc/liciteagora/chave-certificado.env`
 

@@ -444,6 +444,18 @@ html[data-topo="translucido"] header.topo {
     color-mix(in srgb, var(--ground) 84%, transparent));
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-bottom: 0;
 }
+/* Topo em degradê: a barra deixa de ser caixa. O fundo vai de quase opaco no
+   alto a transparente na base, e a máscara apaga o desfoque junto; sem ela o
+   desfoque terminaria numa linha reta, que é o fim marcado que se quer evitar. */
+html[data-topo="degrade"] header.topo { background: transparent; border-bottom: 0; }
+html[data-topo="degrade"] header.topo::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--ground) 96%, transparent),
+    color-mix(in srgb, var(--ground) 78%, transparent) 50%, transparent);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 50%, transparent);
+  mask-image: linear-gradient(to bottom, #000 50%, transparent);
+}
 /* Iniciais num círculo, no lugar da logo, para quem ainda não tem uma. */
 .sigla { width: 46px; height: 46px; border-radius: 50%; flex-shrink: 0; display: grid;
   place-items: center; background: var(--primaria); color: var(--primaria-texto);
