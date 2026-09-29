@@ -1175,7 +1175,9 @@ function registrarRotasLojaPublica(app, db) {
         const p = db.prepare('SELECT id, descricao, observacoes, imagemPath FROM produtos WHERE id = ?').get(id);
         const m = montagem.montavelPublico(db, id, { mostrarPreco: !!c.mostrarPreco, disponivelDe: (pid) => disponivelDe(db, pid) });
         if (!m || !m.formatos.length) return null;
-        return { ...m, descricao: p.descricao, observacoes: p.observacoes || null,
+        // Sem `observacoes`: é recado interno do lojista, nenhuma tela da loja
+        // o usa, e no JSON público ele ia para a internet inteira.
+        return { ...m, descricao: p.descricao,
                  foto: fotosDe(p.id, p.imagemPath)[0] || null, adicionais: personalizacoesDe(db, id) };
       }).filter(Boolean);
       res.set('Cache-Control', 'no-store');
@@ -1351,15 +1353,26 @@ function registrarRotasLojaPublica(app, db) {
           precoVenda, imagemPath, observacoes, pesoBruto, altura, largura, profundidade
         FROM produtos WHERE id = ? AND ativo = 1 AND publicadoNaLoja = 1`).get(req.params.id);
       if (!p) return res.status(404).json({ success: false, error: 'Produto não encontrado' });
+      /* Montável não tem página comum: quem chega aqui por link antigo é levado
+         ao montador. O JSON ainda responde, e responde como a vitrine — preço
+         mínimo da tabela, nunca o `precoVenda` zerado do cadastro — porque o
+         `montavel` só é lido DEPOIS de a resposta chegar. */
+      const montavel = montagem.ehMontavel(db, p.id);
       const disp = disponivelDe(db, p.id);
-      const preco = precoVisivel(c, p, pessoaLogada(req));
+      const preco = montavel
+        ? (c.mostrarPreco ? montagem.precoInicial(db, p.id) : null)
+        : precoVisivel(c, p, pessoaLogada(req));
       res.json({ success: true, produto: {
         ...p, precoVenda: undefined,
         marca: marcaVisivel(p.marca),
+        montavel,
+        // A observação do montável é recado interno do lojista ("EXEMPLO criado
+        // em…"), e nenhuma tela da loja a usa. Fora da resposta, fora do ar.
+        observacoes: montavel ? null : p.observacoes,
         preco,
-        precoAnterior: precoAnterior(c, p, preco),
-        estoque: c.mostrarEstoque ? rotuloEstoque(disp) : null,
-        disponivel: c.mostrarEstoque ? disp : null,
+        precoAnterior: montavel ? null : precoAnterior(c, p, preco),
+        estoque: montavel ? null : (c.mostrarEstoque ? rotuloEstoque(disp) : null),
+        disponivel: montavel ? null : (c.mostrarEstoque ? disp : null),
         fotos: fotosDe(p.id, p.imagemPath),
         personalizacoes: personalizacoesDe(db, p.id),
       } });
@@ -1896,6 +1909,17 @@ function registrarRotasLojaPublica(app, db) {
         .slice(0, limite);
 
       res.json({ success: true, produtos: candidatos.map(({ p }) => {
+        /* Montável aqui é o mesmo card da vitrine: leva ao montador e mostra o
+           menor preço da tabela. Sem isto, a sugestão do buquê saía por
+           R$ 0,00 — o `precoVenda` do cadastro, que nos montáveis não é
+           usado para nada. */
+        if (montagem.ehMontavel(db, p.id)) {
+          return { id: p.id, sku: p.sku, descricao: p.descricao, marca: marcaVisivel(p.marca),
+                   categoria: p.categoria, unidade: p.unidade, destaque: !!p.destaque,
+                   montavel: true, preco: c.mostrarPreco ? montagem.precoInicial(db, p.id) : null,
+                   precoAnterior: null, temPersonalizacao: true,
+                   fotos: fotosDe(p.id, p.imagemPath) };
+        }
         const preco = precoVisivel(c, p, pessoaId);
         return { id: p.id, sku: p.sku, descricao: p.descricao, marca: marcaVisivel(p.marca),
                  categoria: p.categoria, unidade: p.unidade, destaque: !!p.destaque,

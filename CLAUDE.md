@@ -189,6 +189,15 @@ middleware de tenant. O `vitrineNaBarreira` fica logo antes do
 `requireAuth`. A configuração é lida com cache de 15 s por tenant, e quem grava
 chama `esquecerVitrine`.
 
+O tema da vitrine tem acabamento desde 28/09/2026 (fundo aquarela, sombras,
+topo translúcido, sigla, slogan e o destaque do topo), e o `tema.js` grava as
+escolhas como `data-fundo-efeito`, `data-sombra` e `data-topo` no `<html>`:
+é neles que a folha do `public/loja/index.html` se apoia. Desde 29/09 o topo
+tem a opção `degrade`, que é a regra `.topbar` do protótipo do Cantinho Verde
+(degradê 96/78/0% na cor de fundo da loja e `blur(12px)`, sem máscara). A loja
+do tenant `cantinhoverde` (até 29/09, `floricultura`) usa tudo isso, e seus
+produtos de exemplo têm SKU `EXEMPLO-`.
+
 **Ícones da loja** (29/09/2026): a vitrine com ícone enviado (`faviconPath`)
 declara aba em 16 e 32 px, atalho do celular (180) e manifest próprio, pelas
 rotas públicas `/loja/icones/<tamanho>.png` e `/loja/manifest.webmanifest`.
@@ -716,6 +725,16 @@ que ficou de fora está listado no corpo de cada commit.
 
 ## Pendências conhecidas
 
+- **Restaurante: não há histórico de turnos fechados** (anotado 2026-09-25, a
+  pedido, para construir depois). A diferença do caixa fica gravada em
+  `rest_turnos.diferenca`, mas as rotas são só `/turnos/atual` e
+  `/turnos/:id`, e a tela do Caixa mostra só o turno aberto. A diferença
+  aparece uma vez, na mensagem logo após fechar, e some.
+- **Mesmo defeito de fuso, fora do que foi corrigido em 25/09:** o scheduler
+  compara `os_ordens.dataPromessa` (data local) com `date('now')` em UTC, e a
+  OS vira "atrasada" às 21h; `movimentacoes_estoque.data` mistura data local
+  com data e hora UTC da baixa do restaurante; o evento SNGPC da farmácia grava
+  a emissão da NFC-e e merece conferência própria.
 - **`[Alerta] Erro ao verificar disputas: no such table:
   participacoes_comprasnet`** — 31.737 ocorrências no `server.log` até
   2026-08-11, a primeira lá pela linha 520.699. Alguma verificação de disputa
@@ -758,37 +777,849 @@ o processo vivo segue com a versão que leu no boot. Antes de reiniciar, leia o
 que muda. **Mantenha a lista atualizada a cada edição de `.js` da raiz**, e
 esvazie a parte do serviço que foi reiniciado.
 
-**`consulta-licitacoes.service`** (o `server.js`) — boot atual: **2026-09-17
-10:16**, reiniciado no passo 7 do fechamento.
+**`consulta-licitacoes.service`** (o `server.js`) — boot atual: **2026-09-29
+13:16:26**, no fechamento da loja do Cantinho Verde (barra do topo por
+medida, sacola no fluxo e montável sempre no montador), depois do backup
+`backups/db/2026-09-29-1315`. Boot limpo, `NRestarts=0`, HTTP 302. **Nada
+pendente.** Só o `loja-routes.js` era meu; o boot levou junto o
+`faturas-routes.js` de outra frente, salvo às 13:08 e com sintaxe conferida
+antes do restart. O restart foi feito ANTES do commit, e não depois, porque
+as rotas novas (`montavel` e `precoInicial` em `/loja/api/sugestoes` e
+`/loja/api/produtos/:id`) precisavam estar no ar para as provas de tela
+valerem sobre o que seria commitado.
 
-**Pendente: o faturamento do contrato por nota avulsa** (17/09, tarde).
-Quatro arquivos da raiz mudaram e nenhum está em vigor: `db-schema.js`
-(coluna `nfse.contratoId` mais o índice — a migration roda no boot, e até lá
-nenhum tenant tem a coluna), `contratos-routes.js` (`notasAvulsas` no detalhe
-e as rotas `nfse-disponiveis` / `vincular-nfse`), `nfse-routes.js`
-(`emitirNfseInterno` carimba o contrato de origem) e `perfis-api-map.js`
-(perfil `nfse` ganhou acesso a `/api/contratos`).
+**Um boot às 12:58:53 aconteceu por outra sessão e não estava registrado
+aqui** (esta nota dizia 11:05:29). Quem for conferir o que está em vigor:
+compare o `mtime` do arquivo com o `ExecMainStartTimestamp` da unit, e não
+com o que estiver escrito aqui.
 
-As telas, por serem estáticas, **já estão no ar** e convivem com o servidor
-antigo sem quebrar: o bloco "Notas avulsas deste contrato" fica escondido
-enquanto o detalhe não devolver `notasAvulsas`. O que não funciona até o
-restart é emitir pela tela do contrato com o vínculo: o `POST /api/nfse/emitir`
-em memória ignora o `contratoId` e a nota sairia solta.
+O anterior registrado foi o de **11:05:29**, para as rotas `/loja/icones/` e `/loja/manifest.webmanifest`
+do 68a0b5e (`loja-routes.js`), que o `tema.js` já no ar pedia. Boot limpo,
+`NRestarts=0`, HTTP 302. **Nada pendente.** O anterior foi o de
+**10:50:25**, no fechamento do 8e24d07: o 404 da loja dentro de `/loja/` sem
+exigir a loja como página inicial (`loja-routes.js`). Só o servidor web: o
+scheduler carrega o arquivo pelo `db-schema.js`, mas não serve HTTP. Boot
+limpo, `NRestarts=0`, HTTP 302. Levou também o que a árvore tinha de outras
+frentes nesse instante. **Nada pendente.** O anterior foi o de **10:19:22**,
+no fechamento do ac722e1 (monte seu buquê e Pix da loja), depois do
+backup `backups/db/2026-09-29-0929`. Só o servidor web: o `scheduler.js` não
+carrega o checkout nem o webhook. O boot criou `loja_montaveis` e companhia,
+`loja_pagamentos` e a `pedidos.valorRecebidoDinheiro` de outra frente,
+conferidas nos 20 tenants. Boot limpo, `NRestarts=0`, HTTP 302. **Nada
+pendente.** O Pix no site só liga quando o `cantinhoverde` tiver conta Asaas
+ativa em Financeiro › Contas financeiras; até lá o checkout aceita as
+intenções de sempre. O `public/loja/catalogo.js`, o `public/loja/index.html` e
+o `public/comercial/pedido.html` estão no ar e fora do commit, porque dependem
+de trabalho de outras frentes que não está no HEAD.
 
-O que entrou em vigor nesse restart, e que vale saber porque muda
-comportamento: **a NFC-e da comanda do restaurante passou a funcionar.** Antes
-dele, `POST /api/restaurante/comandas/:id/emitir-nfce` respondia 400 com
-"emitirNFCe is not a function" em toda chamada. Agora a nota **sai de verdade
-na SEFAZ**, então o primeiro teste vale ser feito em homologação e não numa
-comanda real.
+O boot anterior foi o de **09:51:47**, junto do scheduler (09:51:49), a pedido, depois do backup
+`backups/db/2026-09-29-0947`: a troca do slug `floricultura` → `cantinhoverde`
+exigia os dois processos largarem as conexões antigas, e o boot pôs no ar o
+`topo: degrade` do `loja-routes.js`. Levou também o que a árvore tinha de
+outras frentes nesse instante. Boot limpo nos dois, `NRestarts=0`, HTTP 302.
+**Nada pendente.** O anterior foi o de 07:00:14 (ver o bloco logo abaixo do
+de 23:03). O de **2026-09-28 23:03:44**, a pedido, depois do backup `backups/db/2026-09-28-2302`:
+**segmento na ficha da pessoa.** Boot limpo, `NRestarts=0`, HTTP 302. O
+`db-schema.js` chama `segmentos.migrarSegmentos`: tabela `segmentos` (9
+sementes, com o Genérico), `pessoas.segmentoId` e `comm_campanhas.segmentos`,
+conferidos nos 20 tenants (ensaio em cópia antes: até 411 ms cada). Arquivos:
+`segmentos.js` e `lead-ficha.js` (novos), `financeiro-routes.js` (lead puro
+fora da listagem, `?leads=1`, `?segmento`), `comm-routes.js` (planilha cria ou
+reaproveita a ficha; membro edita o segmento da ficha; campanha por segmento;
+`/api/comm/segmentos`), `comm-destinos.js`, `conversas-routes.js` (público
+filtrado no SQL antes do limite; `?segmento` em Conversas). **A migração dos
+27.777 avulsos do 1bit NÃO rodou**: `scripts/migrar-leads-listas.js` espera a
+decisão sobre casar com ficha antiga (as 44 são quase todas contabilidade) e
+sobre os 1.056 cards do CRM com nome diferente. As duas foram decididas em
+29/09 e entraram no boot seguinte.
 
-Como decidir o que está pendente, da próxima vez: `stat -c '%y' <arquivo>`
-contra o `ActiveEnterTimestamp` da unit. Arquivo mais antigo que o boot já está
-carregado, e commitá-lo não muda nada em produção. Foi assim que se descobriu
-que quase toda a leva de 16/09 já estava no ar e só o `nfce-routes.js` faltava.
+**Boot seguinte, 2026-09-29 07:00:14**, a pedido, depois do backup
+`backups/db/2026-09-29-0659`. Boot limpo, `NRestarts=0`, HTTP 302. **Nada
+pendente.** Levou:
 
-**`liciteagora.service`** (o `scheduler.js`) — **nada pendente**, e o medo
-antigo não se aplica mais.
+- **O lead com ficha própria, juntado por telefone E nome** (`lead-ficha.js`),
+  a pedido. Só ficha de lead casa, e nunca cliente, fornecedor ou contador. Dois
+  contatos são a mesma ficha só quando o telefone e o nome coincidem, com o nome
+  comparado sem acento, pontuação, espaço ou caixa. O mesmo telefone com nomes
+  diferentes são empresas diferentes do mesmo contador: no 1bit, 278 telefones
+  aparecem assim. O card do CRM liga só com telefone e nome iguais. A conversa
+  liga só quando um único lead tem o telefone, porque ela não tem nome para
+  desempatar.
+- **A campanha em rodadas** (`comm-routes.js`, `comm-destinos.js`,
+  `conversas-routes.js`, `db-schema.js`), a pedido. "Enviar de novo", numa
+  campanha enviada ou cancelada, abre a rodada seguinte
+  (`POST /api/comm/campanhas/:id/nova-rodada`), e a lista inteira recebe outra
+  vez. O boot criou `comm_campanhas.rodada` e `comm_envios.rodada` (default 1),
+  conferidas nas 18 empresas com campanhas; no 1bit, os 2 envios existentes são
+  da rodada 1. Os totais da campanha são os da rodada atual, e "Ver envios"
+  escolhe a rodada. O `wa-scheduler.js`, que dispara as campanhas agendadas,
+  roda dentro do `server.js`, e por isso o scheduler não precisou reiniciar.
+
+Suítes: 144 (`test-campanha-rodadas`) e 145 (`test-segmentos`).
+
+**A migração dos avulsos do 1bit foi APLICADA em 29/09 às 07:10**, a pedido,
+depois do backup `backups/db/2026-09-29-0710`. Os números bateram com os do
+ensaio, e foram conferidos no banco depois: 27.771 fichas com `["lead"]`, todas
+com aceite de WhatsApp; as 181 fichas antigas intocadas; 2 membros sem ficha
+(telefone inválido); 25.997 cards do CRM com cliente lead; 357 conversas com
+ficha (31 antes + 326). Para voltar atrás, só restaurando aquele backup.
+Outros tenants não têm avulsos em lista. Ensaio de 29/09, sobre uma cópia: 27.777
+avulsos, 27.771 fichas novas de lead, nenhuma casando com ficha antiga, nenhum
+nome mudando nas listas nem no CRM, 25.997 cards do CRM ligados (961 ficam
+sem ligar, por nome diferente), 326 conversas ligadas e 2 contatos com telefone
+inválido, que ficam sem ficha. Rodar de novo não faz nada: não sobra avulso
+para migrar.
+
+**Em vigor desde o boot de 2026-09-29 10:19:22, feito por outra sessão: a
+ficha de lead completada e as variáveis novas.** Os seis arquivos são das
+09:49 e 09:50, anteriores a esse boot. O "[CRM] Erro na migração kanban→CRM:
+no such table: licitacoes" do log é antigo (aparece em todo boot desde 28/09
+08:53) e não vem desta frente. Decidido em 29/09:
+
+- `{{primeiroNome}}` sai do NOME FANTASIA, e da razão social só sem fantasia
+  (`comm-destinos.renderizar`). Vale para toda ficha.
+- Variáveis novas `{{cidade}}`, `{{ramo}}` e `{{porte}}`, nos dois motores
+  (na legado, do `extras` do lead). `{{cpfCnpj}}` sai vazio para o
+  identificador interno (`SD-…`), que antes chegava ao cliente, e na legado só
+  sai quando é número.
+- As telas mostram o NOME DO LEAD, e não a razão social:
+  `lead-ficha.nomeExibido`, usado em Listas, "Ver envios", Conversas e CRM.
+  Ficha que não é lead continua mostrando a razão social.
+- O lead casa pelo fantasia também (`lead-ficha.indiceDeTelefones`), e a ficha
+  nova nasce com o nome nos dois campos. Sem isso, uma planilha nova duplicaria
+  o lead completado.
+- Arquivos: `comm-destinos.js`, `wa-campaigns-routes.js`, `lead-ficha.js`,
+  `comm-routes.js`, `conversas-routes.js` e `crm-routes.js`. As telas
+  `modelos.html` e `campanha.html` já listam as variáveis novas, e o servidor
+  vivo as recusa até o restart.
+
+**`scripts/completar-leads.js` foi APLICADO no 1bit em 29/09 às 12:33**, a
+pedido, depois do backup `backups/db/2026-09-29-1232`, com os números do
+ensaio: 27.769 fichas completadas, 17.991 com CNPJ, 2 sem dados do lead. A
+primeira tentativa morreu com `SQLITE_BUSY_SNAPSHOT` e não gravou nada: a
+transação abria como leitura e não virava escrita, porque o servidor gravou no
+meio. Os três scripts desta frente (`completar-leads`, `migrar-leads-listas` e
+`acertar-optout`) passaram a abrir com `.immediate()`.
+
+Junto, e a pedido, a campanha 3 do 1bit voltou de cancelada para pausada,
+com os 19 pendentes da rodada 1. O modelo 1 ainda não tinha imagem nesse
+momento.
+
+**Em vigor desde o boot de 2026-09-29 11:15:42, a pedido (boot limpo,
+`NRestarts=0`, HTTP 302): a pausa da campanha nova.** A campanha 3 do 1bit
+continua gravada como cancelada: voltá-la para pausada é escrita no banco, e
+espera pedido.
+A rota `pausar` gravava "pausada", mas o motor, ao sair do laço, gravava
+"cancelada" por cima, porque não distinguia pausa de cancelamento. A campanha
+pausada perdia o "Retomar". Foi o que houve com a campanha 3 do 1bit
+("exemplo (cópia)"): pausada às 11:01, ficou cancelada com 19 pendentes. Agora
+é o mesmo `ctl.pausado` da campanha legado (`comm-routes.js`). Prova: R11 da
+`test-campanha-rodadas`, que reprovou com o motor antigo.
+
+**Em vigor desde o boot de 2026-09-29 12:21:36, a pedido (limpo,
+`NRestarts=0`, HTTP 302): "Aceita campanha por WhatsApp" como o controle de
+marketing.** Decidido em 29/09: desmarcar o campo
+na ficha tira o lead de toda campanha de marketing, nova ou legado. A
+operacional (boleto, entrega) continua ignorando o campo, mas não a lista de
+bloqueio.
+
+- A campanha legado passa a respeitar o campo da ficha do LEAD, achada pelo
+  telefone e pelo nome (`lead-ficha.leadRecusaMarketing`). A ficha do contador,
+  que divide o telefone, não fala pelo lead. Ela também passa a olhar a lista
+  da campanha nova (`comm_optout`) com o número normalizado. Quem cai numa
+  dessas regras sai da fila como `optout`, com o motivo (`wa-campaigns-routes.js`).
+- Responder SAIR (ou PARAR, STOP…) a uma campanha, nova ou legado, passa por
+  `comm-destinos.descadastrarWhatsApp`: as duas listas de bloqueio, com o
+  número normalizado e como veio, a ficha desmarcada e os pendentes da legado
+  fora da fila (`whatsapp-webhook.js`). Até 29/09 só a legado contava, e o pedido
+  ia só para a lista dela. Quem nunca recebeu campanha segue o fluxo normal:
+  "cancelar" sobre um pedido não descadastra ninguém.
+- Prova: O1 a O3 da `test-campanha-modelo`, que reprovaram O1 e O2 com o
+  código antigo.
+
+**`scripts/acertar-optout.js` foi APLICADO no 1bit em 29/09 às 12:22**, depois
+do backup `backups/db/2026-09-29-1222`, com os mesmos números do ensaio.
+Conferido depois: 36 números na lista da campanha nova, o 5594992069221 entre
+eles, e nenhuma ficha com número bloqueado ainda aceitando campanha. Ensaio,
+sobre uma cópia, com `--numero 559481151183 --numero 559491186675`: 9 números
+novos na lista da campanha nova (o 559492069221 de 17/08 entre eles, bloqueado
+até então só na legado), 7 fichas desmarcadas e 1 pendente da legado fora da
+fila.
+
+**19 pedidos de saída de antes de 17/08 estão sem telefone.** O bot antigo
+gravou o identificador interno do WhatsApp (LID, como "117145820221516") em
+`wa_optout`, e nenhuma campanha compara com ele. O telefone de 2 está nas
+mensagens da Evolution (`Message.key->>'remoteJidAlt'`, no `evolution_db`) e
+entra pelo `--numero`. Dos outros 17 não há mensagem nenhuma, e o número se
+perdeu. O webhook de hoje já troca o LID pelo telefone
+(`whatsapp-webhook.js:28`).
+
+**Pendente de restart (29/09), só o servidor web: a campanha nova volta
+sozinha depois de um restart.** O laço de envio mora em memória, e o restart no
+meio deixava a campanha em 'enviando' sem nada saindo, para sempre: a campanha
+3 do 1bit parou às 12:47 com 7 pendentes. O `wa-scheduler.js` já retomava a
+campanha legado nesse estado; agora faz o mesmo com a nova, pelo
+`dispararCommWhatsApp`, que não prepara a lista de novo. **Efeito do próximo
+boot:** no primeiro tique (até 2 min), a campanha 3 do 1bit volta a enviar
+para os 7 pendentes; era a única em 'enviando' em todas as empresas às 13:10.
+As 5 falhas com foto dela eram números sem WhatsApp (conferido na Evolution),
+e não defeito da foto. Prova: R15 da `test-campanha-rodadas`, que reprovou com
+o scheduler antigo.
+
+**Em vigor desde o boot de 2026-09-29 12:58:53, a pedido (limpo,
+`NRestarts=0`, HTTP 302): o texto da campanha nova sai do modelo na hora de
+cada envio, e a pausada se edita.** Até então o texto
+era montado ao preparar a lista e ficava congelado: o modelo do 1bit foi
+editado com a campanha 3 pausada, e os 19 pendentes continuavam com "Olá!
+Tudo bem?". Agora `comm-routes.textoDoEnvio` monta o texto do modelo atual
+em cada envio (WhatsApp e e-mail) e grava no envio o que saiu. A campanha
+pausada edita nome, modelo e números; lista, segmentos e tipo ficam para a
+próxima rodada, e a tela os desabilita. A foto sempre foi sorteada na hora do
+envio, e a do modelo 1 já existe. Prova: R12 a R14 da `test-campanha-rodadas`,
+que reprovaram com o código anterior.
+
+**Em vigor desde o boot de 2026-09-29 12:49:43, a pedido (limpo,
+`NRestarts=0`, HTTP 302): a mídia nas conversas.**
+A Conversas não mostrava foto, áudio nem documento, e o texto da mensagem de
+empresa do WhatsApp Business se perdia (o 556236020555 manda
+`templateMessage`, com a imagem e a legenda em `hydratedTemplate`).
+
+- O webhook lê o texto dos formatos que se perdiam: mensagem de empresa,
+  legenda de documento, mensagem temporária ou de visualização única, e
+  resposta de botão ou lista (`whatsapp-webhook.extractText`). A prévia da lista
+  mostra o tipo ("Imagem", "Áudio"…) quando não há texto; o texto gravado segue
+  vazio, e a IA não responde a mídia sem texto.
+- A mídia é buscada na Evolution quando a conversa abre
+  (`POST /chat/getBase64FromMediaMessage/<instância>`, conferido em 29/09 com a
+  imagem de dentro da `templateMessage`) e guardada em
+  `data/tenants/<slug>/wa-midia/<id>.bin` (`wa-midia.js`, rota
+  `GET /api/conversas/midia/:id`). Vale também para a mídia já recebida,
+  enquanto a Evolution a tiver.
+- A tela (`conversas.html`, estática, já no ar) mostra imagem, áudio, vídeo e
+  documento. Até o restart a rota não existe, e a mídia aparece como
+  "Mídia indisponível".
+- As mensagens antigas de empresa continuam com o texto vazio no banco: o
+  webhook novo só lê as que chegarem.
+- Prova: suíte 148 (`test-conversas-midia`) e a parte M da
+  `test-conversas-ux`. As duas reprovaram contra o webhook e a tela antigos.
+
+**Em vigor desde o boot de 2026-09-29 12:31:02, a pedido (limpo,
+`NRestarts=0`, HTTP 302): uploads da comunicação.**
+A imagem do modelo, a planilha da lista e o PDF da Base da IA passavam pelo
+multer direto para o handler, sem o `reentrarContextoTenant`. Em produção o
+`db` é o proxy do contexto do tenant, e o upload voltava 400 com "currentDb()
+chamado fora de contexto de tenant". Foi o que a imagem do modelo do 1bit
+recebeu às 12:26. As suítes anteriores davam às rotas o banco cru e passavam.
+Arquivos: `comm-routes.js` e `conversas-routes.js`. Suíte 147
+(`test-upload-comunicacao`), com o proxy de verdade: contra as rotas antigas,
+reprovou nas três com a mesma mensagem.
+
+**Já no ar (estático), 29/09: a imagem do modelo sobe de verdade.** Em
+`modelos.html`, a foto só subia por um botão à parte, e quem escolhia a foto e
+clicava em "Salvar modelo" a perdia sem aviso. Nenhuma imagem de modelo do 1bit
+chegou ao servidor: o log só tem GET em `/imagens`. Agora ela sobe ao ser
+escolhida, ou junto do salvar no modelo novo, e a recusa deixa o modal aberto
+dizendo qual arquivo foi. Suíte 146 (`test-modelos-imagens`), no Chrome:
+contra a tela antiga, reprovou em 4 de 5. Ensaio no 1bit, sobre uma
+cópia: 27.769 fichas completadas com cidade, porte e ramo; 17.991 com CNPJ;
+9.777 sem CNPJ, porque as colunas deslizaram na planilha original; 1 CNPJ de
+outra ficha; a razão social muda em 10.225 fichas (por exemplo "BUXIM XEI" →
+"G DOS S FREITAS MARQUES…"). Prova: S14 a S17 da `test-segmentos`.
+
+O de **22:07**, a pedido, para pôr em vigor a **Etapa 6 da Fase 2B**: o cancelamento
+de pedido passou a ser recusado quando existe NFC-e `autorizada` ou
+`pendente` vinculada (`pedidos-routes.js`, dentro de `cancelarPedidoInterno`,
+antes de qualquer efeito). Boot limpo, PID 144481 → 183825, `NRestarts=0`,
+HTTP 302 no `/health` em 6 ms. **Nada pendente.**
+
+Esse boot fechou a **Fase 2A + 2B** inteira, que já estava parcialmente no ar:
+
+- **Fase 2A** (motor NFC-e): frete, `indPres`, grupo `<entrega>` injetado antes
+  da assinatura e **reconciliação por chave** quando o envio estoura — a
+  consulta pergunta à SEFAZ o que ela fez com o lote, em vez de tratar timeout
+  como "não aconteceu nada".
+- **Etapas 1-3**: trava simétrica NF-e 55 × NFC-e 65 (só `autorizada` bloqueia;
+  cancelada e rejeitada liberam), `documentoFiscalDe` no motor NFC-e, e as
+  rotas de consulta por chave e DANFCe.
+- **Etapa 5**: `POST /api/pedidos/:id/emitir-nfce` — emissão MANUAL, do
+  lojista, só para pedido de catálogo em `entregue` ou `faturado`, com
+  `efeitosJaAplicados = true`. Mais `GET /api/pedidos/:id/nfce` e o painel
+  "Documento fiscal" em `public/comercial/pedido.html`.
+
+**Nenhuma NFC-e pode ser emitida hoje**, e isso é configuração, não código:
+`loja_config.tipoOperacaoNfceId` está NULL nos 20 tenants, e a rota recusa com
+409 mandando configurar em Catálogo Online › Regras fiscais. Conferido depois
+do boot: 0 NFC-e em todos os tenants e 0 pedidos de catálogo em estado
+emitível. O **checkout público continua sem emitir** — `loja-routes.js` não
+tem uma única menção ao emissor, e é isso que o K2 de `test-catalogo-fiscal`
+guarda.
+
+Nenhuma migration foi necessária: o índice `idx_nfce_pedido_autorizada`, que
+é a rede de baixo contra nota em dobro, já existia nos 20 tenants desde a
+Fase 1.
+
+**Um boot às 21:31 aconteceu por outra sessão e não estava registrado aqui.**
+Foi ele que pôs no ar a Fase 2A e as Etapas 1, 2, 3 e 5 — quatro minutos antes
+de a Etapa 6 ser salva, e por isso só ela ficou pendente. Quem for conferir o
+que está em vigor: compare o `mtime` do arquivo com o
+`ExecMainStartTimestamp` da unit, e não com o que estiver escrito aqui.
+
+O de **2026-09-28 11:57**, com o 16fa6e1: acabamento do tema da vitrine (loja
+do Cantinho Verde). Levou também o que a árvore tinha de outras frentes nesse
+instante. Boot limpo, `NRestarts=0`.
+
+O de **2026-09-28 10:29**, a pedido, para o **robô de lances do PCP** (sem commit ainda):
+`pcp-auto-lance.js` (novo, sobe por tenant no boot do `server.js`), as rotas
+`/api/pcp/robo/*` no `pcp-routes.js`, o `lerDadosPregao` no `pcp-lances.js` e
+as tabelas `pcp_auto_lance` e `pcp_auto_lance_historico`, criadas pelo
+`db-schema.js` no boot de cada tenant. Todo item nasce desligado e em
+simulação. Boot limpo, `NRestarts=0`.
+
+**Boot seguinte, 2026-09-28 11:03**, a pedido: a tela de IA e campanhas virou
+seis páginas em `/comunicacao/` (`ia`, `campanhas`, `modelos`, `listas`,
+`canal`, `relatorio`), e o boot levou o `perfis-acesso.js` (as cinco chaves
+novas herdam de `conversas`) e o `perfis-api-map.js` (`/api/agenda` também
+para `comunicacao-canal`). Levou também o que a árvore tinha de outras frentes
+nesse instante. Boot limpo, `NRestarts=0`.
+
+**Boot seguinte, 2026-09-28 11:44**, a pedido: o **horário marcado do sniper
+do PCP** (`pcp-auto-lance.js`, `pcp-routes.js` e a coluna `horario_alvo`, que o
+`pcp-schema.js` acrescenta por ALTER no boot, conferida no 1bit, reimac e
+floricultura). O horário é onde o ÚLTIMO lance deve chegar, como no Comprasnet;
+em branco, o robô calcula pelo encerramento. Levou também o que a árvore tinha
+de outras frentes nesse instante. Boot limpo, `NRestarts=0`. **Nada pendente.**
+
+Entre o que esse boot levou de outra frente está **a campanha legado mandando
+o MODELO, e nunca a IA** (`wa-campaigns-routes.js` e `conversas-routes.js`,
+editados às 11:42, antes do boot). A primeira mensagem sai do
+`comm_templates` escolhido em `config.templateId`, pelo mesmo `renderizar` das
+campanhas novas; campanha sem modelo não envia e fica pausada, com o motivo no
+log. As duas do `1bit` (5 e 6) estavam sem modelo nesse boot: nenhuma envia até
+alguém escolher um e mandar enviar. O atendente de IA, que responde a quem
+escreve de volta, não mudou. Provado pela etapa 140 do verify
+(`test-campanha-modelo`).
+
+**Boot de 2026-09-28 13:20:13**, a pedido, para a campanha legado. Levou:
+
+- o `{{primeiroNome}}` saindo do NOME do lead, como está gravado, e não da
+  razão social (`comm-destinos.renderizar` aceita `pessoa.primeiroNome`; o
+  cadastro de pessoas não tem esse campo e segue igual). Da razão social ele
+  saía errado em 5.859 dos 27.361 pendentes do 1bit ("RETRO 230" virava
+  "Olá A.");
+- o **horário de envio valendo**: `horario_permitido` (início, fim e dias)
+  era gravado pela tela e lido por ninguém. Fora dele o laço espera e confere
+  de minuto em minuto; horário ilegível pausa a campanha com o motivo no log.
+  A campanha 5 do 1bit tem 09:00–18:00, segunda a sexta;
+- o atendente de IA deixando de ler a `persona` e o `briefing` da campanha:
+  a persona é a de Canal › Instruções da empresa, e o contexto de campanha
+  leva só o nome dela;
+- a remoção do motor da IA do `wa-m1-utils.js` (`gerarM1`, `buildM1Messages`,
+  `validarM1`) e das rotas `/ramos`, `/segmentos/previa`, `/exemplos` e
+  `/exemplos/previa` do `conversas-routes.js`, que perderam a tela.
+
+Levou também o que a árvore tinha de outras frentes nesse instante. Boot
+limpo, `NRestarts=0`.
+
+**Boot de 2026-09-28 21:31:41**, a pedido, depois do backup `backups/db/2026-09-28-2130`: **campanha nova para contato avulso.** Boot limpo, `NRestarts=0`; conferido `comm_envios.pessoaId` opcional no 1bit, josecarloscostafilho e reimac. **Nada pendente.**
+`comm_envios.pessoaId` era `NOT NULL`, e o disparo falhava com "NOT NULL
+constraint failed: comm_envios.pessoaId" em qualquer lista com contato sem
+ficha de cliente (planilha, digitado, legado): foi o caso da campanha
+"exemplo" do 1bit. O boot chama `comm-destinos.permitirEnvioAvulso`, que
+reconstrói a tabela com `pessoaId` opcional (ensaiado nas 20 empresas: 18
+reconstruídas, 2 sem a tabela; nenhuma tinha envio gravado). Arquivos:
+`comm-destinos.js`, `comm-routes.js` (os dois inserts chamam a função antes;
+"Ver envios" passou a `LEFT JOIN`, com o nome do avulso vindo da lista) e
+`db-schema.js`. Só o servidor web carrega esse caminho.
+
+**Boot de 2026-09-28 18:37:43** (servidor web) e **18:38:09** (scheduler), a
+pedido, depois do backup `backups/db/2026-09-28-1836`: **vários números de
+WhatsApp.** Boot limpo nos dois, `NRestarts=0`. Conferido em produção: no 1bit o
+canal 1 é o `status1bit`, padrão, com a IA ligada, escopo `campanha` e as
+instruções de 2.583 caracteres; as 980 conversas estão no canal 1, com
+`UNIQUE(canal, jid, canalId)`; a fila e as mensagens não têm linha sem número.
+No josecarloscostafilho, 42 conversas no canal 1. **Nada pendente.** O que
+mudou, como estava descrito antes do boot:
+
+Mudou SCHEMA no boot: o `db-schema.js` chama `whatsapp-canais.migrarCanais`, que
+cria `whatsapp_canais`, põe `canalId` em `whatsapp_queue`, `wa_campanha_dest`
+e `comm_envios`, `canais` em `comm_campanhas`, e **reconstrói
+`conv_conversas`** com `canalId` na chave única (uma conversa por contato E
+número, mesmos ids). O número de cada empresa vira o canal 1, padrão, com as
+chaves `whatsapp_ai_*`, `whatsapp_horario_*` e `limite_*` copiadas; as da
+`config` ficam sem leitura. Ensaiado em cópia das 20 empresas: nenhum erro,
+conversas iguais antes e depois (1bit 980, josecarloscostafilho 42), menos de
+300 ms cada. Arquivos: `whatsapp-canais.js` (novo), `whatsapp-adapter.js`,
+`whatsapp-webhook.js`, `conversas-routes.js`, `roteiros-routes.js`,
+`wa-campaigns-routes.js`, `comm-routes.js`, `db-schema.js`. O `scheduler.js`
+também carrega o adapter (cobrança, OS), e por isso foi reiniciado junto: as
+mensagens do sistema saem pelo número padrão e contam no ritmo dele.
+
+**Boot de 2026-09-28 17:20:58**, a pedido, com o `comm-routes.js` e o `comm-imagens.js` abaixo. Boot limpo, `NRestarts=0`; conferido no 1bit que as rotas novas respondem.
+
+O que ele levou: **`comm-routes.js`.** A lista de contatos
+ganhou importação de planilha (`POST /api/comm/listas/:id/importar`, colunas
+Telefone, Nome e Ramo) no lugar do campo de números à mão, e o ramo de cada
+contato ficou editável (`PUT /api/comm/listas/membros/:id`); sem ramo próprio,
+vale o `cnaeDescricao` da ficha do cliente. O `POST .../membros` deixou de
+aceitar `manuais`. A tela `listas.html` estava no ar antes do boot.
+
+**E as imagens do modelo** (`comm-imagens.js`, novo;
+`comm-routes.js` e `wa-campaigns-routes.js`). O modelo passou a ter um conjunto
+de imagens em `data/tenants/<slug>/comm-imagens/modelo-<id>/`, e os dois
+motores sorteiam uma a cada envio; na campanha legado, as do modelo valem
+quando existem, e senão as da campanha. As rotas são
+`/api/comm/templates/:id/imagens[/:arquivo]`; as da imagem única
+(`/imagem`) saíram, e a coluna `imagemPath` ficou no banco sem leitura
+(nenhum modelo de nenhum tenant tinha imagem). 
+
+**Boot seguinte, 2026-09-28 12:05:34**, a pedido: **a escada do robô do PCP**,
+no `pcp-auto-lance.js` e no `lerRanking` do `pcp-lances.js`. Boot limpo,
+`NRestarts=0`. **Nada pendente.** Esse boot pegou o `sandbox` ACTIVE (ativado por
+outra sessão às 11:52 para prints e suspenso às 12:05:53): só o servidor web
+reiniciou, e o sandbox não tinha robô ligado nem agendamento de IA, então o que
+o boot armou para ele fica ocioso até o próximo restart. O scheduler, que arma
+recorrência e régua, não foi reiniciado.
+
+**Boot seguinte, 2026-09-28 12:59:06**, a pedido: **a largada do sniper do PCP**, no
+`pcp-auto-lance.js`. O primeiro lance real (12:17, Serra) chegou ~1,9 s depois
+do horário marcado: a janela de armamento de 1,5 s era menor que um ciclo
+(tick de 1 s mais leituras de ~670 ms), e com isso o disparo saía tarde. Perto
+do fim, a trava de "chega antes do fim" fazia o robô DESISTIR do lance (etapa
+F12 da `test-pcp-auto-lance`, com o armamento antigo: nenhum envio em 3 de 3).
+Agora arma 20 s antes, prepara as leituras antes da hora e espera o
+milissegundo da largada para enviar; a trava de fim considera a margem do
+relógio.
+
+Junto, no `pcp-client.js`: a sessão do PCP vale 5 min fixos e o login leva
+~6 s. Se ela vencesse entre o armamento e a largada, a leitura da preparação
+pagaria o login e o lance se perderia (etapa F13: nenhum envio sem a
+renovação). O `renovarSeVencerEm` renova no armamento, e logins simultâneos
+passam a compartilhar um só. O monitor, a proposta e a tela de salas do PCP
+usam o mesmo `pcp-client`. Boot limpo, `NRestarts=0`. **Nada pendente.** Quando o líder está
+abaixo do piso, o robô lê a "Colocação dos Participantes" e cobre o concorrente
+de menor valor à nossa frente que o piso ainda alcança. Empatado conta como à
+frente, porque a ordem dos empatados nessa tabela troca de uma leitura para
+outra.
+
+O `enviarLance` do PCP nunca tinha sido usado em produção até esse boot: o
+primeiro lance real do robô é também o primeiro do sistema no PCP. O relógio
+do portal só existe com resolução de segundo, tanto na `horaAtual` da aba
+quanto no `apipcp.../hora` que a tela deles usa. Não há fonte com
+milissegundos, e o robô estima o desvio cruzando as leituras (±0,7 s medido em
+28/09).
+
+O de 09:42, com o 8b68689, levou o certificado aberto em memória (sem
+temporários do `pem` em /tmp) e o `/api/nfe/status` respondendo para o PA.
+
+O de 2026-09-27 21:53, no fechamento da floricultura, foi para a correção do
+manifest da loja (5231601). O das 21:06 do mesmo dia, junto do scheduler, levou o b6bb88d:
+senha do certificado cifrada (as quatro senhas existentes migraram no boot:
+1bit, produtosbomgosto, reimac e josecarloscostafilho), a loja como página
+inicial, kit, opções, custo, lucro, contato e promoção. Levou também o que
+outras frentes deixaram na árvore sem commit: `analise-ia*.js`, `bll-*.js`,
+`bnc-*.js`, `comprasnet-anexos-routes.js`, `comprasnet-mensagem-routes.js`,
+`licitacoes-routes.js`, `proposta-routes.js`, `perfis-api-map.js`, os trechos
+delas no `db-schema.js`, `electron-routes.js` e `loja-routes.js`, e os
+untracked `coleta-comprasnet-fila.js` e `comprasnet-participacao.js`. Boot
+limpo, `NRestarts=0`. **Nada pendente.**
+
+O boot anterior, pelo journal, foi de **2026-09-26 16:54**, de outra sessão, e
+não estava registrado aqui (esta nota dizia 25/09 10:59). Levou o horário de Marabá do restaurante, do monitor
+de chat, do WhatsApp e dos relatórios de OS (9f15a5c). O das 09:35, a pedido,
+para o card de Interesses: levou só o `proposta-routes.js`
+(sem commit), com os campos do grid de detalhes e as mensagens do Comprasnet
+por licitação. O anterior, de 24/09 17:37, levou o `control-plane-routes.js`
+logo depois da instalação da cópia do provisionamento de vhost; o das 11:25, o
+kanban do CRM por etapa (`crm-routes.js`); o das 10:58, as recorrências do
+fa0b754, o sync do PNCP e o `ssl-certificados-routes.js`. **Nada pendente.**
+
+**O card de Interesses virou o mesmo da busca** (25/09/2026): faixa
+Detalhes / Arquivos / Quadro de avisos, com o CSS movido da `consulta.html`
+para o `app-modern.css` — as duas telas leem a mesma definição agora. O grid
+passou de 6 para 13 campos; Esfera e Modo de disputa ficam de fora porque o
+catálogo não tem essas colunas.
+
+Dois ajustes a pedido, no mesmo dia: o **"Ver no PNCP ↗" saiu da faixa de
+seções** e foi para o alto do card, junto do "Site de origem" — os dois
+destinos externos no mesmo lugar. E o **badge "✓ Proposta enviada" sob o
+título saiu**: dizia o mesmo que o botão ao lado de Análise IA, que ainda por
+cima é acionável. A data que só o badge trazia virou o `title` do botão
+("Proposta enviada em 25/05/2026, 18:58 — clique para ver os envios").
+
+O botão de proposta é **um só**, e troca de papel: sem proposta leva ao
+portal, com proposta lista o histórico. O sinal é `kanbanStatus`, e NÃO o
+histórico de envios — este só enxerga quem gravou a chave PNCP, e os envios
+de BLL e BNC anteriores a 21/09/2026 ficaram sem ela (medido no 1bit: 37
+licitações com kanban `enviada` contra 3 rastreáveis, e as 3 estão dentro das
+37). Quem já enviou reenvia pelo modal, que ganhou um "Enviar nova proposta".
+
+**A aba Mensagens casa por UASG + numeroCompra + ano, nunca pela chave do
+PNCP.** `chat_mensagens` engana pelos nomes: `cnpjOrgao` guarda a UASG (8
+dígitos) e `sequencial` guarda o numeroCompra. Um JOIN por cnpj/ano/sequencial
+devolve ZERO — medido sobre 4.391 mensagens. Pelo casamento certo são 722
+mensagens em 39 das 172 licitações de interesse. A rota é
+`/api/interesse/mensagens`, e não `/api/chat/...`, porque o RBAC é fail-closed
+por prefixo e `/api/chat` pertence à página do monitor.
+
+Duas ressalvas do mesmo trabalho: a aba só aparece quando há mensagem (seria
+aba morta em 133 das 172), e o contador é o TOTAL, não "não lidas" — `lido`
+está em 0 nas 4.391 mensagens, então um contador de não lidas mostraria o
+total para sempre. Se for para usar leitura, apure antes por que ela nunca
+pegou.
+
+**As mensagens só aparecem com o filtro em "Todos os prazos".** As 39
+licitações que têm mensagem estão TODAS com o prazo de propostas encerrado, e
+a tela abre em "Em aberto" — não é defeito, é a natureza do dado: a sessão de
+disputa, onde o agente de contratação fala, acontece depois do encerramento
+das propostas. Quem abrir a tela no padrão não vê aba nenhuma.
+
+**O filtro de órgão é busca, não lista** (25/09/2026). Era um `<select>` com
+uma opção por órgão, ordenado por quantidade: 149 órgãos para 172 licitações,
+140 deles com uma só — ou seja, 140 opções "(1)" em ordem arbitrária, com o
+nome cortado em 40 caracteres (o maior tem 86). Agora é o `.autocomplete-*` do
+`app-modern.css`, o mesmo componente de `fiscal/nfse.html`, com filtro local
+(os órgãos já estão em memória, não há chamada nova).
+
+O `<select>` virou `<input type="hidden" id="filtroOrgao">` mais um campo de
+busca ao lado. **O id e o `.value` foram preservados de propósito**: são o
+contrato de `aplicarFiltro` e de `interesse-relatorio.js:234`, que imprime o
+órgão no cabeçalho do relatório. A busca casa todos os termos em qualquer
+ordem e ignora acento nos dois lados — o PNCP grava "SAO PAULO" sem acento e
+quem digita escreve "são".
+
+**ÓRGÃO e UNIDADE são nomes diferentes da mesma compra, e quem procura usa o
+errado.** O Comprasnet mostra a UNIDADE compradora; a tela de Interesses
+agrupa pela `razaoSocial` do PNCP, que é o ÓRGÃO. Medido em 25/09/2026 nas 81
+licitações de interesse com participação no portal: **80 têm nomes diferentes
+nos dois lados** (só 1 coincide), e em 71 delas o nome do Comprasnet é
+exatamente o `nomeUnidade`. A diferença pode ser total —
+`COMISSÃO REGIONAL DE OBRAS DA 8º REG MILITAR` no portal é
+`COMANDO DO EXERCITO` no PNCP; `ESP-DIRETORIA TEC. INFORMACAO E COMUNICACAO` é
+`SAO PAULO SECRETARIA DA SEGURANCA PUBLICA`.
+
+Por isso a busca olha os DOIS nomes, e o item da lista mostra a unidade
+embaixo **só quando foi ela que casou** — buscar "obras" e receber "COMANDO DO
+EXERCITO" sem explicação pareceria defeito. O agrupamento continua por órgão,
+então `COMANDO DA MARINHA (12)` segue trazendo as 12 unidades de uma vez.
+
+O que isto NÃO resolve: colar o nome inteiro do Comprasnet quando a grafia
+diverge. A `56319882000107-2026-27` é `CONSELHO REGIONAL DE FONOAUDIOLOGIA 2A
+- SP` no portal e `... 2 - SP` na unidade do PNCP — o "A" a mais derruba o
+casamento por substring. Digitar um trecho resolve; casar grafia divergente
+exigiria comparação aproximada, que traz falso positivo.
+
+**O kanban do CRM carrega por coluna.** `GET /api/crm/oportunidades` aceita
+`porEtapa=N` (1 a 500): traz os N primeiros de cada etapa mais `totais`
+(`{etapaId: {n, soma}}`), e com `etapaId` + `offset` pagina uma coluna. Sem
+`porEtapa` a resposta é a antiga, com LIMIT 1000 no funil inteiro, e era esse
+teto que cortava as colunas e fazia o contador da tela contar só o carregado.
+A tela pede 50 por coluna e carrega mais ao rolar até o fim. **A reordenação do
+arrastar só renumera os cards presentes na tela**, e continua coerente porque o
+carregado é sempre o começo da coluna; por isso a ordem tem `o.id` como
+desempate.
+
+**Enquanto o sandbox estiver ACTIVE**, reinicie pelo
+`backups/sandbox-video-2026-09-23/reiniciar-com-sandbox-suspenso.sh`, que
+reinicia os dois serviços com o sandbox suspenso durante o boot.
+
+### O incidente da rajada de 22/09 e as quatro correções que saíram dele
+
+Numa dispensa (item 1 da `92661806000202026`, fim às 14:00:00) a rajada desceu
+de R$ 57,68 a **R$ 17,55** em quatro lances, quando o primeiro — R$ 42,37 — já
+tinha nos deixado em primeiro. Quatro defeitos somados, todos em
+`sniper-lance-routes.js`, todos corrigidos neste boot:
+
+1. **`cancelar-blitz` não desarmava o `setTimeout`.** A blitz é registrada com
+   `_mkBlitzKey` (`compra-item-alvoMs`), mas o timer era gravado com a chave
+   curta `compra-item`, que nunca existe. O campo `timer` ficava `null`, o
+   `clearTimeout` não rodava, e o disparo acontecia mesmo com o registro
+   apagado da memória, do banco e marcado "cancelada" no histórico. Naquele dia
+   isso pôs **três rajadas no ar ao mesmo tempo** (duas supostamente
+   canceladas), que pisaram umas nas outras: uma delas mandou R$ 32,12 quando
+   outra já nos tinha levado a R$ 17,55, e o portal recusou com "o lance deve
+   ser melhor que seu último lance". **Vale só para a rajada global** — a rota
+   de blitz individual grava o timer certo e ainda tem o `blitzGruposPorAlvo`.
+2. **A rajada não relia o estado entre um degrau e outro.** Agora o laço de
+   rodadas lê `melhorValorGeral`/`melhorValorFornecedor` da resposta do próprio
+   POST de lance (sem chamada extra) e descarta o resto do lote assim que os
+   dois coincidem. Rodando contra as respostas reais daquele dia, a rajada para
+   em R$ 42,37. A mesma guarda cobre o recálculo pós-422, que senão reabriria a
+   escada.
+3. **A config era uma foto do agendamento.** Piso, agressividade e variação
+   vinham da consulta de itens elegíveis feita ao agendar; ajuste posterior na
+   tela era ignorado sem aviso. Naquele dia a agressividade passou de 5% para
+   2% oitenta segundos após o agendamento e o disparo usou os 5%. Agora são
+   relidos no disparo. **`maxLances` continua sendo o do agendamento de
+   propósito**: o milésimo é dimensionado para N lances, e mudar N no disparo
+   estouraria a janela do auto-cálculo.
+4. **Os degraus ignoravam a agressividade.** Eram interpolação linear de `topo`
+   até o piso — `(topo - piso) / N` —, então quem mandava no tamanho do passo
+   era o PISO. Com piso de R$ 1,00 e topo de R$ 42,37 deu degraus de R$ 8,27 e
+   o último lance cravado no piso. Agora cada degrau usa a mesma regra do
+   primeiro (o maior entre o degrau mínimo legal e a agressividade sobre a
+   folga restante), e o piso voltou a ser só o limite inferior.
+
+**O milésimo do disparo é onde o ÚLTIMO lance deve CHEGAR, não onde a rajada
+começa.** A rajada daquele dia fora agendada para `13:59:59.970` com 5 lances,
+deixando 30 ms para algo que leva ~718 ms. Deixar o milésimo em branco faz o
+auto-cálculo (`sniper-lance-routes.js:3545`) reservar a janela pelo número de
+lances: 76 ms de ida, mais (N−1) × 153 ms, mais 30 ms de folga.
+
+**Sobre o adversário:** os lances dele saíram em 44,5499, 33,759 e 17,3745 —
+exatamente 1% abaixo de cada lance nosso, sem arredondar para centavos, e a
+resposta ao nosso R$ 17,55 veio em menos de 131 ms (nosso RTT medido foi
+162 ms). É robô que cobre no talo da variação mínima e segue quem descer.
+**Escada descendente contra robô assim não vence: ela arrasta os dois para
+baixo, e quem tem o piso mais fundo termina pior.**
+
+Esse boot pôs em vigor também **as duas guardas do alerta de SSO morto** e,
+junto (desde o boot das 11:08),
+**o campo que alimenta o filtro por fase** (`situacaoCompraNome` em
+`/api/interesse`, nas duas variantes, PG e SQLite), que esperava restart desde
+o dia 21.
+
+**O alerta de SSO morto passou a considerar todas as instâncias do tenant.**
+`sniper-lance-routes.js` cala o aviso enquanto qualquer Electron estiver
+capturando bearer, e guarda 30 min de cooldown entre mensagens. O defeito:
+duas instâncias do `1bit` reportavam ao mesmo tempo — a 5.9.1 capturando
+(`ssoMorto=0`) e a 7.4.0 presa no gov.br desde as 09:48 (`ssoMorto=1`) —,
+alternando heartbeat a cada 15s. A flag `_ssoMortoAlertado` é uma só por
+tenant: a saudável zerava, a presa rearmava, e saiu **um alerta a cada 30
+segundos**, 193 no total. Pior que o volume: o aviso era falso, porque a
+captura nunca parou (`Validação token: HTTP 200 → VÁLIDO` de minuto em
+minuto) e não havia login manual a fazer.
+
+O corte da janela sai do JS, em ISO-8601, e não de `datetime('now')`: o
+`recebidoEm` é gravado com `toISOString()` (T e Z), o SQLite formata com
+espaço no lugar do T, e `' ' < 'T'` faria a comparação lexicográfica casar
+linha demais. O `DELETE` de purga do mesmo endpoint tem esse problema e
+segura heartbeat velho além das 24h que promete — não mexido.
+
+Sobre o boot das 21:29 do dia 21: ele foi disparado para renovar as conexões do pool
+depois da troca de fuso do PostgreSQL, e **não era necessário** —
+`pg_reload_conf()` aplica `timezone` também às sessões já abertas. O serviço
+voltou limpo (HTTP 302 no `/health`, `NRestarts=0`).
+
+**O PostgreSQL do catálogo saiu de `Europe/Berlin` para `America/Sao_Paulo`**
+em 21/09/2026, por `ALTER SYSTEM SET timezone` + `pg_reload_conf()`. Estava no
+fuso do pacote desde sempre, e o desvio mudava o dia de 2.154 das 105.071
+licitações de 60 dias nos casts `::date`. O SQLite dos tenants continua
+gravando `CURRENT_TIMESTAMP` em UTC — as duas fontes divergem entre si, e
+cruzá-las exige converter uma das duas.
+
+**Os dois roteiros do `1bit` já estão semeados**: #1 visita e #2 WhatsApp,
+conferidos no banco em 18/09 às 16:47. O aviso anterior, de que o semeador ainda
+não tinha rodado, estava desatualizado — ele rodou às 12:39, logo após o boot que
+criou as tabelas.
+
+Esse restart pôs em vigor **os segmentos editáveis e o ramo nas listas**, e o
+backfill já rodou: **os 27.775 membros de lista do `1bit` têm ramo**, trazido de
+`wa_campanha_dest` pelos últimos oito dígitos do telefone. Nenhum ficou de fora.
+A distribuição é 10.528 em genérico, 4.312 vestuário, 2.854 beleza, 2.770
+alimentação, 2.552 material de construção, 2.064 mercado, 1.241 bebidas, 878
+cosméticos e 576 atacado.
+
+`scripts/backfill-ramo-listas.js <tenant>` só conta; só grava com `--aplicar`, e
+só preenche quem está sem ramo. Serve para os outros tenants quando precisarem.
+
+**Segmento agora é dado da campanha, não código.** `config.segmentos` é uma
+lista de `{ chave, palavras }`, e `chaveDoRamo` recebe os segmentos por
+parâmetro. Campanha sem `segmentos` usa os embutidos, então nada mudou para
+quem já existia. A tela deixa renomear, criar e remover, e **renomear leva as
+frases de dor junto** — sem isso o segmento novo nasceria sem dor e o antigo
+viraria órfão no config (etapa C6c de `test-campanha-segmentos.js`).
+
+**Palavra, e não regex.** As regras antigas eram alternativas de substring, sem
+âncora nem quantificador, então "contém" faz o mesmo casamento. Deixar o usuário
+escrever regex traria erro de sintaxe e expressão cara rodando sobre 15 mil
+contatos. E a tela tem o botão **"Ver quem cai onde"**, que conta a distribuição
+antes de salvar: acrescentar uma palavra move gente na frente de milhares de
+contatos, e sem a prévia isso se faz às cegas.
+
+**Campo com teto de altura vira barra dentro da barra da página.** Os textareas
+de frases e palavras tinham `max-height`, e o auto-ajuste parava ali: o campo
+ganhava rolagem própria e a tela ficava com duas barras, o que faz quem edita
+perder o lugar onde estava. Agora eles crescem com o conteúdo e a página é a
+única que rola. A exceção é o JSON avançado, que fica dentro de um `details`
+fechado — ali a barra própria é o certo, senão um config de 2.000px empurraria a
+página inteira. A etapa C4g de `test-campanha-segmentos.js` guarda isso: nenhum
+elemento visível pode rolar por conta própria.
+
+Uma armadilha de diagnóstico que apareceu no caminho: o wrapper das suítes
+declarava o iframe sem `display:block`, e os 4px de descida de linha do inline
+faziam o shell de teste "rolar". No shell real o `#conteudo` é `position:fixed`
+e não rola nunca. O wrapper foi corrigido para não induzir ao erro de novo.
+
+**Campanha virou PÁGINA, uma só para as duas origens**, em
+`public/comunicacao/campanha.html`. Os dois modais saíram do `ia.html`, que
+encolheu de 115 para 84 ids e de 61 para 44 funções. A origem decide as seções:
+
+| endereço | o que abre |
+|---|---|
+| `?id=5` | campanha legado: abordagem, exemplos, segmentos, imagens, ritmo, JSON |
+| `?comm=7` | campanha nova: mensagem e público |
+| `?nova=1` | criação de campanha nova |
+
+Para quem usa, "campanha" é uma coisa só — o módulo é que foi construído duas
+vezes. As seções são mutuamente exclusivas por `data-modo`, e o índice da
+esquerda se monta com as do modo. **Campo que não vale no modo fica escondido**:
+o limite diário só existe na legado, porque na nova o teto é do tenant. Ela é estática e não depende de restart; o RBAC não precisou de
+entrada nova, porque página de detalhe em `/comunicacao/` herda o acesso do
+módulo (conferido: quem tem `conversas` abre, quem não tem é barrado).
+
+**O campo "Exemplo de mensagem pronta" nunca fez nada.** `template_referencia`
+aparecia em dois lugares no sistema inteiro — a tela lia e a tela gravava — e
+NENHUMA linha do gerador o consumia. Quem molda a primeira mensagem são
+`exemplos_bons` e `exemplos_ruins`, que só existiam no JSON avançado (3 e 6 na
+campanha `leads-pa-erp-m1`). A tela passou a editar esses dois, e o valor antigo
+aparece como aviso, com um botão para aproveitá-lo, em vez de sumir calado.
+
+**Modelo de mensagem e exemplo são opostos, e misturá-los quebra o envio.** O
+modelo sai LITERAL, com `{{primeiroNome}}` trocado no disparo; o exemplo é
+IMITADO, e o gerador não substitui nada nele. Por isso "trazer de um modelo"
+RESOLVE as variáveis no servidor (pela mesma `comm-destinos.renderizar` dos
+disparos, mais os marcadores de chave simples do gerador) antes de gravar.
+Copiar a chave crua ensinaria a IA a escrevê-la, e ela sairia assim para o
+cliente.
+
+Esse boot pôs em vigor **o vencimento da fatura pela condição de pagamento**.
+`faturas-routes.js` lê a condição gravada no PEDIDO (`pedidos.politicaPrazoId`)
+antes de cair na do cadastro do cliente, como `os-routes.js:2431` já fazia, e
+`pedido.dataFaturamentoPrevista` **não vale mais como data de vencimento**. Ela
+responde quando a nota seria emitida, e não quando o cliente paga; enquanto
+entrava na conta, todo pedido com ela preenchida nascia vencendo nela, por cima
+da condição.
+
+O estrago que motivou a correção, no `produtosbomgosto` em 18/09: quatro faturas
+com "Boleto 30 dias" venceram na emissão, e as NF-e 176, 178, 179 e 181 foram
+autorizadas com `indPag=0` e sem `<dup>`, porque `nfe-emit-routes.js:845` deriva
+isso do vencimento das parcelas. As contas a receber 24, 26 e 27 foram
+recalculadas à mão para 03/10 e 12/10; **as notas não têm conserto por aqui**.
+Nenhum outro tenant foi atingido.
+
+**Um efeito colateral que é correto e muda comportamento:** `prazoCliente` também
+comanda o parcelamento, então um pedido com condição "30/60/90" passa a nascer
+com três contas a receber em vez de uma. Antes isso nunca acontecia quando havia
+data prevista preenchida, porque a data bloqueava o caminho.
+
+Esse boot pôs em vigor também **a guarda de ambiente do Asaas**.
+`boleto-provedores-routes.js` entrega o `ambiente` ao `validarConfig` do
+provedor, que antes o recebia sempre `undefined` — a regra de coerência existia
+em `boleto-provedores/asaas.js` e nunca executava. Agora Produção exige chave
+`$aact_prod_`, e chave `$aact_prod_` com ambiente Homologação é recusada. A
+recusa inversa é assimétrica de propósito: chave de sandbox sem marcador de
+ambiente (formato antigo do Asaas) continua aceita. O `ambiente` segue fora do
+`configJson`, porque a coluna `ambiente` já o guarda.
+
+**`liciteagora.service`** (o `scheduler.js`) — boot atual: **2026-09-29
+09:51:49**, junto do servidor web, pela troca de slug (ver acima). Com ele,
+a pendência de 28/09 logo abaixo deixou de existir. O anterior foi o de
+**2026-09-28 09:42**, com o 8b68689, junto do servidor web: o `nfe-emit-routes.js` que as
+recorrências usam passou a abrir o certificado em memória.
+
+**Pendente (28/09, c323e54):** seis arquivos do estoque que o scheduler
+carrega (`estoque-routes.js`, `ordem-pt.js`, `precos-routes.js`,
+`farmacia/farmacia-routes.js`, `reservas-routes.js`, `nfe-entrada-routes.js`):
+saldo arredondado em 3 casas e ordem alfabética em português, nada que o
+scheduler mostre em tela. Não foi reiniciado porque o boot levaria junto
+trabalho de outras frentes sem commit, alterado depois das 09:42: o
+`whatsapp-adapter.js` das campanhas, o `db-schema.js`, o robô do PCP
+(`pcp-schema.js`, `pcp-client.js`), `perfis-acesso.js`, `perfis-api-map.js`
+e `loja-routes.js`. O servidor web já roda as correções desde o boot das
+13:20, feito por outra sessão.
+
+O de **2026-09-27 21:06**, no fechamento da floricultura (b6bb88d), junto do servidor web. Tem a
+chave do certificado no ambiente (drop-in `chave-certificado.conf`) e levou a
+árvore inteira, inclusive o `scheduler.js` de outras frentes. Os seis
+sandboxes estavam SUSPENDED nesse boot, então **os jobs do sandbox descritos
+abaixo ficaram desarmados**, e a recorrência de 01/10 não roda nele.
+**Nada pendente.**
+
+O boot anterior, pelo journal, foi de **2026-09-26 01:50**, de outra sessão, e
+não estava registrado aqui (esta nota dizia 24/09 09:47, o que carregou as
+recorrências do fa0b754 e o sync do PNCP das 09:45).
+
+**Aquele boot armou os jobs do sandbox**, que estava ACTIVE para a gravação: 7
+tenants em vez de 6. A régua não tem o que cobrar nele (clientes com
+`cobrancaAtiva=0`, sem SMTP nem WhatsApp). A recorrência do dia 1 rodaria em
+**01/10 08:00** e deixaria "Falhou em 10/2026" nas 250 linhas. Para desarmar,
+reinicie pelo `reiniciar-com-sandbox-suspenso.sh` antes disso.
+
+**A recomposição do catálogo depende da varredura de 45 dias, e ela perdia um
+dia inteiro por uma recusa isolada.** O incremental olha 2 dias e a verificação
+rápida 3; só `verificacaoCompletaDiaria` enxerga o histórico. Medido em 23/09
+pela hora de ingestão: o pico das 3-4h concentra 8.408 licitações contra
+algumas centenas nas outras horas, e esse pico é ela rodando. Três correções
+neste boot:
+
+- ao ser recusada pela API, ela reagendava para as 3h do DIA SEGUINTE. Agora se
+  declara `incompleta` e repete em 25 min.
+- só rodava às 3h, então uma parada que começasse às 4h ficava 23 horas sem
+  ninguém corrigindo. Agora há uma passada 4 min após o boot.
+- ela não respeitava o cooldown de 20 min: gastava uma chamada durante o
+  silêncio, tomava 429 e **rearmava o próprio silêncio** a cada repetição, o
+  que calaria a verificação rápida indefinidamente.
+
+Os 25 min da repetição são maiores que os 20 do cooldown de propósito. Menor
+que isso, a repetição cai no próprio silêncio e se gasta à toa.
+
+**Estado do catálogo em 23/09 às 10:30**, para quem retomar: 21/09 com 323
+(uma segunda normal tem ~5.500), 22/09 com 3.603 (~5.400), 23/09 com 390 — a
+ingestão tem atraso natural de ~2 dias, então o dia corrente baixo é esperado.
+Ontem às 18h esses números eram 201, 116 e zero, ou seja, a recomposição
+começou. **A API do PNCP ainda recusa de forma intermitente** desde o
+estrangulamento de 22/09; cada repetição que cai no silêncio não gasta chamada,
+então não realimenta o bloqueio. Evite reiniciar este serviço enquanto isso
+durar: o cooldown vive em memória e o restart o zera.
+
+Esse boot pôs em vigor **a correção do sync do catálogo PNCP**, que estava
+parado sem acusar erro: o catálogo caiu de ~5.400 publicações por dia útil
+(14 a 18/09) para 104, 201 e 116 em 20, 21 e 22/09.
+
+A raiz era `verificacao-lacunas.js` **contando no banco errado**. As escritas
+vão para o Postgres desde `CATALOG_BACKEND_PG=1`, mas o
+`SELECT COUNT(*) FROM licitacoes` continuava no SQLite, cuja última licitação é
+de 23/05/2026. A verificação concluía que faltavam todas as licitações de todos
+os dias e refazia o download completo a cada rodada — 69 rodadas em 22/09. O
+PNCP respondeu com 429 e depois parou de responder: os timeouts saltaram de 223
+para 2.380 entre 19-20/09 e 21-22/09. O sintoma que identifica esse estado é
+específico: `https://pncp.gov.br/` responde 302 em 0,36s, com TCP e TLS
+perfeitos, enquanto `/api/consulta/v1/...` fica pendurado até o timeout.
+
+Junto vieram três guardas, e o contador honesto é a mais importante delas:
+`corrigirLacuna` chamava `salvarLicitacao` **sem await** (a função é async em
+modo Postgres) e incrementava na linha seguinte. Em 19/09 ele reportou
+**110.219 corrigidas** enquanto o catálogo ganhava zero licitações daquele dia.
+As outras duas são o teto de 800 gravações por rodada e a parada imediata no
+429, em vez de pular a página e continuar batendo.
+
+**O cursor `lastSyncDate` também apontava para o futuro** (`2026-09-29` em
+22/09). O sync gravava `hoje + 7` como cursor e a rodada seguinte partia dele,
+então a janela vivia dois dias à frente do calendário contra um endpoint que
+busca por data de PUBLICAÇÃO: `0 licitações` a cada 5 minutos. A janela agora
+termina hoje, e `calcularJanelaIncremental` recua o cursor adiantado — sem essa
+guarda, corrigir só a gravação não bastaria, porque o valor contaminado já
+estava no banco.
+
+Achado menor do mesmo trabalho: os nomes das modalidades 6 e 8 estavam trocados
+em `verificacao-lacunas.js`, então o log acusava "Dispensa" onde era pregão.
+
+A suíte é a etapa 130 do verify (`test-lacunas-catalogo.js`).
+
+O boot de 17/09 às 17:50 levou o **modelo de IA escolhido por tenant** (ver o bloco do
+`consulta-licitacoes.service` acima): o scheduler carrega o `analise-ia.js`
+para a análise agendada, então ele precisa do mesmo código.
+
+O restart anterior, das 16:49, não foi rotineiro, e vale saber o tamanho dele: o boot anterior
+era de **11/09**, com 42 `.js` da raiz alterados no intervalo. Ou seja, uma
+semana de edições entrou em vigor de uma vez — faturamento, fiscal,
+governança, conversas e as migrations do `db-schema.js`, que rodam no boot de
+cada tenant. O boot saiu limpo: nenhuma linha de erro no `server.log`,
+`NRestarts=0` e o master subiu em `ROLE=master`. O que motivou o restart foi a
+troca do modelo do Gemini em `analise-ia.js`, que o scheduler carrega para a
+análise agendada.
+
+O medo antigo do restart deste serviço não se aplica mais.
 
 O item do `cicloAvisoAlcadas` mais acima nesta seção **está obsoleto**: esse
 ciclo foi REMOVIDO em 2026-08-21, a pedido, junto do aviso de criação, porque

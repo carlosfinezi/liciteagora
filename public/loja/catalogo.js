@@ -11,6 +11,8 @@
  *   #/           home: capa, categorias, destaques, seções
  *   #/p/<id>     produto: foto grande, personalizações, quantidade
  *   #/sacola     meu pedido: itens, sugestões, tipo de serviço
+ *   #/montar/<id> o montador (flor, formato, quantidade, cor, adicionais)
+ *   #/pagar/<t>  o Pix do pedido, com QR, copia e cola e o aviso de pago
  *
  * Roteamento por hash, e não por caminho, porque `/loja/` é servido como
  * ESTÁTICO: qualquer rota real exigiria fallback no servidor, e o combinado é
@@ -47,8 +49,21 @@ function lerCarrinho() {
       opcoes: Array.isArray(i && i.opcoes) ? i.opcoes.map(Number).filter(Boolean) : [],
       textos: (i && i.textos && typeof i.textos === 'object') ? i.textos : {},
       comentario: i && i.comentario ? String(i.comentario).slice(0, 300) : null,
+      montagem: lerMontagem(i && i.montagem),
     })).filter((i) => Number.isFinite(i.produtoId) && i.produtoId > 0 && i.quantidade > 0);
   } catch { return []; }
+}
+
+/* A montagem guarda só as escolhas (formato, quantidade, cor, data). O preço
+   dela também é do servidor, lido da tabela do lojista. */
+function lerMontagem(m) {
+  if (!m || typeof m !== 'object') return null;
+  return {
+    formatoId: Number(m.formatoId) || 0,
+    quantidade: Math.floor(Number(m.quantidade) || 0),
+    corId: Number(m.corId) || 0,
+    dataDesejada: /^\d{4}-\d{2}-\d{2}$/.test(String(m.dataDesejada || '')) ? m.dataDesejada : null,
+  };
 }
 
 function gravarCarrinho(itens) {
@@ -58,12 +73,14 @@ function gravarCarrinho(itens) {
 /** Duas linhas do mesmo produto só se fundem se as escolhas forem idênticas. */
 const assinatura = (i) =>
   i.produtoId + '|' + [...i.opcoes].sort((a, b) => a - b).join(',')
-  + '|' + JSON.stringify(i.textos || {}) + '|' + (i.comentario || '');
+  + '|' + JSON.stringify(i.textos || {}) + '|' + (i.comentario || '')
+  + '|' + JSON.stringify(i.montagem || null);
 
 function adicionar(item) {
   const itens = lerCarrinho();
   const chave = assinatura(item);
-  const existente = itens.find((i) => assinatura(i) === chave);
+  // Montagem nunca se funde: cada uma é um presente, com quantidade 1.
+  const existente = !item.montagem && itens.find((i) => assinatura(i) === chave);
   if (existente) existente.quantidade += item.quantidade;
   else itens.push(item);
   gravarCarrinho(itens);
@@ -108,6 +125,7 @@ async function recalcular() {
         gravarCarrinho(d.itens.map((i) => ({
           produtoId: i.produtoId, quantidade: i.quantidade,
           opcoes: i.opcoes.map((o) => o.id), textos: i.textos || {}, comentario: i.comentario,
+          montagem: i.montagem || null,
         })));
       }
     }
@@ -134,6 +152,21 @@ function precoHtml(p) {
 
 function cardHtml(p) {
   const foto = fotoDe(p);
+  if (p.montavel) {
+    return `<article class="card" data-montar="${p.id}" role="button" tabindex="0"
+        aria-label="Montar ${esc(p.descricao)}">
+      <div class="card-foto">${foto
+        ? `<img src="${esc(foto)}" alt="${esc(p.descricao)}" loading="lazy">`
+        : '<span class="sem-foto">sem foto</span>'}
+        ${p.destaque ? '<span class="selo">★</span>' : ''}</div>
+      <div class="card-txt">
+        <h3>${esc(p.descricao)}</h3>
+        <div class="linha-preco">${p.preco == null ? '<span class="sob">Monte o seu</span>'
+          : `<span class="sob">a partir de</span><span class="preco">${brl(p.preco)}</span>`}</div>
+      </div>
+      <button class="mais" data-montar="${p.id}" aria-label="Montar ${esc(p.descricao)}">+</button>
+    </article>`;
+  }
   return `<article class="card" data-abrir="${p.id}" role="button" tabindex="0"
       aria-label="Abrir ${esc(p.descricao)}">
     <div class="card-foto">${foto
@@ -217,6 +250,11 @@ async function abrirProduto(id) {
   try {
     const d = await fetch('/loja/api/produtos/' + Number(id)).then((r) => r.json());
     if (!d.success) throw new Error(d.error || 'Produto não encontrado');
+    /* Produto montável não tem página comum: o que ele custa depende do
+       formato, da quantidade e da cor, e a página do produto mostraria o
+       `precoVenda` do cadastro, que nos montáveis é zero. Link antigo,
+       sugestão ou busca, todos caem no montador. */
+    if (d.produto.montavel) return irPara('#/montar/' + Number(id));
     PRODUTO = d.produto;
     ESCOLHAS = { opcoes: new Set(), textos: {}, quantidade: 1 };
     pintarProduto();
@@ -238,7 +276,12 @@ function pintarProduto() {
           placeholder="Escreva aqui…">${esc(ESCOLHAS.textos[g.id] || '')}</textarea>
       </fieldset>`;
     }
-    const multi = g.maxEscolhas > 1;
+    /* Caixa, e não bolinha, em todo grupo que a pessoa pode deixar em branco.
+       O rádio não desmarca: quem tocava "4 unidades" só para ver o preço
+       ficava com o adicional somado até recarregar a página. Só o grupo
+       OBRIGATÓRIO de escolha única continua rádio, que é onde não desmarcar é
+       a regra certa. A exclusividade da escolha única é mantida no handler. */
+    const multi = g.maxEscolhas > 1 || !g.obrigatorio;
     return `<fieldset class="grupo">
       <legend>${esc(g.nome)} ${g.obrigatorio ? '<span class="obrig">obrigatório</span>' : ''}</legend>
       ${g.descricao ? `<p class="ajuda">${esc(g.descricao)}</p>` : ''}
@@ -319,12 +362,18 @@ function ligarProduto() {
     if (inp) {
       const grupoId = Number(inp.dataset.grupo);
       const id = Number(inp.value);
-      if (inp.type === 'radio') {
-        const grupo = PRODUTO.personalizacoes.find((g) => g.id === grupoId);
-        for (const o of grupo.opcoes) ESCOLHAS.opcoes.delete(o.id);
+      const grupo = PRODUTO.personalizacoes.find((g) => g.id === grupoId);
+      if (!inp.checked) ESCOLHAS.opcoes.delete(id);
+      else {
+        // Escolha única continua única, venha ela de rádio ou de caixa.
+        if (grupo.maxEscolhas <= 1) {
+          for (const o of grupo.opcoes) ESCOLHAS.opcoes.delete(o.id);
+          for (const outro of $('conteudo').querySelectorAll(`input[data-grupo="${grupoId}"]`)) {
+            if (outro !== inp) outro.checked = false;
+          }
+        }
         ESCOLHAS.opcoes.add(id);
-      } else if (inp.checked) ESCOLHAS.opcoes.add(id);
-      else ESCOLHAS.opcoes.delete(id);
+      }
       atualizarBotaoProduto();
     }
     const txt = e.target.closest('textarea[data-texto]');
@@ -384,15 +433,16 @@ async function pintarSacola() {
       <div class="is-txt">
         <strong>${esc(i.descricao)}</strong>
         ${i.opcoes.length ? `<span class="is-op">${i.opcoes.map((o) => esc(o.nome)).join(', ')}</span>` : ''}
+        ${(i.textosNomeados || []).map((t) => `<span class="is-op">${esc(t.nome)}: “${esc(t.texto)}”</span>`).join('')}
         ${i.comentario ? `<span class="is-op">“${esc(i.comentario)}”</span>` : ''}
         <span class="is-preco">${i.total == null ? 'a combinar' : brl(i.total)}</span>
       </div>
       <div class="is-acoes">
-        <div class="qtd">
+        ${i.montagem ? '' : `<div class="qtd">
           <button data-menos="${idx}" aria-label="Diminuir">−</button>
           <output>${i.quantidade}</output>
           <button data-mais-item="${idx}" aria-label="Aumentar">+</button>
-        </div>
+        </div>`}
         <button class="excluir" data-remover="${idx}" aria-label="Remover">Excluir</button>
       </div>
     </li>`).join('');
@@ -402,22 +452,12 @@ async function pintarSacola() {
       <h1>Sua sacola</h1>
       <strong>${SACOLA.semPreco ? 'a combinar' : brl(SACOLA.total)}</strong>
     </div>
-    <ul class="lista-sacola">${linhas}</ul>
-    <!-- O tipo de serviço vem ANTES das sugestões: é a decisão que segue o
-         pedido, e deixá-la depois de uma lista de recomendações a empurrava
-         para fora da vista. Só os serviços HABILITADOS pelo lojista aparecem. -->
-    <section class="servico">
-      <h2>Selecione o tipo de serviço</h2>
-      <div class="servico-botoes">${botoesServico()}</div>
-      <p class="ajuda" id="avisoServico" hidden></p>
-    </section>
-    <section class="secao" id="secSugestoes" hidden>
-      <h2>Complete seu pedido</h2>
-      <div class="trilho" id="sugestoes"></div>
-    </section>
-    <div class="ir-checkout">
-      <button class="bt-principal" id="btIrCheckout" type="button">Continuar</button>
-    </div>`;
+    <ul class="lista-sacola">${linhas}</ul>`;
+  /* A escolha de receber e as sugestões vivem FORA do `#conteudo`, logo abaixo
+     dele: esta função reescreve o innerHTML a cada mudança de quantidade, e
+     quem estivesse ali dentro seria recriado junto, perdendo o foco de quem
+     navega por teclado no meio de um ajuste. */
+  pintarBarraAtendimento();
   carregarSugestoes();
 }
 
@@ -462,6 +502,10 @@ async function pintarCheckout() {
       <br><button class="btn-linha" data-voltar="1">Ver o catálogo</button></div>`;
     return;
   }
+  // Com Pix no site, o Pix é a única forma e já vem marcado.
+  const pixNoSite = !!(LOJA && LOJA.pixNoSite);
+  if (pixNoSite) CHECKOUT.pagamento = 'pix';
+  const datas = SACOLA.itens.map((i) => i.dataDesejada).filter(Boolean).sort();
   // Serviço único não é escolha: já vem marcado.
   if (!CHECKOUT.atendimento) {
     CHECKOUT.atendimento = podeRetirada && !podeEntrega ? 'retirada'
@@ -478,7 +522,7 @@ async function pintarCheckout() {
           ${podeRetirada ? `<button type="button" class="chk-op" data-atend="retirada">
             <strong>Retirada</strong><span>Você busca na loja</span></button>` : ''}
           ${podeEntrega ? `<button type="button" class="chk-op" data-atend="entrega">
-            <strong>Delivery</strong><span>Entregamos no seu endereço</span></button>` : ''}
+            <strong>Entrega</strong><span>Entregamos no seu endereço</span></button>` : ''}
         </div>
         <div id="chkRetiradaInfo" class="chk-aviso" hidden></div>
       </section>
@@ -495,8 +539,11 @@ async function pintarCheckout() {
                  maxlength="20" placeholder="(00) 00000-0000">
         </div>
         <div class="chk-campo">
-          <label for="chkDoc">CPF ou CNPJ <span class="chk-op-txt">(opcional)</span></label>
-          <input id="chkDoc" type="text" inputmode="numeric" maxlength="20" placeholder="Só se quiser na nota">
+          ${pixNoSite
+            ? '<label for="chkDoc">CPF *</label>'
+            : '<label for="chkDoc">CPF ou CNPJ <span class="chk-op-txt">(opcional)</span></label>'}
+          <input id="chkDoc" type="text" inputmode="numeric" maxlength="20"
+                 placeholder="${pixNoSite ? 'O Pix precisa dele' : 'Só se quiser na nota'}">
         </div>
         <div class="chk-campo">
           <label for="chkEmail">E-mail <span class="chk-op-txt">(opcional)</span></label>
@@ -554,8 +601,8 @@ async function pintarCheckout() {
         <p class="chk-aviso" id="chkQuandoPaga"></p>
         <div class="chk-opcoes">
           <button type="button" class="chk-op" data-pag="pix"><strong>PIX</strong></button>
-          <button type="button" class="chk-op" data-pag="dinheiro"><strong>Dinheiro</strong></button>
-          <button type="button" class="chk-op" data-pag="cartao"><strong>Cartão</strong><span>na entrega/retirada</span></button>
+          ${pixNoSite ? '' : `<button type="button" class="chk-op" data-pag="dinheiro"><strong>Dinheiro</strong></button>
+          <button type="button" class="chk-op" data-pag="cartao"><strong>Cartão</strong><span>na entrega/retirada</span></button>`}
         </div>
         <div id="chkTroco" hidden>
           <label class="chk-check">
@@ -588,6 +635,7 @@ async function pintarCheckout() {
           <div id="chkLinhaFrete" hidden><span>Entrega</span><span id="chkFrete">—</span></div>
           <div class="chk-total"><span>Total</span><span id="chkTotal">${brl(SACOLA.total)}</span></div>
         </div>
+        ${datas.length ? `<p class="chk-aviso">Para quando: <strong>${esc(datas[0].split('-').reverse().join('/'))}</strong></p>` : ''}
         <p class="chk-aviso" id="chkAvisoFrete" hidden></p>
       </section>
 
@@ -626,9 +674,15 @@ function pintarEscolhas() {
 
   const quando = $('chkQuandoPaga');
   if (quando) {
-    quando.textContent = CHECKOUT.atendimento
-      ? `Você paga na ${entrega ? 'entrega' : 'retirada'}. Nada é cobrado agora.`
-      : 'Nada é cobrado agora.';
+    if (LOJA && LOJA.pixNoSite) {
+      quando.textContent = entrega && e.freteModo === 'combinar'
+        ? 'A loja calcula a taxa de entrega e manda o Pix do total pelo WhatsApp.'
+        : 'O Pix aparece logo depois de você confirmar o pedido.';
+    } else {
+      quando.textContent = CHECKOUT.atendimento
+        ? `Você paga na ${entrega ? 'entrega' : 'retirada'}. Nada é cobrado agora.`
+        : 'Nada é cobrado agora.';
+    }
   }
 
   const troco = $('chkTroco');
@@ -643,7 +697,8 @@ function pintarEscolhas() {
     if (!entrega) { linha.hidden = true; $('chkAvisoFrete').hidden = true; atualizarTotal(0); return; }
     linha.hidden = false;
     const modo = e.freteModo;
-    if (modo === 'gratis') { $('chkFrete').textContent = 'grátis'; atualizarTotal(0); }
+    if (modo === 'combinar') { $('chkFrete').textContent = 'a combinar'; atualizarTotal(0); }
+    else if (modo === 'gratis') { $('chkFrete').textContent = 'grátis'; atualizarTotal(0); }
     else if (modo === 'fixo') { $('chkFrete').textContent = brl(e.freteValor || 0); atualizarTotal(e.freteValor || 0); }
     else {
       const b = $('chkBairro');
@@ -716,7 +771,11 @@ async function finalizarPedido() {
     gravarCarrinho([]);                 // o pedido saiu: a sacola esvazia
     SACOLA = { itens: [], total: 0, quantidadeItens: 0 };
     CHECKOUT.chave = null;              // a próxima compra é outra tentativa
-    location.hash = '#/pedido/' + encodeURIComponent(d.numero);
+    /* Com Pix no site, a confirmação é a página de pagamento: ela sobrevive
+       a recarregar, e é o mesmo link que a loja manda pelo WhatsApp. */
+    location.hash = d.pixNoSite && d.link
+      ? '#/pagar/' + encodeURIComponent(d.link)
+      : '#/pedido/' + encodeURIComponent(d.numero);
   } catch {
     mostrar('Não conseguimos falar com a loja. Verifique a conexão e tente de novo.');
   } finally {
@@ -761,7 +820,7 @@ function pintarSucesso(numero) {
         ${d.frete ? `<div><span>Entrega</span><span>${brl(d.frete)}</span></div>` : ''}
         <div class="chk-total"><span>Total</span><span>${brl(d.total)}</span></div>
       </div>
-      <p class="ok-linha"><strong>${d.atendimento === 'entrega' ? 'Delivery' : 'Retirada'}</strong>
+      <p class="ok-linha"><strong>${d.atendimento === 'entrega' ? 'Entrega' : 'Retirada'}</strong>
         · ${esc((d.pagamento && d.pagamento.rotulo) || '')}</p>
       ${instrucao ? `<p class="chk-aviso">${esc(instrucao)}</p>` : ''}
       ${d.atendimento === 'retirada' && LOJA.endereco
@@ -782,21 +841,537 @@ async function carregarSugestoes() {
     const d = await fetch('/loja/api/sugestoes?excluir=' + ids.join(',')
       + '&categorias=' + encodeURIComponent(cats.join('|'))).then((r) => r.json());
     if (!d.success || !d.produtos.length) return;
-    $('sugestoes').innerHTML = d.produtos.map((p) => `
-      <article class="sug" data-abrir="${p.id}" role="button" tabindex="0">
-        <div class="sug-foto">${fotoDe(p)
-          ? `<img src="${esc(fotoDe(p))}" alt="" loading="lazy">` : '<span class="sem-foto">—</span>'}</div>
-        <span class="sug-nome">${esc(p.descricao)}</span>
-        <span class="sug-preco">${p.preco == null ? '—' : brl(p.preco)}</span>
-        <button class="mais" data-mais="${p.id}" aria-label="Adicionar ${esc(p.descricao)}">+</button>
-      </article>`).join('');
+    // O mesmo card da vitrine, e não um card só daqui: o de antes tinha outro
+    // tamanho, outra fonte e o nome passando por baixo do "+".
+    $('sugestoes').innerHTML = d.produtos.map(cardHtml).join('');
     $('secSugestoes').hidden = false;
   } catch { /* sugestão é extra: falhar aqui não pode estragar a sacola */ }
 }
 
+/* ===================== montador (#/montar/<id>) =============================
+   O cliente monta o produto: flor, formato, quantidade da tabela, cor,
+   adicionais, mensagem, data e como recebe. A prévia ganha flores e muda de
+   cor, e o resumo soma. O preço exibido aqui é o da tabela que o servidor
+   mandou; o que vale no pedido é recalculado lá, a partir das mesmas escolhas.
+   ========================================================================= */
+
+let MONTAVEIS = [];
+let MT = null;
+
+const plural = (m, q) => `${q} ${q === 1 ? m.unidade : m.plural}`;
+const hojeIso = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+
+function mtFormato() { return MT.m.formatos.find((f) => f.id === MT.formatoId) || MT.m.formatos[0]; }
+function mtCor() { return MT.m.cores.find((c) => c.id === MT.corId) || null; }
+function mtPossivel(cor, q) { return !cor || cor.quantidades.includes(q); }
+function mtPreco() {
+  const l = mtFormato().precos.find((p) => p.quantidade === MT.quantidade);
+  return l ? l.preco : null;
+}
+function mtAdicionais() {
+  const fora = [];
+  for (const g of MT.m.adicionais) for (const o of g.opcoes) if (MT.opcoes.has(o.id)) fora.push({ g, o });
+  return fora;
+}
+function mtTotal() {
+  const p = mtPreco();
+  if (p == null) return null;
+  return p + mtAdicionais().reduce((s, x) => s + (x.o.precoAdicional || 0), 0);
+}
+
+/**
+ * A mensagem só faz sentido com o cartão escolhido: ela é o que vai ESCRITO
+ * nele. Sem cartão, o passo não aparece, e o que já tiver sido digitado não
+ * segue para o pedido — mandar para a floricultura um texto que ninguém vai
+ * imprimir é pedir um cartão que não foi comprado.
+ *
+ * O texto fica guardado em `MT.textos` em vez de apagado: quem tira o cartão
+ * por engano e volta a marcá-lo encontra o que escreveu.
+ *
+ * A flor que não tiver grupo de cartão nenhum segue como antes, com a
+ * mensagem sempre disponível.
+ */
+function mtGrupoCartao() {
+  return MT.m.adicionais.find((g) => g.tipo !== 'texto' && /cart[ãa]o/i.test(g.nome)) || null;
+}
+function mtTemCartao() {
+  const g = mtGrupoCartao();
+  return !g || g.opcoes.some((o) => MT.opcoes.has(o.id));
+}
+const mtTextos = () => (mtTemCartao() ? MT.textos : {});
+
+/** Primeira quantidade do formato que a cor fecha, preferindo a atual. */
+function mtAjustarQuantidade() {
+  const f = mtFormato();
+  const cor = mtCor();
+  if (f.precos.some((p) => p.quantidade === MT.quantidade) && mtPossivel(cor, MT.quantidade)) return;
+  const boas = f.precos.map((p) => p.quantidade).filter((q) => mtPossivel(cor, q));
+  if (boas.length) {
+    // A mais próxima da que estava escolhida, para a troca de cor não pular longe.
+    MT.quantidade = boas.reduce((a, q) => (Math.abs(q - MT.quantidade) < Math.abs(a - MT.quantidade) ? q : a), boas[0]);
+  } else {
+    MT.quantidade = f.precos[0].quantidade;
+  }
+}
+
+function iniciarMontagem(m) {
+  const antes = MT;
+  const cores = m.cores;
+  const cor = cores.find((c) => !c.mix && c.quantidades.length) || cores.find((c) => c.quantidades.length) || cores[0];
+  MT = {
+    m,
+    formatoId: m.formatos[0].id,
+    quantidade: m.formatos[0].precos[0].quantidade,
+    corId: cor ? cor.id : null,
+    opcoes: new Set(), textos: {},
+    data: antes ? antes.data : '',
+    atend: antes ? antes.atend : (SERVICO === 'delivery' ? 'entrega' : (SERVICO === 'retirada' ? 'retirada' : null)),
+    erro: null,
+  };
+  // Começa no primeiro formato que a cor consegue montar.
+  const f = m.formatos.find((x) => x.precos.some((p) => mtPossivel(cor, p.quantidade)));
+  if (f) MT.formatoId = f.id;
+  mtAjustarQuantidade();
+}
+
+async function abrirMontador(idTxt) {
+  const alvo = $('conteudo');
+  alvo.innerHTML = '<div class="vazio-msg">Carregando…</div>';
+  try {
+    const d = await fetch('/loja/api/montagem').then((r) => r.json());
+    if (!d.success) throw new Error(d.error || 'Não foi possível carregar.');
+    MONTAVEIS = d.montaveis || [];
+  } catch (e) {
+    alvo.innerHTML = `<div class="vazio-msg">${esc(e.message)}<br><button class="btn-linha" data-voltar="1">Voltar ao catálogo</button></div>`;
+    return;
+  }
+  if (!MONTAVEIS.length) {
+    alvo.innerHTML = '<div class="vazio-msg">Nada para montar no momento.<br><button class="btn-linha" data-voltar="1">Voltar ao catálogo</button></div>';
+    return;
+  }
+  const id = Number(idTxt);
+  const m = MONTAVEIS.find((x) => x.produtoId === id) || MONTAVEIS[0];
+  if (!MT || MT.m.produtoId !== m.produtoId) iniciarMontagem(m);
+  else MT.m = m;              // voltou ao montador: mantém as escolhas, com o estoque de agora
+  pintarMontador();
+}
+
+function notaDoAtendimento() {
+  const e = (LOJA && LOJA.entrega) || {};
+  if (MT.atend !== 'entrega') return null;
+  if (e.freteModo === 'combinar') return 'A taxa de entrega é combinada depois, e o Pix do total chega pelo WhatsApp.';
+  if (e.freteModo === 'fixo' && e.freteValor != null) return `Taxa de entrega: ${brl(e.freteValor)}.`;
+  if (e.freteModo === 'bairro') return 'A taxa de entrega sai pelo bairro, no fechamento do pedido.';
+  if (e.freteModo === 'gratis') return 'Entrega grátis.';
+  return null;
+}
+
+function pintarMontador() {
+  const m = MT.m;
+  const multiplosFormatos = m.formatos.length > 1;
+  const temCor = m.cores.length > 1;
+  const escolhas = m.adicionais.filter((g) => g.tipo !== 'texto');
+  const textos = m.adicionais.filter((g) => g.tipo === 'texto');
+  const servs = servicosDaLoja();
+  let n = 0;
+  const passo = (titulo, corpo) => `<section class="mt-passo"><div class="mt-tit">
+      <span class="mt-num">${++n}</span><h2>${esc(titulo)}</h2></div>${corpo}</section>`;
+
+  const blocos = [];
+  if (MONTAVEIS.length > 1) {
+    blocos.push(passo('Qual flor?', `<div class="mt-ops">${MONTAVEIS.map((x) => {
+      const menor = Math.min(...x.formatos.flatMap((f) => f.precos.map((p) => p.preco)).filter((v) => v != null));
+      return `<button type="button" class="mt-op ${x.produtoId === m.produtoId ? 'on' : ''}" aria-pressed="${x.produtoId === m.produtoId}" data-mt-flor="${x.produtoId}">
+        <strong>${esc(x.descricao)}</strong>${Number.isFinite(menor) ? `<small>a partir de ${brl(menor)}</small>` : ''}</button>`;
+    }).join('')}</div>`));
+  }
+  if (multiplosFormatos) {
+    blocos.push(passo('Formato', `<div class="mt-ops">${m.formatos.map((f) => {
+      const qs = f.precos.map((p) => p.quantidade);
+      const faixa = qs.length === 1 ? plural(m, qs[0]) : `${qs[0]} a ${plural(m, qs[qs.length - 1])}`;
+      const algum = qs.some((q) => mtPossivel(mtCor(), q));
+      return `<button type="button" class="mt-op ${f.id === MT.formatoId ? 'on' : ''}" aria-pressed="${f.id === MT.formatoId}" data-mt-formato="${f.id}" ${algum ? '' : 'disabled'}>
+        <strong>${esc(f.nome)}</strong><small>${esc(f.descricao || faixa)}</small></button>`;
+    }).join('')}</div>`));
+  }
+  blocos.push(passo('Quantidade', `<div class="mt-qtds">${mtFormato().precos.map((p) => `
+      <button type="button" class="mt-op ${p.quantidade === MT.quantidade ? 'on' : ''}" aria-pressed="${p.quantidade === MT.quantidade}" data-mt-qtd="${p.quantidade}"
+        ${mtPossivel(mtCor(), p.quantidade) ? '' : 'disabled'}>
+        <strong>${plural(m, p.quantidade)}</strong>${!mtPossivel(mtCor(), p.quantidade) ? '<small>Sem estoque nesta cor</small>'
+          : (p.preco != null ? `<small>${brl(p.preco)}</small>` : '')}</button>`).join('')}</div>`));
+  if (temCor) {
+    blocos.push(passo('Cor', `<div class="mt-ops">${m.cores.map((c) => `
+      <button type="button" class="mt-op ${c.id === MT.corId ? 'on' : ''}" aria-pressed="${c.id === MT.corId}" data-mt-cor="${c.id}" ${c.quantidades.length ? '' : 'disabled'}>
+        <span class="amostra" style="background:${c.mix ? amostraMix(m) : esc(c.corHex || '#ccc')}"></span>
+        <strong>${esc(c.nome)}</strong>${c.quantidades.length ? '' : '<small>Sem estoque agora</small>'}</button>`).join('')}</div>`));
+  }
+  if (escolhas.length) {
+    blocos.push(passo('Adicionais', escolhas.map((g) => {
+      const marcado = g.opcoes.some((o) => MT.opcoes.has(o.id));
+      return `<div class="mt-grupo"><h3>${esc(g.nome)}</h3>
+        <div class="mt-ops">${g.opcoes.map((o) => `
+          <button type="button" class="mt-op ${MT.opcoes.has(o.id) ? 'on' : ''}" aria-pressed="${MT.opcoes.has(o.id)}" data-mt-op="${o.id}" data-mt-grupo="${g.id}">
+            <strong>${esc(o.nome)}</strong>${o.precoAdicional > 0 ? `<small>+ ${brl(o.precoAdicional)}</small>` : ''}</button>`).join('')}</div>
+        ${g.descricao ? `<p class="mt-aviso ${marcado ? 'forte' : ''}">${esc(g.descricao)}</p>` : ''}</div>`;
+    }).join('')));
+  }
+  if (textos.length && mtTemCartao()) {
+    blocos.push(passo('Mensagem', textos.map((g) => `
+      <div class="mt-campo"><label for="mtT${g.id}">${esc(g.nome)}</label>
+        ${g.descricao ? `<p class="mt-aviso" style="margin:0">${esc(g.descricao)}</p>` : ''}
+        <textarea id="mtT${g.id}" data-mt-texto="${g.id}" rows="${textos[0] === g ? 3 : 1}" maxlength="300">${esc(MT.textos[g.id] || '')}</textarea></div>`).join('')));
+  }
+  blocos.push(passo('Quando e como?', `
+    <div class="mt-campo" style="margin-top:0"><label for="mtData">Data desejada</label>
+      <input type="date" id="mtData" min="${hojeIso()}" value="${esc(MT.data || '')}"></div>
+    ${servs.length ? `<div class="mt-ops" style="margin-top:12px">${servs.map((sv) => {
+      const v = sv.valor === 'delivery' ? 'entrega' : 'retirada';
+      return `<button type="button" class="mt-op ${MT.atend === v ? 'on' : ''}" aria-pressed="${MT.atend === v}" data-mt-atend="${v}">
+        <strong>${sv.icone} ${esc(sv.rotulo)}</strong><small>${v === 'entrega' ? 'Entregamos no endereço' : 'Você busca na loja'}</small></button>`;
+    }).join('')}</div>` : ''}
+    <p class="mt-aviso" id="mtNotaAtend"></p>`));
+
+  $('conteudo').innerHTML = `
+    <div class="mt">
+      <div class="mt-cab"><h1>${esc(m.descricao)}</h1></div>
+      <div class="mt-passos">${blocos.join('')}</div>
+      <aside class="mt-lado">
+        <div class="mt-previa">
+          <span class="mt-etq">Prévia</span>
+          <div class="bq" id="bq"></div>
+          <span class="mt-mais-fl" id="mtMaisFl" hidden></span>
+          <div class="mt-preco"><small>Seu presente</small><strong id="mtPreco">—</strong></div>
+        </div>
+        <div class="mt-resumo-wrap">
+          <div class="mt-resumo">
+            <h2>Resumo</h2>
+            <div id="mtLinhas"></div>
+            <div class="mt-total"><span>Total</span><strong id="mtTotal">—</strong></div>
+            <button type="button" class="mt-bt claro" id="mtSeguir">Continuar para o pagamento</button>
+            <button type="button" class="mt-bt linha" id="mtSacola">Adicionar à sacola</button>
+            <p class="mt-erro" id="mtErro" hidden></p>
+          </div>
+        </div>
+      </aside>
+    </div>
+    <div class="mt-barra"><div><span>Total</span><strong id="mtTotalBarra">—</strong></div>
+      <button type="button" id="mtSeguirBarra">Continuar</button></div>`;
+  document.body.classList.add('com-mt');
+  // A prévia presa no celular encosta no cabeçalho, sem fresta por onde o texto passe.
+  const topo = document.querySelector('header.topo');
+  if (topo) document.body.style.setProperty('--topo-h', topo.offsetHeight + 'px');
+  montarBuque();
+  atualizarMontador();
+}
+
+/** Amostra do mix: as cores com estoque, em fatias. */
+function amostraMix(m) {
+  const cs = m.cores.filter((c) => !c.mix && c.corHex);
+  if (!cs.length) return '#ccc';
+  const passo = 100 / cs.length;
+  return `conic-gradient(${cs.map((c, i) => `${c.corHex} ${i * passo}% ${(i + 1) * passo}%`).join(',')})`;
+}
+
+/* ---- prévia ---- */
+const MAX_FLORES = 25;
+
+/** Posições das flores: rosetas concêntricas, a de dentro primeiro. */
+function posicoes(n, formato) {
+  const nome = String(formato || '').toLowerCase();
+  if (nome.includes('avulsa') || n === 1 && !nome.includes('cone')) return [[0, -40]];
+  if (nome.includes('cone')) return [[0, -30], [-24, -6], [24, -6]].slice(0, n);
+  const pts = [[0, -20]];
+  const aneis = [[6, 40], [12, 76], [6, 104]];
+  for (const [qtd, r] of aneis) {
+    for (let i = 0; i < qtd; i++) {
+      const a = (-90 + (360 / qtd) * i + (r === 76 ? 15 : 0)) * Math.PI / 180;
+      pts.push([Math.round(Math.cos(a) * r * 1.05), Math.round(-20 + Math.sin(a) * r * .72)]);
+    }
+  }
+  return pts.slice(0, n);
+}
+
+function tons(hex) {
+  const h = /^#([0-9a-f]{6})$/i.exec(hex || '') ? hex : '#c6284e';
+  const rgb = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const mist = (alvo, f) => '#' + rgb.map((v) => Math.round(v + (alvo - v) * f).toString(16).padStart(2, '0')).join('');
+  return { pe: h, cla: mist(255, .35), esc: mist(0, .28) };
+}
+
+function montarBuque() {
+  const bq = $('bq');
+  const hastes = [-2, 4, -7, 10, -13, 15].map((g, i) => `<div class="bq-haste" data-haste="${i}" style="transform:rotate(${g}deg)"></div>`).join('');
+  bq.innerHTML = hastes
+    + '<div class="bq-folha" style="left:32%;bottom:34%;transform:rotate(32deg)"></div>'
+    + '<div class="bq-folha" style="right:30%;bottom:30%;transform:rotate(145deg)"></div>'
+    + '<div class="bq-emb"></div>'
+    + Array.from({ length: MAX_FLORES }, (_, i) => `<div class="fl fora" data-fl="${i}"></div>`).join('');
+}
+
+function pintarBuque() {
+  const bq = $('bq');
+  if (!bq) return;
+  const f = mtFormato();
+  const nomeF = String(f.nome || '').toLowerCase();
+  bq.classList.toggle('cone', nomeF.includes('cone'));
+  bq.classList.toggle('avulsa', nomeF.includes('avulsa') || (MT.quantidade === 1 && !nomeF.includes('cone')));
+  const girassol = /girassol/i.test(MT.m.unidade + ' ' + MT.m.descricao);
+  const visiveis = Math.min(MT.quantidade, MAX_FLORES);
+  const pts = posicoes(visiveis, f.nome);
+  const cor = mtCor();
+  const paleta = cor && cor.mix
+    ? MT.m.cores.filter((c) => !c.mix && c.quantidades.length && c.corHex).map((c) => c.corHex)
+    : [cor && cor.corHex];
+  bq.querySelectorAll('.fl').forEach((el, i) => {
+    const vis = i < visiveis;
+    el.classList.toggle('fora', !vis);
+    el.classList.toggle('girassol', girassol);
+    if (!vis) return;
+    const [x, y] = pts[i] || [0, 0];
+    el.style.left = `calc(50% + ${x}px)`;
+    el.style.top = `calc(38% + ${y}px)`;
+    const t = tons(paleta[i % (paleta.length || 1)]);
+    el.style.setProperty('--pe', t.pe);
+    el.style.setProperty('--pe-cla', t.cla);
+    el.style.setProperty('--pe-esc', t.esc);
+  });
+  // Uma haste por flor, até seis: a rosa avulsa não sai de um leque de caules.
+  bq.querySelectorAll('.bq-haste').forEach((h, i) => { h.hidden = i >= Math.min(visiveis, 6); });
+  const mais = $('mtMaisFl');
+  mais.hidden = MT.quantidade <= MAX_FLORES;
+  mais.textContent = `${MT.quantidade} ${MT.m.plural}`;
+}
+
+/* ---- resumo e tabela ---- */
+function atualizarMontador() {
+  const m = MT.m;
+  const f = mtFormato();
+  const cor = mtCor();
+  const total = mtTotal();
+  pintarBuque();
+  $('mtPreco').textContent = total == null ? 'a combinar' : brl(total);
+  $('mtTotal').textContent = total == null ? 'a combinar' : brl(total);
+  $('mtTotalBarra').textContent = total == null ? 'a combinar' : brl(total);
+
+  const linhas = [];
+  const linha = (a, b) => linhas.push(`<div class="mt-linha"><span>${esc(a)}</span><b>${esc(b)}</b></div>`);
+  if (MONTAVEIS.length > 1) linha('Flor', m.descricao);
+  if (m.formatos.length > 1) linha('Formato', f.nome);
+  linha('Quantidade', plural(m, MT.quantidade) + (mtPreco() != null ? ` · ${brl(mtPreco())}` : ''));
+  if (m.cores.length > 1 && cor) linha('Cor', cor.nome);
+  const notas = [];
+  for (const { g, o } of mtAdicionais()) {
+    linha(g.nome, o.nome + (o.precoAdicional > 0 ? ` · ${brl(o.precoAdicional)}` : ''));
+    if (g.descricao && !notas.includes(g.descricao)) notas.push(g.descricao);
+  }
+  for (const g of m.adicionais.filter((x) => x.tipo === 'texto')) {
+    const t = (mtTextos()[g.id] || '').trim();
+    if (t) linha(g.nome, t.length > 40 ? t.slice(0, 40) + '…' : t);
+  }
+  linha('Data', MT.data ? MT.data.split('-').reverse().join('/') : 'A combinar');
+  if (MT.atend) linha('Receber', MT.atend === 'entrega' ? 'Entrega' : 'Retirada');
+  const nAtend = notaDoAtendimento();
+  $('mtLinhas').innerHTML = linhas.join('')
+    + notas.map((x) => `<p class="mt-nota">${esc(x)}</p>`).join('')
+    + (nAtend ? `<p class="mt-nota">${esc(nAtend)}</p>` : '');
+  const nota = $('mtNotaAtend');
+  if (nota) { nota.textContent = nAtend || ''; nota.hidden = !nAtend; }
+}
+
+function itemDaMontagem() {
+  return {
+    produtoId: MT.m.produtoId, quantidade: 1,
+    opcoes: [...MT.opcoes], textos: mtTextos(), comentario: null,
+    montagem: { formatoId: MT.formatoId, quantidade: MT.quantidade, corId: MT.corId, dataDesejada: MT.data || null },
+  };
+}
+
+let MT_ENVIANDO = false;
+async function concluirMontagem(seguir) {
+  const erro = $('mtErro');
+  erro.hidden = true;
+  if (seguir && servicosDaLoja().length && !MT.atend) {
+    erro.textContent = 'Escolha se vai retirar na loja ou receber em casa.';
+    erro.hidden = false;
+    erro.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    return;
+  }
+  // Dois toques rápidos punham dois buquês na sacola: a montagem nunca se funde.
+  if (MT_ENVIANDO) return;
+  MT_ENVIANDO = true;
+  const bts = ['mtSeguir', 'mtSeguirBarra', 'mtSacola'].map($).filter(Boolean);
+  bts.forEach((b) => { b.disabled = true; });
+  try { await concluirMontagemAgora(seguir, erro); }
+  finally { MT_ENVIANDO = false; bts.forEach((b) => { b.disabled = false; }); }
+}
+
+async function concluirMontagemAgora(seguir, erro) {
+  const item = itemDaMontagem();
+  // O servidor confere antes de entrar na sacola: estoque, tabela e adicionais.
+  const r = await fetch('/loja/api/carrinho/calcular', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itens: [item] }),
+  }).then((x) => x.json()).catch(() => null);
+  if (!r || !r.success) {
+    erro.textContent = (r && r.error) || 'Não foi possível adicionar agora.';
+    erro.hidden = false;
+    erro.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    return;
+  }
+  await adicionar(item);
+  if (MT.atend) { SERVICO = MT.atend === 'entrega' ? 'delivery' : 'retirada'; CHECKOUT.atendimento = MT.atend; }
+  MT = null;                               // a próxima montagem começa do zero
+  irPara(seguir ? '#/checkout' : '#/sacola');
+}
+
+function tratarCliqueMontador(e) {
+  if (!MT || !location.hash.startsWith('#/montar')) return false;
+  const flor = e.target.closest('[data-mt-flor]');
+  if (flor) {
+    const m = MONTAVEIS.find((x) => x.produtoId === Number(flor.dataset.mtFlor));
+    if (m && m.produtoId !== MT.m.produtoId) { iniciarMontagem(m); history.replaceState(null, '', '#/montar/' + m.produtoId); pintarMontador(); }
+    return true;
+  }
+  const fmt = e.target.closest('[data-mt-formato]');
+  if (fmt) { MT.formatoId = Number(fmt.dataset.mtFormato); mtAjustarQuantidade(); pintarMontadorMantendo(); return true; }
+  const q = e.target.closest('[data-mt-qtd]');
+  if (q) { MT.quantidade = Number(q.dataset.mtQtd); pintarMontadorMantendo(); return true; }
+  const cor = e.target.closest('[data-mt-cor]');
+  if (cor) {
+    MT.corId = Number(cor.dataset.mtCor);
+    const c = mtCor();
+    // A cor pode não fechar nenhuma quantidade deste formato: aí procura outro formato.
+    if (!mtFormato().precos.some((p) => mtPossivel(c, p.quantidade))) {
+      const outro = MT.m.formatos.find((f) => f.precos.some((p) => mtPossivel(c, p.quantidade)));
+      if (outro) MT.formatoId = outro.id;
+    }
+    mtAjustarQuantidade();
+    pintarMontadorMantendo();
+    return true;
+  }
+  const op = e.target.closest('[data-mt-op]');
+  if (op) {
+    const g = MT.m.adicionais.find((x) => x.id === Number(op.dataset.mtGrupo));
+    const id = Number(op.dataset.mtOp);
+    if (MT.opcoes.has(id)) {
+      if (!(g.obrigatorio && g.opcoes.filter((o) => MT.opcoes.has(o.id)).length <= g.minEscolhas)) MT.opcoes.delete(id);
+    } else {
+      if (g.maxEscolhas <= 1) for (const o of g.opcoes) MT.opcoes.delete(o.id);
+      else if (g.opcoes.filter((o) => MT.opcoes.has(o.id)).length >= g.maxEscolhas) return true;
+      MT.opcoes.add(id);
+    }
+    pintarMontadorMantendo();
+    return true;
+  }
+  const at = e.target.closest('[data-mt-atend]');
+  if (at) { MT.atend = at.dataset.mtAtend; pintarMontadorMantendo(); return true; }
+  if (e.target.closest('#mtSeguir') || e.target.closest('#mtSeguirBarra')) { concluirMontagem(true); return true; }
+  if (e.target.closest('#mtSacola')) { concluirMontagem(false); return true; }
+  return false;
+}
+
+/* Repinta os passos sem perder a rolagem nem o que foi digitado: os campos de
+   texto são lidos para o estado a cada tecla, e a prévia só troca classes. */
+function pintarMontadorMantendo() {
+  const y = window.scrollY;
+  const bq = $('bq') && $('bq').innerHTML;
+  const a = document.activeElement;
+  const chave = a && a.attributes ? [...a.attributes].find((x) => x.name.startsWith('data-mt-')) : null;
+  pintarMontador();
+  if (bq) { $('bq').innerHTML = bq; }
+  atualizarMontador();
+  window.scrollTo(0, y);
+  // Quem navega pelo teclado continua no botão que acabou de tocar.
+  if (chave) {
+    const volta = document.querySelector(`[${chave.name}="${CSS.escape(chave.value)}"]`);
+    if (volta) volta.focus({ preventScroll: true });
+  }
+}
+
+document.addEventListener('input', (e) => {
+  if (!MT) return;
+  const t = e.target.closest('[data-mt-texto]');
+  if (t) { MT.textos[Number(t.dataset.mtTexto)] = t.value; atualizarMontador(); return; }
+  if (e.target.id === 'mtData') { MT.data = e.target.value; atualizarMontador(); }
+});
+
+/* ===================== pagamento (#/pagar/<token>) ========================= */
+
+let ESPERA_PIX = null;
+
+async function pintarPagamento(token) {
+  clearTimeout(ESPERA_PIX);
+  const alvo = $('conteudo');
+  const d = await fetch('/loja/api/pagamento/' + encodeURIComponent(token)).then((r) => r.json()).catch(() => null);
+  if (location.hash !== '#/pagar/' + token) return;      // saiu da página enquanto carregava
+  if (!d || !d.success) {
+    alvo.innerHTML = `<div class="vazio-msg">${esc((d && d.error) || 'Não conseguimos falar com a loja.')}
+      <br><button class="btn-linha" data-voltar="1">Voltar ao catálogo</button></div>`;
+    return;
+  }
+  const p = d.pagamento;
+  const zap = linkZap(`Olá! Sobre o meu pedido nº ${p.numero}.`);
+  const botaoZap = zap ? `<a class="bt-principal" href="${esc(zap)}" target="_blank" rel="noopener noreferrer">Falar com a loja no WhatsApp</a>` : '';
+  const totais = `<div class="chk-totais">
+      ${p.frete ? `<div><span>Entrega</span><span>${brl(p.frete)}</span></div>` : ''}
+      <div class="chk-total"><span>Total</span><span>${brl(p.total)}</span></div></div>`;
+  let corpo;
+  if (p.cancelado) {
+    corpo = `<h1>Pedido nº ${esc(p.numero)}</h1><p>Este pedido foi cancelado.</p>${botaoZap}`;
+  } else if (p.pago) {
+    corpo = `<div class="ok-selo" style="margin:0 auto">✓</div><h1>Pagamento recebido</h1>
+      <p class="ok-num">Pedido nº <strong>${esc(p.numero)}</strong></p>${totais}
+      <p class="chk-aviso">Obrigado! Seu pedido já está com a loja.</p>${botaoZap}`;
+  } else if (p.aCombinar) {
+    corpo = `<div class="ok-selo" style="margin:0 auto">✓</div><h1>Pedido recebido!</h1>
+      <p class="ok-num">Nº <strong>${esc(p.numero)}</strong></p>
+      <p class="chk-aviso">A loja vai calcular a taxa de entrega e mandar o Pix do total pelo WhatsApp.</p>${botaoZap}`;
+  } else if (p.pix && (p.pix.copiaECola || p.pix.qr)) {
+    corpo = `<h1>Pedido nº ${esc(p.numero)}</h1>
+      <p class="chk-aviso">Pague pelo Pix para confirmar.</p>
+      <p class="pg-valor">${brl(p.pix.valor)}</p>
+      ${p.pix.qr ? `<div class="pg-qr"><img src="data:image/png;base64,${esc(p.pix.qr)}" alt="QR code do Pix"></div>` : ''}
+      ${p.pix.copiaECola ? `<textarea class="pg-cc" id="pgCC" readonly rows="3">${esc(p.pix.copiaECola)}</textarea>
+        <button type="button" class="bt-principal" id="pgCopiar">Copiar código Pix</button>` : ''}
+      <span class="pg-espera">Aguardando o pagamento</span>
+      ${p.pix.vencimento ? `<p class="chk-aviso">Vale até ${esc(p.pix.vencimento.split('-').reverse().join('/'))}.</p>` : ''}
+      ${botaoZap.replace('bt-principal', 'btn-linha')}`;
+  } else {
+    corpo = `<div class="ok-selo" style="margin:0 auto">✓</div><h1>Pedido recebido!</h1>
+      <p class="ok-num">Nº <strong>${esc(p.numero)}</strong></p>${totais}
+      <p class="chk-aviso">A loja vai mandar o Pix pelo WhatsApp.</p>${botaoZap}`;
+  }
+  alvo.innerHTML = `<div class="pg">${corpo}<button class="btn-linha" data-voltar="1">Voltar ao catálogo</button></div>`;
+  // Enquanto espera o Pix, confere a cada 5 s. O aviso do Asaas baixa o pedido no servidor.
+  // Só redesenha quando muda: repintar a cada volta apagaria o "copiado".
+  if (!p.pago && !p.cancelado && p.pix) {
+    const conferir = async () => {
+      if (location.hash !== '#/pagar/' + token) return;
+      const n = await fetch('/loja/api/pagamento/' + encodeURIComponent(token)).then((r) => r.json()).catch(() => null);
+      if (n && n.success && (n.pagamento.pago || n.pagamento.cancelado)) return pintarPagamento(token);
+      ESPERA_PIX = setTimeout(conferir, 5000);
+    };
+    ESPERA_PIX = setTimeout(conferir, 5000);
+  }
+}
+
+document.addEventListener('click', async (e) => {
+  if (e.target.closest('#pgCopiar')) {
+    const cc = $('pgCC');
+    try { await navigator.clipboard.writeText(cc.value); }
+    catch { cc.select(); document.execCommand('copy'); }
+    e.target.closest('#pgCopiar').textContent = 'Código copiado';
+  }
+});
+
 /* ===================== barra fixa ========================================== */
 
 function pintarBarra() {
+  /* A barra de atendimento acompanha as mesmas mudanças de rota e de
+     quantidade que esta aqui: as duas são fixas no rodapé, e deixar uma
+     delas para trás faria a sacola esvaziada continuar com o Continuar no
+     ar, ou a barra sobrar por cima do checkout. */
+  pintarBarraAtendimento();
   const b = $('barra');
   if (!SACOLA.quantidadeItens) { b.hidden = true; document.body.classList.remove('com-barra'); return; }
   const n = SACOLA.quantidadeItens;
@@ -808,7 +1383,9 @@ function pintarBarra() {
      rótulo e do campo Rua. */
   b.hidden = location.hash === '#/sacola'
     || location.hash === '#/checkout'
-    || location.hash.startsWith('#/pedido/');
+    || location.hash.startsWith('#/pedido/')
+    || location.hash.startsWith('#/montar')
+    || location.hash.startsWith('#/pagar/');
   document.body.classList.toggle('com-barra', !b.hidden);
 }
 
@@ -829,8 +1406,14 @@ function pintarDestaque(dq) {
   $('dqTitulo').textContent = dq.titulo;
   mostrar('dqTexto', dq.texto);
   mostrar('dqBt1', dq.botao);
-  // Rola até os produtos sem trocar o hash: o hash é a rota da vitrine.
-  $('dqBt1').onclick = (e) => { e.preventDefault(); $('cabecalhoBusca').scrollIntoView({ behavior: 'smooth' }); };
+  // Com produto para montar, o botão leva ao montador. Sem, rola até os
+  // produtos sem trocar o hash, que é a rota da vitrine.
+  $('dqBt1').onclick = (e) => {
+    e.preventDefault();
+    const m = PRODUTOS.find((p) => p.montavel);
+    if (m) return irPara('#/montar/' + m.id);
+    $('cabecalhoBusca').scrollIntoView({ behavior: 'smooth' });
+  };
   // O segundo botão só existe com WhatsApp configurado: sem número, não leva a lugar nenhum.
   const zap = linkZap('Olá! Vim pelo site.');
   mostrar('dqBt2', zap ? dq.botaoWhatsapp : null);
@@ -849,7 +1432,8 @@ async function rotear() {
   const topo = $('cabecalhoBusca');
   window.scrollTo(0, 0);
   // O destaque é da página inicial; nas outras telas ele sai do caminho.
-  $('destaque').hidden = !(DESTAQUE_ATIVO && !/^#\/(p\/|sacola|checkout|pedido\/)/.test(h));
+  $('destaque').hidden = !(DESTAQUE_ATIVO && !/^#\/(p\/|sacola|checkout|pedido\/|montar|pagar\/)/.test(h));
+  if (!h.startsWith('#/montar')) document.body.classList.remove('com-mt');
 
   // A busca e as categorias só fazem sentido na home; nas outras telas somem.
   // Quem volta ao início é a marca do cabeçalho, que é link.
@@ -865,6 +1449,12 @@ async function rotear() {
   } else if (h.startsWith('#/pedido/')) {
     topo.hidden = true;
     pintarSucesso(h.slice(9));
+  } else if (h.startsWith('#/montar')) {
+    topo.hidden = true;
+    await abrirMontador(h.slice(9));
+  } else if (h.startsWith('#/pagar/')) {
+    topo.hidden = true;
+    await pintarPagamento(decodeURIComponent(h.slice(8)));
   } else {
     topo.hidden = false;
     pintarHome();
@@ -925,18 +1515,145 @@ const redesHtml = (lista) => lista.map((r) =>
   + `${r.externo ? ' target="_blank" rel="noopener noreferrer"' : ''}>${ICONES[r.chave]}</a>`).join('');
 
 /**
- * Botões de serviço — só os habilitados em Configurações → Entrega.
+ * Quantos ícones de rede cabem no cabeçalho, nesta largura.
  *
- * Oferecer "Delivery" numa loja que não entrega é prometer o que não existe. Se
- * o lojista não configurou nada, o padrão do schema é retirada ligada, então
- * sempre sobra ao menos um caminho.
+ * O ⓘ fica sempre: é ele que abre o painel com TODOS os contatos, e é o que
+ * faz a ausência de um ícone não esconder informação nenhuma. As redes entram
+ * depois, uma a uma, na ordem em que `linksSociais()` as devolve — WhatsApp
+ * primeiro, que é por onde se compra.
+ *
+ * O limite não é uma largura escolhida a dedo, é o cabeçalho respondendo: um
+ * ícone só entra enquanto o nome da loja não ficar cortado nem o cabeçalho
+ * ganhar altura. Medir é o que faz a conta valer para qualquer nome, em
+ * qualquer tela — uma media query fixa erraria nos dois sentidos, escondendo
+ * ícone que cabia num nome curto e espremendo uma razão social inteira.
  */
-function botoesServico() {
+function ajustarIconesTopo() {
+  const nav = $('redes');
+  const nome = $('nomeLoja');
+  const linha = document.querySelector('header.topo .wrap');
+  if (!nav || !nome || !linha) return;
+  const icones = [...nav.children];
+  for (const a of icones) a.hidden = true;
+  const alturaBase = linha.offsetHeight;
+  // `scrollHeight > clientHeight` é o corte do `-webkit-line-clamp` acontecendo.
+  const cabe = () => linha.offsetHeight <= alturaBase && nome.scrollHeight <= nome.clientHeight + 1;
+  for (const a of icones) {
+    a.hidden = false;
+    if (!cabe()) { a.hidden = true; break; }
+  }
+}
+
+/* Girar o celular e arrastar a janela mudam a conta. O respiro evita refazê-la
+   a cada pixel de um arrasto de borda. */
+let AJUSTE_TOPO = null;
+window.addEventListener('resize', () => {
+  clearTimeout(AJUSTE_TOPO);
+  AJUSTE_TOPO = setTimeout(ajustarIconesTopo, 120);
+});
+
+/* ===================== barra "como você quer receber" =====================
+   A escolha do serviço e o Continuar, fixos no rodapé da sacola.
+
+   `data-servico` continua valendo 'retirada' e 'delivery' — é o que o resto
+   do arquivo lê, e o checkout converte 'delivery' em 'entrega' antes de
+   falar com o servidor. O que mudou foi só o RÓTULO: para quem compra, a
+   palavra é "Entrega".
+   ========================================================================= */
+
+/** O que a loja oferece. Serviço desligado pelo lojista não vira botão. */
+function servicosDaLoja() {
   const e = (LOJA && LOJA.entrega) || {};
   const fora = [];
-  if (e.retirada) fora.push('<button class="servico-bt" data-servico="retirada">Retirada</button>');
-  if (e.delivery) fora.push('<button class="servico-bt" data-servico="delivery">Delivery</button>');
-  return fora.join('') || '<p class="ajuda">Fale com a loja para combinar a entrega.</p>';
+  if (e.retirada) fora.push({ valor: 'retirada', rotulo: 'Retirada', icone: '🏪' });
+  if (e.delivery) fora.push({ valor: 'delivery', rotulo: 'Entrega', icone: '🛵' });
+  return fora;
+}
+
+/**
+ * A linha secundária do estado compacto.
+ *
+ * Reaproveita a MESMA configuração que alimentava o aviso de antes
+ * (`LOJA.entrega.freteModo` / `freteValor`) — nada é recalculado aqui, e o
+ * valor final do frete continua sendo decisão do servidor, no checkout.
+ * Retirada não ganha linha nenhuma: não há taxa, e inventar texto para
+ * preencher o espaço seria enfeite.
+ */
+function detalheDoServico(valor) {
+  if (valor !== 'delivery') return '';
+  const e = (LOJA && LOJA.entrega) || {};
+  if (e.freteModo === 'combinar') return 'Taxa de entrega a combinar';
+  if (e.freteModo === 'gratis') return 'Entrega grátis';
+  if (e.freteModo === 'fixo' && e.freteValor != null) return `Taxa de entrega: ${brl(e.freteValor)}`;
+  /* Curta porque a linha de cima já diz "Entrega selecionada": repetir
+     "de entrega" aqui empurrava o texto para três linhas num celular de
+     320px e levava a barra a 158px de altura. */
+  return 'Taxa calculada na próxima etapa';
+}
+
+/** O serviço escolhido, ou null. Mora aqui e não no DOM — a barra é repintada. */
+let SERVICO = null;
+
+/**
+ * Desenha a escolha de receber conforme o estado. Só aparece na sacola com
+ * itens — e as sugestões vão junto, porque o lugar delas é logo abaixo dela.
+ */
+function pintarBarraAtendimento() {
+  const b = $('barraAtend');
+  if (!b) return;
+  const naSacola = location.hash === '#/sacola' && SACOLA.itens.length > 0;
+  b.hidden = !naSacola;
+  if (!naSacola) {
+    const s = $('secSugestoes');
+    if (s) s.hidden = true;
+    return;
+  }
+
+  const ops = servicosDaLoja();
+  const dentro = $('barraAtendDentro');
+
+  if (!ops.length) {
+    dentro.innerHTML = '<p class="ajuda" style="margin:0">Fale com a loja para combinar a entrega.</p>';
+    return;
+  }
+
+  /* Escolha única já habilitada pelo lojista continua sendo uma escolha
+     explícita: o cliente vê o que vai acontecer e confirma. Marcar sozinho
+     economizaria um toque e tiraria dele a informação. */
+  if (SERVICO && !ops.some((o) => o.valor === SERVICO)) SERVICO = null;
+
+  if (!SERVICO) {
+    dentro.innerHTML = `
+      <p class="atend-titulo">Como você quer receber?</p>
+      <div class="atend-ops">${ops.map((o) => `
+        <button type="button" class="atend-op" data-servico="${o.valor}">
+          <span class="ic" aria-hidden="true">${o.icone}</span>${o.rotulo}
+        </button>`).join('')}</div>`;
+    return;
+  }
+
+  const esc_ = ops.find((o) => o.valor === SERVICO);
+  const detalhe = detalheDoServico(SERVICO);
+  dentro.innerHTML = `
+    <div class="atend-feito">
+      <div class="atend-resumo">
+        <span class="ic" aria-hidden="true">${esc_.icone}</span>
+        <span class="atend-txt">
+          <strong>${esc_.rotulo} selecionada</strong>
+          ${detalhe ? `<span>${esc(detalhe)}</span>` : ''}
+        </span>
+      </div>
+      <button type="button" class="atend-alterar" data-alterar-servico="1">Alterar</button>
+      <button type="button" class="atend-seguir" id="btIrCheckout">Continuar →</button>
+    </div>`;
+}
+
+/** "5594991769924" → "(94) 99176-9924", para quem lê o número na tela. */
+function numeroZap(n) {
+  const d = String(n || '').replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '');
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return '';
 }
 
 /** Rodapé: só o que existe. Bloco sem dado não é desenhado. */
@@ -951,7 +1668,7 @@ function pintarRodape(redes) {
   const contato = [];
   if (LOJA.whatsapp) {
     const zap = linkZap('Olá! Vi o catálogo de vocês.');
-    contato.push(`<li><a href="${esc(zap)}" target="_blank" rel="noopener noreferrer">WhatsApp</a></li>`);
+    contato.push(`<li><a href="${esc(zap)}" target="_blank" rel="noopener noreferrer">WhatsApp ${esc(numeroZap(LOJA.whatsapp))}</a></li>`);
   }
   if (LOJA.email) contato.push(`<li><a href="mailto:${esc(LOJA.email)}">${esc(LOJA.email)}</a></li>`);
   if (LOJA.telefone && !LOJA.whatsapp) contato.push(`<li>${esc(LOJA.telefone)}</li>`);
@@ -1025,11 +1742,12 @@ function montarInformacoes() {
   // TIPOS DE SERVIÇO — só os habilitados
   const servicos = [];
   if (ent.retirada) servicos.push('Retirada');
-  if (ent.delivery) servicos.push('Delivery');
+  if (ent.delivery) servicos.push('Entrega');
   if (servicos.length) {
     let frete = '';
     if (ent.delivery) {
       if (ent.freteModo === 'gratis') frete = '<p class="info-linha">Entrega grátis.</p>';
+      else if (ent.freteModo === 'combinar') frete = '<p class="info-linha">A taxa de entrega é combinada com a loja.</p>';
       else if (ent.freteModo === 'fixo' && ent.freteValor != null) {
         frete = `<p class="info-linha">Taxa de entrega: ${brl(ent.freteValor)}.</p>`;
       }
@@ -1134,6 +1852,10 @@ async function carregar() {
 
   const redes = linksSociais();
   $('redes').innerHTML = redesHtml(redes);
+  ajustarIconesTopo();
+  // A fonte da marca chega depois do primeiro desenho, e com ela o nome muda
+  // de largura: a conta é refeita quando ela assenta.
+  if (document.fonts) document.fonts.ready.then(ajustarIconesTopo);
 
   // Status de atendimento: informativo, e só aparece se houver horário definido.
   // Dois lugares, um só dado: o do cabeçalho some no celular por CSS, e o da
@@ -1170,15 +1892,22 @@ document.addEventListener('change', (e) => {
 });
 
 document.addEventListener('click', async (e) => {
+  if (tratarCliqueMontador(e)) return;
+  const montar = e.target.closest('[data-montar]');
+  if (montar) { e.stopPropagation(); return irPara('#/montar/' + Number(montar.dataset.montar)); }
   /* ---- checkout ---- */
   const irChk = e.target.closest('#btIrCheckout');
   if (irChk) {
+    /* Sem escolha não avança. A barra já não desenha o Continuar antes da
+       seleção, então chegar aqui sem serviço exigiria um clique forjado —
+       mas a guarda fica, porque o custo dela é uma linha e o que ela evita
+       é um checkout que pergunta de novo o que a sacola devia ter resolvido.
+       A validação do próprio checkout (`enviarPedido`) continua intacta como
+       segunda camada. */
+    if (!SERVICO) return;
     /* O serviço escolhido na sacola entra no checkout já marcado — perguntar
        duas vezes a mesma coisa é o jeito mais rápido de a pessoa desistir. */
-    const marcado = document.querySelector('.servico-bt.on');
-    if (marcado) {
-      CHECKOUT.atendimento = marcado.dataset.servico === 'delivery' ? 'entrega' : 'retirada';
-    }
+    CHECKOUT.atendimento = SERVICO === 'delivery' ? 'entrega' : 'retirada';
     return irPara('#/checkout');
   }
   const atend = e.target.closest('[data-atend]');
@@ -1229,24 +1958,21 @@ document.addEventListener('click', async (e) => {
   const rem = e.target.closest('[data-remover]');
   if (rem) { await remover(Number(rem.dataset.remover)); return pintarSacola(); }
 
+  /* ---- como você quer receber (barra inferior da sacola) ---- */
   const serv = e.target.closest('[data-servico]');
   if (serv) {
-    const av = $('avisoServico');
-    const ent = (LOJA && LOJA.entrega) || {};
-    let txt;
-    if (serv.dataset.servico === 'retirada') {
-      txt = 'Retirada escolhida. O endereço da loja e o horário entram na próxima etapa.';
-    } else {
-      txt = 'Delivery escolhido. Endereço e taxa de entrega entram na próxima etapa.';
-      // Já dá para adiantar o que se sabe do frete, sem prometer cálculo final.
-      if (ent.freteModo === 'gratis') txt = 'Delivery escolhido. Entrega grátis. O endereço entra na próxima etapa.';
-      else if (ent.freteModo === 'fixo' && ent.freteValor != null) {
-        txt = `Delivery escolhido. Taxa de ${brl(ent.freteValor)}. O endereço entra na próxima etapa.`;
-      }
-    }
-    av.textContent = txt;
-    av.hidden = false;
-    document.querySelectorAll('.servico-bt').forEach((b) => b.classList.toggle('on', b === serv));
+    SERVICO = serv.dataset.servico;
+    return pintarBarraAtendimento();
+  }
+  /* Alterar volta ao estado de escolha SEM tocar na sacola: só o serviço é
+     esquecido, e os itens, as quantidades e as observações seguem onde
+     estavam. */
+  if (e.target.closest('[data-alterar-servico]')) {
+    SERVICO = null;
+    pintarBarraAtendimento();
+    const primeiro = document.querySelector('.atend-op');
+    if (primeiro) primeiro.focus();   // o teclado continua de onde parou
+    return;
   }
 });
 
@@ -1255,6 +1981,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' && e.key !== ' ') return;
   const alvo = e.target.closest('[data-abrir]');
   if (alvo && !e.target.closest('button')) { e.preventDefault(); irPara('#/p/' + Number(alvo.dataset.abrir)); }
+  const mont = e.target.closest('article[data-montar]');
+  if (mont && !e.target.closest('button')) { e.preventDefault(); irPara('#/montar/' + Number(mont.dataset.montar)); }
 });
 
 window.addEventListener('hashchange', rotear);

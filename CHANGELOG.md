@@ -4,6 +4,66 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-29, a barra do topo por medida, a sacola no fluxo e o montável sempre no montador
+
+Dois pedidos seguidos sobre a loja do Cantinho Verde, e tudo vale para
+qualquer tenant com vitrine publicada.
+
+**Cabeçalho, busca e montador** (`public/loja/index.html`,
+`public/loja/catalogo.js`):
+
+- **Os ícones do topo entram conforme o espaço**, e não mais por largura de
+  tela. O ⓘ fica sempre; as redes entram uma a uma, na ordem de
+  `linksSociais()` (WhatsApp, Instagram, Facebook), enquanto o nome da loja
+  não ficar cortado nem o cabeçalho ganhar altura. `ajustarIconesTopo()` mede
+  isso no carregamento, quando a fonte assenta e a cada mudança de tamanho de
+  janela (com 120 ms de respiro), o que cobre o giro do celular. Saiu a regra
+  que escondia TODA rede abaixo de 720 px: no Cantinho Verde, o WhatsApp
+  aparece a partir de 320 px e o Instagram a partir de 360 px. Nome de razão
+  social inteira em 320 px continua sem nenhuma rede, e com o ⓘ, que é quem
+  lista todos os contatos.
+- **Busca**: lupa dentro da caixa, à direita, e a dica passou a ser só
+  "Buscar produto". O "×" nativo do Chrome em `type=search` foi desligado
+  porque cairia em cima da lupa.
+- **Montador**: a caixa "Tabela de preços" saiu — quem monta já vê o preço de
+  cada opção nos próprios botões. O passo **Mensagem** (mensagem do cartão e
+  para quem é) só aparece com um modelo de cartão escolhido; sem cartão, o
+  "Quando e como?" volta a ser o passo 6. Tirando o cartão, o que foi escrito
+  não vai para o pedido nem para o resumo, mas fica guardado para quem
+  remarcar.
+- **O resumo escuro para logo abaixo da barra do topo.** A coluna da direita
+  (prévia + resumo) passa de 800 px e não cabe na tela: presa como bloco
+  único, ela era empurrada ao fim da coluna e o topo do resumo entrava por
+  baixo do cabeçalho. Agora prévia e resumo prendem separados, no mesmo
+  ponto, e o resumo, que é opaco, cobre a prévia quando alcança. No celular
+  nada prende além da prévia, como antes.
+
+**Sacola e produtos montáveis** (`loja-routes.js`, `public/loja/catalogo.js`,
+`public/loja/index.html`):
+
+- **A escolha de receber saiu do rodapé da janela e entrou no fluxo da
+  página**, logo abaixo dos itens. Presa, ela empurrava o rodapé da loja para
+  o meio da página no desktop. Com isso saíram `reservarEspacoAtendimento()`
+  e o `--atend-h`, que existiam só para reservar o espaço da faixa fixa.
+- **"Complete seu pedido" virou "Aproveite e leve também"**, e foi para
+  depois da escolha de receber: acima dela, parecia etapa obrigatória do
+  pagamento.
+- **A sugestão usa o card da vitrine**, e não mais um card só dela — o antigo
+  tinha outra medida e o nome passava por baixo do "+".
+- **Todo caminho que abre um montável leva ao montador**: vitrine, busca,
+  sugestão, destaque e link direto `#/p/<id>`. O preço mostrado é o menor da
+  tabela ("a partir de R$ 64,90"), nunca o `precoVenda` do cadastro, que nos
+  montáveis é zero. `/loja/api/sugestoes` passou a marcar `montavel` e a usar
+  `precoInicial`, e `/loja/api/produtos/:id` também.
+- **A observação interna do montável não sai mais da loja**: ela é recado do
+  lojista ("EXEMPLO criado em…"), nenhuma tela a usa, e ia no JSON público de
+  `/loja/api/montagem` e `/loja/api/produtos/:id`.
+- **Grupo de personalização opcional virou caixa, e não bolinha.** O rádio
+  não desmarca: quem tocava "4 unidades" só para ver o preço ficava com o
+  adicional somado até recarregar a página. Grupo obrigatório de escolha
+  única continua rádio, e a exclusividade da escolha única é mantida no
+  handler. Nenhuma opção paga vem marcada ao abrir, aqui e no montador.
+
 ## 2026-09-29, duas exceções do detector da Impeccable na vitrine
 
 `.impeccable/config.json`, novo: as regras `pulsing-dot` e `radial-halo`
@@ -523,7 +583,6 @@ também aparece na coluna Classe.
   dos nomes e emojis antigos na tela e a cor de cada marca.
 
 Só `public/`: está no ar desde a edição, sem restart.
-
 
 ## 2026-09-25, engenharia de cardápio por categoria
 
