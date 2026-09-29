@@ -212,6 +212,14 @@ header.topo img.logo { width: 52px; height: 52px; border-radius: 50%; aspect-rat
    referência mostra todas de uma vez. */
 .nav-cats { display: flex; gap: 8px; overflow-x: auto; padding: 10px 0 12px;
   scrollbar-width: none; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; }
+/* Rolagem recorta tudo o que passa da caixa, inclusive a sombra dos botões:
+   era a borda reta que aparecia sob a barra do topo. A folga cabe a maior
+   sombra do tema (0 18px 45px, a profunda: 27px acima, 63px abaixo) e a
+   margem negativa devolve o espaço, então o layout não muda. Os lados vão até
+   a borda da página. A folga não pega clique: só os botões recebem. */
+.nav-cats { padding: 28px 16px 64px; margin: -18px -16px -52px; pointer-events: none;
+  scroll-padding-inline: 16px; }
+.nav-cats button { pointer-events: auto; }
 .nav-cats::-webkit-scrollbar { display: none; }
 .nav-cats button {
   flex: 0 0 auto; scroll-snap-align: start;
@@ -444,17 +452,14 @@ html[data-topo="translucido"] header.topo {
     color-mix(in srgb, var(--ground) 84%, transparent));
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-bottom: 0;
 }
-/* Topo em degradê: a barra deixa de ser caixa. O fundo vai de quase opaco no
-   alto a transparente na base, e a máscara apaga o desfoque junto; sem ela o
-   desfoque terminaria numa linha reta, que é o fim marcado que se quer evitar. */
-html[data-topo="degrade"] header.topo { background: transparent; border-bottom: 0; }
-html[data-topo="degrade"] header.topo::before {
-  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+/* Topo em degradê: a regra .topbar do protótipo do Cantinho Verde, com a cor
+   fixa (255,250,249) trocada pela cor de fundo do tema e as mesmas opacidades.
+   Sem máscara: o desfoque cobre a barra inteira, e é ele que deixa ilegível o
+   que passa por baixo. */
+html[data-topo="degrade"] header.topo {
   background: linear-gradient(to bottom, color-mix(in srgb, var(--ground) 96%, transparent),
-    color-mix(in srgb, var(--ground) 78%, transparent) 50%, transparent);
-  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-  -webkit-mask-image: linear-gradient(to bottom, #000 50%, transparent);
-  mask-image: linear-gradient(to bottom, #000 50%, transparent);
+    color-mix(in srgb, var(--ground) 78%, transparent), color-mix(in srgb, var(--ground) 0%, transparent));
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-bottom: 0;
 }
 /* Iniciais num círculo, no lugar da logo, para quem ainda não tem uma. */
 .sigla { width: 46px; height: 46px; border-radius: 50%; flex-shrink: 0; display: grid;
@@ -541,7 +546,20 @@ footer.rodape { border-top: 1px solid var(--line); color: var(--ink-2); font-siz
   header.topo .wrap { gap: 8px 10px; padding-left: 12px; padding-right: 12px; }
   .marca-loja { gap: 10px; }
 }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+/* Campos de texto, com a transição e o foco do protótipo: borda na cor
+   principal a 50% e um anel de 4px. */
+#busca, .chk-campo input, .chk-campo textarea, .grupo textarea, .mt-campo input, .mt-campo textarea {
+  outline: 0; transition: border-color .2s, box-shadow .2s; }
+#busca:focus, .chk-campo input:focus, .chk-campo textarea:focus, .grupo textarea:focus,
+.mt-campo input:focus, .mt-campo textarea:focus {
+  border-color: color-mix(in srgb, var(--primaria) 50%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primaria) 6%, transparent); }
+/* Redução de movimento: nada anima, e nada se desloca no hover. A cor e a
+   borda da escolha continuam mudando, sem transição. */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+  .mt-op:hover:not(:disabled) { transform: none; }
+}
 </style>
 </head>
 <body>

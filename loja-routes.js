@@ -1056,6 +1056,44 @@ function registrarRotasLojaPublica(app, db) {
     } catch (e) { return erroInterno(res, '/loja/api/config', e); }
   });
 
+  /* Ícones e manifest da loja (29/09), só com a loja publicada e com ícone
+   * enviado. Ao lado do `faviconPath` podem existir versões por tamanho, com o
+   * sufixo `-16`, `-32`, `-180` e `-192`: a de 16 px, redesenhada, é a que se
+   * lê na aba. Faltando a versão, vai o ícone enviado, e o navegador o reduz.
+   * O ERP não referencia nada disto: o manifest e os ícones dele são outros. */
+  const TAMANHOS_ICONE = new Set(['16', '32', '180', '192', '512']);
+  app.get('/loja/icones/:arq', (req, res) => {
+    try {
+      const m = /^(\d+)\.png$/.exec(req.params.arq || '');
+      if (!m || !TAMANHOS_ICONE.has(m[1])) return res.status(404).end();
+      const c = lerConfig(db);
+      if (!c.ativa || !c.faviconPath) return res.status(404).end();
+      const fs = require('fs');
+      const pasta = path.join(RAIZ_PUBLICA, SUBDIR_LOJA) + path.sep;
+      const original = path.join(RAIZ_PUBLICA, c.faviconPath);
+      const variante = original.replace(/\.[a-z0-9]+$/i, `-${m[1]}.png`);
+      const arq = fs.existsSync(variante) ? variante : original;
+      if (!arq.startsWith(pasta) || !fs.existsSync(arq)) return res.status(404).end();
+      res.set('Cache-Control', 'public, max-age=300').sendFile(arq);
+    } catch (e) { return erroInterno(res, '/loja/icones', e); }
+  });
+
+  app.get('/loja/manifest.webmanifest', (req, res) => {
+    try {
+      const c = lerConfig(db);
+      if (!c.ativa || !c.faviconPath) return res.status(404).end();
+      const t = c.tema || {};
+      const nome = c.nome || empresaDe(db).nome || 'Loja';
+      res.type('application/manifest+json').set('Cache-Control', 'public, max-age=300').send(JSON.stringify({
+        name: nome, short_name: nome.slice(0, 30), start_url: '/loja/', scope: '/loja/',
+        theme_color: t.corTema || t.corPrimaria,
+        ...(t.corFundo ? { background_color: t.corFundo } : {}),
+        icons: [{ src: '/loja/icones/192.png', sizes: '192x192', type: 'image/png' },
+                { src: '/loja/icones/512.png', sizes: '512x512', type: 'image/png' }],
+      }));
+    } catch (e) { return erroInterno(res, '/loja/manifest.webmanifest', e); }
+  });
+
   app.get('/loja/api/produtos', (req, res) => {
     try {
       const c = lerConfig(db);

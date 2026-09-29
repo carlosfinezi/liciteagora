@@ -189,6 +189,14 @@ middleware de tenant. O `vitrineNaBarreira` fica logo antes do
 `requireAuth`. A configuração é lida com cache de 15 s por tenant, e quem grava
 chama `esquecerVitrine`.
 
+**Ícones da loja** (29/09/2026): a vitrine com ícone enviado (`faviconPath`)
+declara aba em 16 e 32 px, atalho do celular (180) e manifest próprio, pelas
+rotas públicas `/loja/icones/<tamanho>.png` e `/loja/manifest.webmanifest`.
+As versões por tamanho são arquivos ao lado do ícone, com sufixo (`…-16.png`,
+`-32`, `-180`, `-192`), e faltando uma vai o ícone enviado. Quem troca o ícone
+pela tela perde as versões: elas eram do arquivo antigo. Ícone pequeno de
+desenho detalhado precisa ser redesenhado a 16 px, como o do Cantinho Verde.
+
 O domínio próprio (`floriculturadoamigo.com.br`) **ainda não existe**: o
 `resolveFromHost` só reconhece `<slug>.liciteagora.app`.
 

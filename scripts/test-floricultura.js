@@ -95,7 +95,9 @@ function montarApp(db) {
       if (!fn) throw new Error('rota não registrada: ' + m + ' ' + url);
       let saida = null, status = 200;
       const res = { json: (d) => { saida = d; return res; }, status: (s) => { status = s; return res; },
-                    setHeader() { return res; }, end() { return res; } };
+                    setHeader() { return res; }, end() { return res; }, set() { return res; },
+                    type(t) { res.tipo = t; return res; }, send: (d) => { saida = d; return res; },
+                    sendFile: (f) => { saida = { arquivo: f }; return res; } };
       fn({ body: body || {}, query: (extra && extra.query) || {}, params: params || {}, session: {},
            headers: {}, protocol: 'https', get: () => 'floricultura.local', tenant: { slug: 'prova' + seq } }, res);
       return { status, body: saida };
@@ -468,6 +470,22 @@ t('I2. config pública leva favicon e rodapé', () => {
   db.prepare("UPDATE loja_config SET faviconPath = '/uploads/loja/f.png', rodapeTexto = 'Rodapé'").run();
   const l = app.chamar('GET', '/loja/api/config').body.loja;
   assert(l.favicon === '/uploads/loja/f.png' && l.rodape === 'Rodapé', JSON.stringify(l).slice(0, 200));
+});
+t('I5. ícones e manifest da loja: só com loja publicada e ícone; tamanho fora da lista é 404', () => {
+  const db = montar(); const app = montarApp(db);
+  const ic = (arq) => app.chamar('GET', '/loja/icones/:arq', null, { arq }).status;
+  const mf = () => app.chamar('GET', '/loja/manifest.webmanifest');
+  assert(ic('32.png') === 404 && mf().status === 404, 'sem ícone enviado não pode haver ícone nem manifest');
+  db.prepare("UPDATE loja_config SET faviconPath = '/uploads/loja/nao-existe.png'").run();
+  for (const arq of ['64.png', '32.jpg', '..%2F32.png', '32']) assert(ic(arq) === 404, `tamanho ${arq} aceito`);
+  assert(ic('32.png') === 404, 'ícone sem arquivo não pode ser servido');
+  const m = JSON.parse(mf().body);
+  assert(m.start_url === '/loja/' && m.scope === '/loja/', `manifest fora da loja: ${m.start_url} ${m.scope}`);
+  assert(m.icons.map(i => i.sizes).join() === '192x192,512x512' && m.icons.every(i => i.src.startsWith('/loja/icones/')), JSON.stringify(m.icons));
+  assert(m.name && m.short_name, 'manifest sem nome');
+  assert(!('display' in m), 'o manifest não deve mudar como o atalho abre');
+  db.prepare('UPDATE loja_config SET ativa = 0').run();
+  assert(ic('32.png') === 404 && mf().status === 404, 'loja despublicada ainda serve ícone/manifest');
 });
 t('I3. personalizações: kit não pode ser insumo; grupo em uso não se apaga; texto não tem opção', () => {
   const db = montar(); const app = montarApp(db);

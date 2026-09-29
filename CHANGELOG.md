@@ -4,6 +4,38 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-29, a barra do protótipo, as microinterações e a rosa como ícone da loja
+
+- **Topo em degradê** (`public/loja/index.html`): passou a ser a regra
+  `.topbar` do protótipo do Cantinho Verde, com o mesmo degradê de 96%, 78% e
+  0% e o mesmo `blur(12px)`, sem máscara. A cor fixa virou a de fundo do
+  tema. Com a máscara, o desfoque sumia junto com a cor, e o título do
+  destaque passava nítido por baixo da logo.
+- **Microinterações do protótipo**, com as mesmas durações e curvas: as
+  opções do montador sobem 1 px com sombra ao passar o mouse (`.2s ease`),
+  os campos de texto da loja ganham o foco do protótipo (borda a 50% e anel
+  de 4 px, `.2s`), e as flores da prévia somam o `filter .25s ease`. Com a
+  redução de movimento ligada, nada anima e a opção não sobe; a borda e a
+  sombra do estado continuam. O protótipo não tem efeito em cartão de
+  produto nem nos botões do destaque, e nada foi inventado para eles.
+- **Sombra dos botões de categoria** sem a borda reta: a `.nav-cats`, que
+  rola, recortava a sombra. A faixa ganhou folga do tamanho da maior sombra
+  do tema, compensada por margem negativa, e só os botões recebem clique.
+- **Ícones da loja** (`loja-routes.js`, `public/loja/tema.js`): rotas
+  públicas `/loja/icones/<16|32|180|192|512>.png` e
+  `/loja/manifest.webmanifest`, só com a loja publicada e com ícone. Ao lado
+  do `faviconPath` podem existir versões por tamanho (`-16`, `-32`, `-180`,
+  `-192`); faltando, vai o ícone enviado. O `tema.js` declara aba em 16 e 32,
+  atalho do celular e manifest só quando a loja tem ícone. O manifest não
+  declara `display`, então o atalho continua abrindo no navegador. Nada disso
+  aparece no ERP.
+- **Cantinho Verde** (dados): a rosa de 512 px é o ícone da loja, com as
+  versões de 32, 180 e 192 reduzidas e a de 16 redesenhada pixel a pixel nas
+  três cores do desenho (contorno `#571436`, vermelhos `#F22C3F` e
+  `#AC1F32`), porque reduzida ela virava uma mancha.
+- Etapa I5 de `test-floricultura` (31 ok). Sem verify, a pedido. Servidor
+  web reiniciado às 11:05:29.
+
 ## 2026-09-29, a raiz do cantinhoverde volta ao login, e a loja fica em /loja/
 
 - `loja_config.paginaInicial` do `cantinhoverde` desligado (dado): `/` abre o

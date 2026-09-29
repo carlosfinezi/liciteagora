@@ -123,7 +123,18 @@ function aplicarFavicon(href) {
   if (!href) return;
   let l = document.querySelector('link[rel="icon"]');
   if (!l) { l = document.createElement('link'); l.rel = 'icon'; document.head.appendChild(l); }
-  l.href = href;
+  /* Com ícone, a loja declara também a aba em 16 e 32 px, o atalho do celular
+     e o próprio manifest (29/09). Tudo sai de /loja/icones/, que cai no ícone
+     enviado quando falta a versão daquele tamanho. */
+  const link = (rel, url, tam) => {
+    const e = document.createElement('link');
+    e.rel = rel; e.href = url; if (tam) e.sizes = tam;
+    document.head.appendChild(e);
+  };
+  l.href = '/loja/icones/32.png'; l.type = 'image/png'; l.sizes = '32x32';
+  link('icon', '/loja/icones/16.png', '16x16');
+  link('apple-touch-icon', '/loja/icones/180.png');
+  link('manifest', '/loja/manifest.webmanifest');
 }
 
 const brl = (n) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
