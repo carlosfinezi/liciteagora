@@ -93,8 +93,37 @@ function pedidoDaEmissao(db, pedidoId) {
   if (pedidoId == null || pedidoId === '') return null;
   const id = Number(pedidoId);
   if (!Number.isInteger(id) || id <= 0) throw new Error('Pedido de origem inválido');
-  const ped = db.prepare('SELECT id FROM pedidos WHERE id = ?').get(id);
+  const ped = db.prepare('SELECT id, numero FROM pedidos WHERE id = ?').get(id);
   if (!ped) throw new Error('Pedido de origem não encontrado nesta empresa');
+
+  /* Uma venda, um documento fiscal.
+   *
+   * O lado oposto desta trava está em `nfe-emit-routes.js`, e as duas juntas
+   * fecham o par: NFC-e 65 e NF-e 55 nunca coexistem autorizadas para o mesmo
+   * pedido. Sem elas, o mesmo faturamento poderia sair duas vezes para a
+   * SEFAZ por caminhos diferentes — o botão Faturar da tela do pedido dispara
+   * a 55 sozinho (`public/comercial/pedido.html:3072`), e a 65 viria pelo
+   * catálogo.
+   *
+   * A verificação é aqui, e não mais adiante, porque este é o último ponto
+   * ANTES de a nota ganhar número: descobrir a duplicidade depois de a SEFAZ
+   * ter autorizado não teria conserto, e descobrir depois de `avancarSerie`
+   * queimaria numeração.
+   *
+   * Só `statusSefaz = 'autorizada'` bloqueia. Uma NF-e rejeitada não é
+   * documento, e uma CANCELADA deixou de ser: nos dois casos a venda continua
+   * sem nota, e emitir a NFC-e é justamente o que resolve. É a mesma régua do
+   * índice `idx_nfce_pedido_autorizada`, que protege o outro sentido no
+   * banco. */
+  const nfeDoPedido = db.prepare(`SELECT numero, numeroNFe, chaveAcesso
+      FROM faturas
+     WHERE pedidoId = ? AND statusSefaz = 'autorizada'
+     LIMIT 1`).get(ped.id);
+  if (nfeDoPedido) {
+    throw new Error(
+      `O pedido ${ped.numero} já tem NF-e ${nfeDoPedido.numeroNFe || ''} autorizada `
+      + `(fatura ${nfeDoPedido.numero}). Cancele-a antes de emitir NFC-e para esta venda.`);
+  }
   return ped.id;
 }
 
@@ -364,10 +393,40 @@ async function emitirNFCe(db, payload) {
     if (erroMeio) throw new Error(erroMeio);
   }
 
-  const cpfCnpjCons = (payload.consumidorCpfCnpj || '').replace(/\D/g, '');
+  /* O documento passa por `documentoFiscalDe`, e não por um `replace(/\D/g,'')`
+     direto. A limpeza crua apaga LETRAS, e é isso que a torna perigosa: um
+     identificador interno que sobrasse com 11 ou 14 dígitos viraria CPF ou
+     CNPJ inventado dentro da nota. Medido em 28/09: `UASG-12345678901` — um
+     dos identificadores legados que o ERP já grava em `pessoas.cpfCnpj`, vindo
+     de `resolverClienteDeParticipacao` — deixa exatamente 11 dígitos e sairia
+     como CPF de alguém.
+
+     Os SD-* do catálogo não caem nesse buraco por construção (o gerador
+     regenera enquanto o valor der 11 ou 14 dígitos; 2.000 amostras, nenhuma
+     perigosa), mas essa é uma garantia do gerador, não desta função — e a
+     nota fiscal não deve depender dela.
+
+     É a mesma defesa que `nfe-emit-routes.js:596` já usa. `semDocumento` não
+     é lido aqui porque quem chama entrega uma string digitada, não a linha da
+     pessoa: a recusa por prefixo e por qualquer letra basta e vale igual. */
+  const { documentoFiscalDe } = require('./pessoa-sem-documento');
+  const cpfCnpjCons = documentoFiscalDe({ cpfCnpj: payload.consumidorCpfCnpj }) || '';
   const valorProdTot = itens.reduce((s, it) => s + Number(it.valorTotal || (it.quantidade * it.precoUnitario) || 0), 0);
   const valorDesc = Number(payload.valorDesconto || 0);
-  const vNF = +(valorProdTot - valorDesc).toFixed(2);
+  /* Frete. O balcão não tem — `payload.frete` chega ausente e tudo abaixo se
+     comporta como sempre. Quem tem é a venda com entrega: ali o valor entra no
+     vNF E no `vFrete` do ICMSTot, porque a SEFAZ confere a soma dos
+     componentes contra o total (rejeição 531 quando não fecha). */
+  const valorFrete = payload.frete ? +Number(payload.frete.valor || 0).toFixed(2) : 0;
+  if (valorFrete < 0) throw new Error('Valor do frete não pode ser negativo');
+  /* O modal do frete vai cru para o XML. Valor que não é número viraria
+     `<modFrete>NaN</modFrete>` e voltaria como rejeição de schema, longe
+     daqui e sem dizer o que estava errado. Os códigos são 0 a 4 e 9. */
+  const modFrete = payload.frete ? Number(payload.frete.modFrete ?? 0) : 9;
+  if (!Number.isInteger(modFrete) || modFrete < 0 || modFrete > 9) {
+    throw new Error(`Modalidade de frete inválida: ${payload.frete.modFrete}`);
+  }
+  const vNF = +(valorProdTot - valorDesc + valorFrete).toFixed(2);
 
   // NFC-e acima de R$ 200 exige CPF/CNPJ identificado
   if (vNF > 200 && !cpfCnpjCons) {
@@ -378,9 +437,31 @@ async function emitirNFCe(db, payload) {
   if (Number(natureza.geraFinanceiro) && !cpfCnpjCons) {
     throw new Error(`CPF/CNPJ do consumidor obrigatório: a natureza "${natureza.descricao}" gera conta a receber`);
   }
+  /* A invariante do grupo <pag>:  soma(vPag) − vTroco === vNF
+   *
+   * Sem troco, `vTroco` é 0 e isto é a conferência de sempre: o que se paga
+   * é o que a nota vale. Com troco em dinheiro, o cliente ENTREGA mais do
+   * que a nota vale e leva a diferença de volta — e é essa diferença, e só
+   * ela, que pode separar os dois números.
+   *
+   * Escrito como igualdade, e não como `vPag >= vNF`: a folga aberta por um
+   * ">=" aceitaria qualquer excesso, inclusive um vTroco que não
+   * correspondesse à diferença, e o erro sairia como nota autorizada com
+   * pagamento maior que o documento. */
+  const vTroco = payload.vTroco == null ? 0 : +Number(payload.vTroco).toFixed(2);
+  if (!Number.isFinite(vTroco) || vTroco < 0) {
+    throw new Error('Valor de troco inválido');
+  }
+  if (vTroco > 0 && String(pagamentos[0].tPag).padStart(2, '0') !== '01') {
+    /* Troco é dinheiro trocado na mão. Em PIX ou cartão o valor debitado é
+       exato, e um "troco" ali seria erro de quem montou o payload. */
+    throw new Error('Troco só existe em pagamento em dinheiro');
+  }
   const vPag = pagamentos.reduce((s, p) => s + Number(p.valor || 0), 0);
-  if (Math.abs(vPag - vNF) > 0.02) {
-    throw new Error(`Soma dos pagamentos (${vPag.toFixed(2)}) não bate com o total (${vNF.toFixed(2)})`);
+  if (Math.abs((vPag - vTroco) - vNF) > 0.02) {
+    throw new Error(vTroco > 0
+      ? `Pagamentos (${vPag.toFixed(2)}) menos o troco (${vTroco.toFixed(2)}) não bate com o total (${vNF.toFixed(2)})`
+      : `Soma dos pagamentos (${vPag.toFixed(2)}) não bate com o total (${vNF.toFixed(2)})`);
   }
 
   // ─── Lote na saída (módulo Farmácia) ───────────────────────────────────────
@@ -453,7 +534,11 @@ async function emitirNFCe(db, payload) {
     tpAmb: String(cfg.tpAmb),
     finNFe: '1',
     indFinal: '1',    // consumidor final
-    indPres: '1',     // presencial
+    /* 1 = presencial, e é o que vale para o balcão, o restaurante e o PDV.
+       A venda fechada pelo Catálogo Online manda '2' (pela internet): é este
+       campo que distingue as duas no documento fiscal. Omitir a chave mantém
+       o comportamento de sempre. */
+    indPres: String(payload.indPres || '1'),
     indIntermed: '0',
     procEmi: '0',
     verProc: 'LiciteAgora1.0'
@@ -533,11 +618,21 @@ async function emitirNFCe(db, payload) {
     NFe.tagProdCOFINS(i, { CST: cstCOFINS, vBC: '0.00', pCOFINS: '0.00', vCOFINS: '0.00' });
   });
 
-  NFe.tagTotal({ ICMSTot: {
+  const icmsTot = {
     vDesc: valorDesc.toFixed(2),
     vNF: vNF.toFixed(2)
-  }});
-  NFe.tagTransp({ modFrete: 9 }); // 9 = sem transporte (NFC-e presencial)
+  };
+  /* `vFrete` só é informado quando há frete. Não é para omitir a tag — a lib
+     completa o ICMSTot e emite `<vFrete>0.00</vFrete>` de qualquer forma, que
+     é o certo para o balcão. A condicional existe para não sobrescrever esse
+     zero com um zero nosso, e para o valor entrar quando existir. */
+  if (valorFrete > 0) icmsTot.vFrete = valorFrete.toFixed(2);
+  NFe.tagTotal({ ICMSTot: icmsTot });
+  /* 9 = sem transporte, que é a NFC-e presencial do balcão. Com entrega, o
+     payload manda o modal (0 = por conta do emitente), e ele tem de andar
+     junto com o vFrete acima: modFrete 9 com vFrete preenchido é contradição
+     dentro do próprio documento. */
+  NFe.tagTransp({ modFrete });
 
   // Pagamentos — um detPag por forma
   NFe.tagDetPag(pagamentos.map(p => ({
@@ -545,6 +640,13 @@ async function emitirNFCe(db, payload) {
     tPag: String(p.tPag).padStart(2, '0'),
     vPag: Number(p.valor).toFixed(2)
   })));
+  /* DEPOIS do tagDetPag, e isto não é estilo: a lib grava `vTroco` e
+     `detPag` como chaves do MESMO objeto, então a ordem no XML é a ordem
+     das chamadas. Invertido, sai `<vTroco>` antes de `<detPag>`, fora da
+     sequência do schema — rejeição 215. Medido nas duas ordens.
+     Zero não vira tag: `<vTroco>0.00</vTroco>` é ruído no cupom, e a
+     invariante acima já garante que zero significa "pagou certo". */
+  if (vTroco > 0) NFe.tagTroco(vTroco.toFixed(2));
 
   let xmlRaw = NFe.xml();
 
@@ -557,6 +659,15 @@ async function emitirNFCe(db, payload) {
     xmlRaw = injetarMedRastro(xmlRaw, dadosMedicamento);
   }
 
+  /* Endereço de entrega, pelo mesmo motivo e no mesmo lugar: a lib declara
+     tagEntrega e lança "Ainda não configurado!". O grupo <entrega> vai depois
+     de <dest> e antes do primeiro <det>, e é `nfce-payload.injetarEntrega`
+     quem sabe essa posição. Só a venda com entrega manda o campo. */
+  if (payload.entrega) {
+    const { injetarEntrega } = require('./nfce-payload');
+    xmlRaw = injetarEntrega(xmlRaw, payload.entrega);
+  }
+
   // Daqui até a gravação existe reserva de saldo de receita em aberto. Qualquer
   // saída por exceção (certificado, rede, SEFAZ fora do ar) tem de devolver o
   // saldo, senão a receita fica travada por uma venda que nunca aconteceu.
@@ -566,10 +677,40 @@ async function emitirNFCe(db, payload) {
     const resposta = await tools.sefazEnviaLote(xmlAssinado, { indSinc: 1 });
     respStr = typeof resposta === 'string' ? resposta : JSON.stringify(resposta);
   } catch (err) {
-    if (reservaReceitaIds.length) {
-      require('./farmacia/receita').liberarDispensacao(db, reservaReceitaIds);
+    /* O `catch` tratava rede e SEFAZ fora do ar como "não aconteceu nada",
+       mas o timeout dispara do NOSSO lado e não diz o que a SEFAZ fez com o
+       lote. Existe uma janela real em que a nota foi autorizada lá e a
+       resposta não chegou aqui — e nela nada é gravado, `avancarSerie` não
+       roda, e a retentativa monta o MESMO número: rejeição 204 ou 539, com a
+       nota autorizada invisível para o ERP e a numeração travada.
+
+       A chave já existe antes do envio, no Id do XML assinado, então dá para
+       perguntar. Isto NÃO é retry de envio: reenviar é o que criaria a
+       segunda nota. É uma pergunta, e ela é idempotente.
+
+       Tudo abaixo do catch funciona sem alteração porque a resposta da
+       consulta traz o mesmo <protNFe> de onde saem cStat, xMotivo, nProt e
+       chNFe — e o montarNFeProc recorta esse grupo sem olhar o envelope. */
+    const chaveEnviada = xmlAssinado && (xmlAssinado.match(/Id="NFe(\d{44})"/) || [])[1];
+    if (chaveEnviada) {
+      const sit = await tools.consultarNFe(chaveEnviada).catch(() => null);
+      const sitStr = typeof sit === 'string' ? sit : (sit ? JSON.stringify(sit) : '');
+      /* O cStat que vale é o de DENTRO do <protNFe>, não o do envelope: a
+         consulta responde 100 ("consulta atendida") no envelope mesmo quando
+         o protocolo diz 217 ("NF-e não consta na base"). Confundir os dois
+         gravaria como autorizada uma nota que a SEFAZ nunca recebeu. */
+      const protCons = (sitStr.match(/<protNFe[^>]*>([\s\S]*?)<\/protNFe>/) || [])[1];
+      if (protCons && tag(protCons, 'cStat') === '100') {
+        console.log(`[NFC-e] envio falhou (${err.message}), mas a chave ${chaveEnviada} consta AUTORIZADA na SEFAZ — seguindo pela consulta`);
+        respStr = sitStr;
+      }
     }
-    throw err;
+    if (!respStr) {
+      if (reservaReceitaIds.length) {
+        require('./farmacia/receita').liberarDispensacao(db, reservaReceitaIds);
+      }
+      throw err;
+    }
   }
 
   const cStatLote = tag(respStr, 'cStat');
@@ -928,6 +1069,103 @@ function registrarRotas(app, db) {
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
+  /* --- DANFCe: o cupom em PDF ---
+   *
+   * Mesmo padrão do DANFE da NF-e 55 (`nfe-emit-routes.js:1161`), com a
+   * função do modelo 65 da mesma cópia local da lib. Ela recebe o XML e
+   * devolve o PDF; nada é transmitido.
+   *
+   * Exige `autorizada` porque é o cupom que o consumidor leva: uma nota
+   * rejeitada não tem protocolo nem QR Code válido, e imprimi-la entregaria
+   * ao cliente um documento que não existe na SEFAZ. */
+  app.get('/api/nfce/:id/danfce', async (req, res) => {
+    try {
+      const n = db.prepare('SELECT numero, serie, chaveAcesso, xmlAssinado, statusSefaz FROM nfce WHERE id = ?')
+        .get(req.params.id);
+      if (!n) return res.status(404).json({ success: false, error: 'NFC-e não encontrada' });
+      if (n.statusSefaz !== 'autorizada') {
+        return res.status(400).json({ success: false, error: 'NFC-e não autorizada' });
+      }
+      if (!n.xmlAssinado) return res.status(400).json({ success: false, error: 'XML não disponível' });
+      const logo = db.prepare('SELECT logoBase64 FROM fornecedor WHERE id = 1').get()?.logoBase64 || undefined;
+      const { DANFCe } = await import('./vendor/node-sped-pdf/index.js');
+      const buf = await DANFCe({ xml: n.xmlAssinado, logo });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="DANFCe-${n.numero}-${n.serie}.pdf"`);
+      res.send(buf);
+    } catch (err) {
+      console.error('[DANFCe] erro:', err);
+      res.status(500).json({ success: false, error: String(err.message || err) });
+    }
+  });
+
+  /* --- Consulta da situação na SEFAZ ---
+   *
+   * Pergunta pela chave o que a SEFAZ sabe da nota, e ATUALIZA o registro
+   * local quando as duas divergem. É a saída para o estado que a emissão não
+   * resolve sozinha: a resposta que não chegou, o cancelamento feito em outro
+   * sistema, a nota que ficou `pendente` por queda no meio do caminho.
+   *
+   * A consulta é idempotente — não emite, não cancela, não numera —, e por
+   * isso pode ser repetida à vontade. Quem transmite continua sendo só o
+   * `emitirNFCe`.
+   *
+   * A gravação é conservadora de propósito: só sobe de estado quando a SEFAZ
+   * afirma algo, e nunca rebaixa `autorizada` por uma resposta que não
+   * entendemos. `cStat 217` ("não consta na base") NÃO apaga uma autorização
+   * local — seria a consulta errada, ou a SEFAZ fora de sincronia, apagando
+   * um documento real. */
+  app.get('/api/nfce/:id/consultar', async (req, res) => {
+    try {
+      const n = db.prepare('SELECT * FROM nfce WHERE id = ?').get(req.params.id);
+      if (!n) return res.status(404).json({ success: false, error: 'NFC-e não encontrada' });
+      if (!n.chaveAcesso) {
+        return res.status(400).json({ success: false, error: 'NFC-e sem chave de acesso — nunca chegou a ser transmitida' });
+      }
+
+      const tools = await getTools(db);
+      const resp = await tools.consultarNFe(n.chaveAcesso);
+      const str = typeof resp === 'string' ? resp : JSON.stringify(resp);
+      /* O cStat que vale é o de DENTRO do <protNFe>: o envelope responde 100
+         ("consulta atendida") mesmo quando o protocolo diz 217 ("não consta").
+         É a mesma distinção que a reconciliação do `emitirNFCe` faz. */
+      const prot = (str.match(/<protNFe[^>]*>([\s\S]*?)<\/protNFe>/) || [])[1] || '';
+      const cStat = tag(prot, 'cStat') || tag(str, 'cStat');
+      const xMotivo = tag(prot, 'xMotivo') || tag(str, 'xMotivo');
+      const nProt = tag(prot, 'nProt') || null;
+
+      let atualizado = null;
+      if (cStat === '100' && n.statusSefaz !== 'autorizada') {
+        // A nota existe lá e não constava aqui: é o caso da resposta perdida.
+        const xmlFinal = n.xmlAssinado ? montarNFeProc(n.xmlAssinado, str) : null;
+        db.prepare(`UPDATE nfce SET statusSefaz='autorizada', protocoloAutorizacao=?,
+            rejeicaoMotivo=NULL, xmlAssinado=COALESCE(?, xmlAssinado),
+            dataAtualizacao=CURRENT_TIMESTAMP WHERE id = ?`)
+          .run(nProt, xmlFinal, n.id);
+        atualizado = 'autorizada';
+      } else if ((cStat === '101' || cStat === '135' || cStat === '155') && n.statusSefaz !== 'cancelada') {
+        // Cancelada na SEFAZ — possivelmente por fora deste sistema.
+        db.prepare(`UPDATE nfce SET statusSefaz='cancelada',
+            motivoCancelamento=COALESCE(motivoCancelamento, ?),
+            dataCancelamento=COALESCE(dataCancelamento, CURRENT_TIMESTAMP),
+            dataAtualizacao=CURRENT_TIMESTAMP WHERE id = ?`)
+          .run(`Cancelamento constatado por consulta (${xMotivo || cStat})`, n.id);
+        atualizado = 'cancelada';
+      }
+
+      res.json({
+        success: true, cStat, xMotivo, nProt,
+        chaveAcesso: n.chaveAcesso,
+        statusAnterior: n.statusSefaz,
+        statusAtual: atualizado || n.statusSefaz,
+        atualizado: !!atualizado,
+      });
+    } catch (err) {
+      console.error('[NFC-e consulta]', err);
+      res.status(500).json({ success: false, error: String(err.message || err) });
+    }
+  });
+
   app.post('/api/nfce/:id/cancelar', async (req, res) => {
     try {
       const motivo = (req.body?.motivo || '').trim();
@@ -958,6 +1196,179 @@ function registrarRotas(app, db) {
         res.status(400).json({ success: false, cStat, xMotivo, raw: str.slice(0, 2000) });
       }
     } catch (err) { res.status(500).json({ success: false, error: String(err.message || err) }); }
+  });
+
+  /* Estado fiscal do pedido, para a tela desenhar o painel.
+   *
+   * Devolve a ÚLTIMA NFC-e do pedido (ou null) e se existe NF-e 55
+   * autorizada. As duas informações juntas são o que decide o que oferecer:
+   * com 55 no ar, a tela não pode convidar a emitir 65, e vice-versa. Quem
+   * decide de verdade continua sendo o servidor, nas travas — isto aqui é
+   * só para a tela não induzir ao erro. */
+  app.get('/api/pedidos/:id/nfce', (req, res) => {
+    try {
+      const ped = db.prepare('SELECT id, numero, tipo, status FROM pedidos WHERE id = ?')
+        .get(req.params.id);
+      if (!ped) return res.status(404).json({ success: false, error: 'Pedido não encontrado' });
+
+      const nfce = db.prepare(`SELECT id, numero, serie, chaveAcesso, protocoloAutorizacao,
+          dataEmissao, valorTotal, statusSefaz, rejeicaoMotivo, motivoCancelamento,
+          dataCancelamento, qrCodeUrl
+        FROM nfce WHERE pedidoId = ? ORDER BY id DESC LIMIT 1`).get(ped.id) || null;
+
+      const nfe55 = db.prepare(`SELECT id, numero, numeroNFe, chaveAcesso
+        FROM faturas WHERE pedidoId = ? AND statusSefaz = 'autorizada' LIMIT 1`).get(ped.id) || null;
+
+      const cfgLoja = db.prepare('SELECT tipoOperacaoNfceId FROM loja_config WHERE id = 1').get();
+      const nat = cfgLoja && cfgLoja.tipoOperacaoNfceId
+        ? db.prepare('SELECT id, descricao, ativo, emiteNFe, categoriaOperacao FROM tipos_operacao WHERE id = ?')
+            .get(cfgLoja.tipoOperacaoNfceId)
+        : null;
+      const naturezaOk = !!(nat && Number(nat.ativo) && Number(nat.emiteNFe)
+        && nat.categoriaOperacao === 'venda');
+
+      /* `podeEmitir` repete a régua do POST de propósito: a tela precisa saber
+         ANTES de mostrar o botão. Não é a garantia — a garantia é a rota, que
+         confere tudo de novo — é a cortesia de não oferecer o que vai falhar. */
+      const podeEmitir = ped.tipo === 'catalogo'
+        && ['entregue', 'faturado'].includes(ped.status)
+        && !nfe55
+        && naturezaOk
+        && (!nfce || ['rejeitada', 'cancelada'].includes(nfce.statusSefaz));
+
+      res.json({
+        success: true,
+        pedido: { id: ped.id, numero: ped.numero, tipo: ped.tipo, status: ped.status },
+        nfce, nfe55, naturezaOk,
+        naturezaDescricao: nat ? nat.descricao : null,
+        podeEmitir,
+        /* Situação por reconciliar: a tela oferece Consultar, e NÃO oferece
+           emitir. Emitir por cima de uma nota que pode estar autorizada na
+           SEFAZ produziria duas para a mesma venda. */
+        precisaConsultar: !!(nfce && nfce.statusSefaz === 'pendente'),
+      });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  /* ── Emissão de NFC-e a partir de um pedido do Catálogo Online ────────────
+   *
+   * Ação do LOJISTA, dentro do ERP, com sessão. O checkout público continua
+   * sem emitir nada: nenhuma rota de `/loja/` chega aqui, e o RBAC exige uma
+   * das páginas de `/api/pedidos` — que o visitante da loja não tem.
+   *
+   * O caminho é `/api/pedidos/:id/...` pelo mesmo motivo que
+   * `/api/pedidos/:id/faturar` mora em `faturas-routes.js`: a rota pertence
+   * ao pedido, e quem a implementa é o módulo que sabe emitir. Isso também
+   * põe o RBAC no prefixo certo — quem pode faturar pode emitir.
+   *
+   * A montagem do payload NÃO é feita aqui. Ela é do `nfce-payload.js`, que
+   * tem os testes dela; duplicá-la criaria uma segunda tradução
+   * pedido → documento, que envelheceria em silêncio. */
+  app.post('/api/pedidos/:id/emitir-nfce', async (req, res) => {
+    const recusa = (status, error, extra) =>
+      res.status(status).json(Object.assign({ success: false, error }, extra || {}));
+    try {
+      const ped = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(req.params.id);
+      if (!ped) return recusa(404, 'Pedido não encontrado');
+
+      /* Só pedido do catálogo. O balcão tem o PDV, e a venda comercial tem a
+         NF-e 55 pelo faturamento; abrir esta porta para qualquer pedido daria
+         ao lojista um terceiro caminho fiscal sem que ninguém tivesse
+         desenhado os efeitos dele. */
+      if (ped.tipo !== 'catalogo') {
+        return recusa(400, 'Esta emissão é para pedidos do Catálogo Online. '
+          + 'Para os demais, use o faturamento.');
+      }
+
+      /* Entregue ou faturado, e nada antes disso. É a mesma régua do
+         faturamento (`faturas-routes.js:197`) e pelo mesmo motivo: antes de
+         "entregue" o estoque não saiu, e emitir documento de uma venda que
+         ainda não aconteceu é o que não tem conserto depois. */
+      if (!['entregue', 'faturado'].includes(ped.status)) {
+        return recusa(400, `O pedido precisa estar entregue ou faturado para emitir NFC-e `
+          + `(está "${ped.status}").`);
+      }
+
+      /* Situação anterior por reconciliar. Emitir por cima seria emitir às
+         cegas: a nota de antes pode estar autorizada na SEFAZ sem que o ERP
+         saiba, e aí sairiam duas para a mesma venda. */
+      const pendente = db.prepare(`SELECT id, numero, chaveAcesso FROM nfce
+        WHERE pedidoId = ? AND statusSefaz = 'pendente' ORDER BY id DESC LIMIT 1`).get(ped.id);
+      if (pendente) {
+        return recusa(409, `Existe uma NFC-e deste pedido com situação não confirmada `
+          + `(nº ${pendente.numero}). Consulte a situação dela antes de emitir outra.`,
+        { nfceId: pendente.id, acao: 'consultar' });
+      }
+
+      /* A natureza da NFC-e do catálogo. Sem ela configurada, só a EMISSÃO
+         para — a loja continua vendendo e o pedido continua existindo. O
+         lojista é mandado ao lugar certo, e a mensagem não cita coluna nem
+         tabela. */
+      const cfgLoja = db.prepare('SELECT tipoOperacaoNfceId FROM loja_config WHERE id = 1').get();
+      if (!cfgLoja || !cfgLoja.tipoOperacaoNfceId) {
+        return recusa(409, 'A regra fiscal do Catálogo Online ainda não foi configurada. '
+          + 'Defina a natureza de operação da NFC-e em Catálogo Online › Configurações › '
+          + 'Regras fiscais.', { acao: 'configurar' });
+      }
+      const nat = db.prepare(`SELECT id, codigo, descricao, ativo, emiteNFe,
+          categoriaOperacao, usarEmPedido FROM tipos_operacao WHERE id = ?`)
+        .get(cfgLoja.tipoOperacaoNfceId);
+      if (!nat) {
+        return recusa(409, 'A natureza de operação configurada para a NFC-e do catálogo não '
+          + 'existe mais. Escolha outra em Regras fiscais.', { acao: 'configurar' });
+      }
+      if (!Number(nat.ativo)) {
+        return recusa(409, `A natureza "${nat.descricao}" está inativa. `
+          + 'Reative-a ou escolha outra em Regras fiscais.', { acao: 'configurar' });
+      }
+      if (!Number(nat.emiteNFe)) {
+        return recusa(409, `A natureza "${nat.descricao}" não emite documento fiscal. `
+          + 'Escolha uma que emita em Regras fiscais.', { acao: 'configurar' });
+      }
+      if (nat.categoriaOperacao !== 'venda') {
+        return recusa(409, `A natureza "${nat.descricao}" não é de venda, e a NFC-e do `
+          + 'catálogo documenta uma venda. Escolha outra em Regras fiscais.',
+        { acao: 'configurar' });
+      }
+
+      /* Matriz. `pedidos` NÃO tem coluna de estabelecimento — quem carimba o
+         emissor é a FATURA (`faturas.estabelecimentoId`), e o pedido do
+         catálogo nasce sem passar por lá. Enquanto a loja for uma só por
+         tenant, o emitente é o da matriz, e é o mesmo que o `emitirNFCe`
+         escolhe sozinho para este payload. Multi-loja no catálogo é assunto
+         de outra rodada, e vai precisar de coluna. */
+      const emitente = carregarEmitente(db, resolverEstab(db, null));
+
+      /* A tradução pedido → payload é do nfce-payload. Ela recusa o que não
+         pode virar documento seguro — entrega sem código de município, entrega
+         em outra UF, total que não fecha — e a recusa chega aqui como
+         exceção, ANTES de qualquer transmissão. */
+      const { payloadDeNFCeDePedido } = require('./nfce-payload');
+      let payload;
+      try {
+        ({ payload } = payloadDeNFCeDePedido(db, ped.id, {
+          emitente, tipoOperacaoId: nat.id,
+        }));
+      } catch (e) {
+        return recusa(422, String(e.message || e));
+      }
+
+      /* O pedido é o dono dos efeitos: reservou na confirmação, baixou na
+         entrega e abriu a cobrança no faturamento. A nota é SÓ o documento.
+         O montador já manda `true`; reafirmar aqui deixa a garantia no
+         caminho, e não só na peça de origem. */
+      payload.efeitosJaAplicados = true;
+
+      const r = await emitirNFCe(db, payload);
+      const autorizada = r.cStat === '100' || r.cStat === '150';
+      /* Rejeição não é erro de servidor: a SEFAZ respondeu, a nota ficou
+         gravada com o motivo, e o lojista precisa LER esse motivo. Por isso
+         vai 200 com `autorizada: false`, e não um 500 com texto genérico. */
+      res.json({ success: true, autorizada, modelo: '65', ...r });
+    } catch (err) {
+      console.error('[NFC-e do pedido]', err);
+      recusa(500, String(err.message || err));
+    }
   });
 
   console.log('[nfce] Rotas registradas');

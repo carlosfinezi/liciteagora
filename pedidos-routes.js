@@ -1461,6 +1461,55 @@ function registrarRotasPedidos(app, db) {
       if (fat) return { ok: false, status: 400, error: 'Cancele a fatura primeiro — o pedido volta para entregue automaticamente' };
       // Pedido faturado "órfão" (sem fatura real) — permite cancelar, mas registra o caso
     }
+    /* Documento fiscal no ar impede cancelar o pedido.
+     *
+     * O cancelamento do pedido estorna estoque, libera reserva e reabre a
+     * numeração. Fazer isso com uma NFC-e válida na SEFAZ deixaria as duas
+     * pontas dizendo coisas diferentes sobre a mesma venda: o ERP com o
+     * estoque de volta, o fisco com uma nota de saída autorizada. Não há
+     * conserto barato para isso depois.
+     *
+     * Aqui, e não dentro da transação: a verificação tem de acontecer antes
+     * de QUALQUER efeito — estoque, financeiro, status, histórico. O
+     * `return` sai com o pedido exatamente como estava.
+     *
+     * A ação NÃO é encadeada de propósito: cancelar o pedido não cancela a
+     * nota. São decisões separadas, e a fiscal tem prazo, exige justificativa
+     * e pode ser recusada pela SEFAZ. Encadear faria o cancelamento do pedido
+     * depender de uma conversa com o fisco que pode falhar no meio.
+     *
+     * O mesmo espelho do faturamento, logo acima: lá é "cancele a fatura
+     * primeiro", aqui é "cancele a NFC-e primeiro".
+     */
+    {
+      const nota = db.prepare(`SELECT numero, serie, statusSefaz
+          FROM nfce
+         WHERE pedidoId = ? AND statusSefaz IN ('autorizada', 'pendente')
+         ORDER BY CASE statusSefaz WHEN 'autorizada' THEN 0 ELSE 1 END, id DESC
+         LIMIT 1`).get(pedId);
+      if (nota && nota.statusSefaz === 'autorizada') {
+        return { ok: false, status: 409,
+          error: `Este pedido possui uma NFC-e autorizada (nº ${nota.numero}). `
+            + 'Cancele primeiro o documento fiscal e depois cancele o pedido.' };
+      }
+      /* Pendente também barra, e é a escolha deliberada deste bloco.
+       *
+       * "Pendente" quer dizer que a nota foi transmitida e a resposta não
+       * chegou — ela PODE estar autorizada na SEFAZ. Deixar passar trocaria
+       * uma recusa reversível (o lojista consulta e volta) por uma
+       * inconsistência que só aparece depois, quando alguém for conciliar. A
+       * saída é consultar a situação, que é barata, idempotente e resolve o
+       * caso nos dois sentidos. */
+      if (nota && nota.statusSefaz === 'pendente') {
+        return { ok: false, status: 409,
+          error: `Este pedido tem uma NFC-e (nº ${nota.numero}) cuja situação não foi `
+            + 'confirmada pela SEFAZ. Consulte a situação dela antes de cancelar o pedido — '
+            + 'ela pode estar autorizada.' };
+      }
+      /* Rejeitada e cancelada não barram: nenhuma das duas é documento
+         válido, e a venda está sem nota. */
+    }
+
     const motivo = String(opts.motivo || '').trim();
     if (!motivo) return { ok: false, status: 400, error: 'motivo obrigatorio' };
 

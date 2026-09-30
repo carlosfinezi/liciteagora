@@ -392,6 +392,33 @@ async function emitirNFe(db, faturaId) {
   if (fatura.statusSefaz === 'autorizada') throw new Error('Fatura já tem NF-e autorizada');
   if (fatura.status !== 'emitida') throw new Error('Fatura não está emitida');
 
+  /* Uma venda, um documento fiscal — o lado 55 da trava.
+   *
+   * O par desta verificação está em `nfce-routes.js`, em `pedidoDaEmissao`.
+   * As duas juntas impedem que o mesmo pedido saia como NFC-e 65 e como
+   * NF-e 55: o botão Faturar da tela do pedido dispara a 55 logo depois de
+   * criar a fatura, e o pedido do catálogo pode já ter recebido a 65.
+   *
+   * Só a NFC-e AUTORIZADA bloqueia. Rejeitada nunca foi documento, e
+   * cancelada deixou de ser — nos dois casos a venda está sem nota, e emitir
+   * a 55 é o que resolve. É a mesma régua do índice parcial
+   * `idx_nfce_pedido_autorizada`.
+   *
+   * `pedidoId` pode ser nulo (fatura avulsa, sem pedido), e aí não há o que
+   * comparar. A tabela `nfce` existe em todo tenant desde o provisionamento,
+   * então a consulta não precisa de guarda de existência. */
+  if (fatura.pedidoId) {
+    const nfceDoPedido = db.prepare(`SELECT numero, serie, chaveAcesso
+        FROM nfce
+       WHERE pedidoId = ? AND statusSefaz = 'autorizada'
+       LIMIT 1`).get(fatura.pedidoId);
+    if (nfceDoPedido) {
+      throw new Error(
+        `O pedido desta fatura já tem NFC-e ${nfceDoPedido.numero}/${nfceDoPedido.serie} `
+        + 'autorizada. Cancele-a antes de emitir NF-e para a mesma venda.');
+    }
+  }
+
   // Multi-loja: estabelecimento emissor carimbado na fatura (NULL = matriz).
   // Emitente e certificado saem desse estabelecimento; ambos mudam juntos para
   // manter o CNPJ do certificado coerente com o CNPJ do emitente (senão a SEFAZ

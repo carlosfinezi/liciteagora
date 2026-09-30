@@ -461,6 +461,13 @@
     <div id="faturaBox"><em class="muted">Carregando…</em></div>
   </div>
 
+  <!-- NFC-e do pedido do Catálogo Online. A aba só é montada para pedido de
+       catálogo, ou quando já existe nota — ver montarAbas(). -->
+  <div class="ped-painel" data-aba="fiscal">
+    <h3>Documento fiscal</h3>
+    <div id="fiscalBox"><em class="muted">Carregando…</em></div>
+  </div>
+
 </main>
 </div>
 
@@ -1239,6 +1246,19 @@ async function carregar(){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     pedidoAtual = d.pedido;
+    /* O estado fiscal entra ANTES de montar o drawer, porque é ele que
+       decide se "Cancelar pedido" pode ser oferecido. Só o pedido do
+       catálogo tem NFC-e, então a chamada extra não pesa em mais ninguém.
+       Falha de leitura não trava a tela: sem o estado, o botão aparece e a
+       recusa vem do servidor, que é onde a garantia mora de verdade. */
+    estadoFiscal = null;
+    if (pedidoAtual.tipo === 'catalogo') {
+      try {
+        const rf = await fetch('/api/pedidos/' + PEDIDO_ID + '/nfce');
+        const df = await rf.json();
+        if (df.success) estadoFiscal = df;
+      } catch (_) { /* segue sem o estado; o servidor recusa se precisar */ }
+    }
     renderHeader();
     renderAbas();
     preencher();
@@ -1447,8 +1467,19 @@ function renderDrawerBody(){
   perdaItems.push(`<button class="btn btn-ghost" onclick="location.href='/comercial/vendas-perdidas.html?pedidoId=${p.id}'">Ver perdas deste ${ehOrcamento ? 'orçamento' : 'pedido'}</button>`);
 
   const dangerItems = [];
-  if (!ehOrcamento && ['rascunho','confirmado','em_separacao','entregue','faturado'].includes(p.status))
-    dangerItems.push(`<button class="btn btn-danger" onclick="fecharDrawer(); tentarCancelar()">Cancelar pedido</button>`);
+  /* Documento fiscal no ar: o servidor recusa o cancelamento, e a tela diz
+     isso ANTES em vez de deixar o lojista clicar para descobrir. O botão sai
+     e no lugar fica a instrução — esconder sem explicar seria pior, porque
+     quem procura o Cancelar acharia que sumiu. A garantia continua sendo do
+     servidor; isto é só não induzir ao erro. */
+  const fiscalTrava = travaFiscalDoCancelamento();
+  if (!ehOrcamento && ['rascunho','confirmado','em_separacao','entregue','faturado'].includes(p.status)) {
+    if (fiscalTrava) {
+      dangerItems.push(`<p class="muted" style="margin:4px 0 0">${fiscalTrava}</p>`);
+    } else {
+      dangerItems.push(`<button class="btn btn-danger" onclick="fecharDrawer(); tentarCancelar()">Cancelar pedido</button>`);
+    }
+  }
   // Orçamento não tinha desfecho negativo: só dava para excluir, o que
   // apaga o histórico. "Perdido" cancela e registra a perda.
   if (ehOrcamento && p.status !== 'cancelado')
@@ -1922,6 +1953,9 @@ function renderAbas(){
     ['historico', 'Histórico', null],
   ];
   if (p.faturaId) abas.push(['fatura', 'Fatura', null]);
+  /* A aba fiscal é do Catálogo Online. Nos demais pedidos o documento sai
+     pelo faturamento, e uma aba vazia só ocuparia espaço. */
+  if (p.tipo === 'catalogo') abas.push(['fiscal', 'Documento fiscal', null]);
   const faixa = document.getElementById('pedTabs');
   faixa.innerHTML = abas.map(([id,lbl,cnt]) =>
     `<button type="button" class="ped-tab" data-aba="${id}" onclick="ativarAba('${id}')">${lbl}${cnt!=null?` <span class="count">${cnt}</span>`:''}</button>`
@@ -1985,6 +2019,239 @@ async function ativarAba(aba){
   history.replaceState(null, '', u);
   if (aba === 'historico') carregarHistorico();
   if (aba === 'fatura' && pedidoAtual?.faturaId) carregarFaturaInfo();
+  if (aba === 'fiscal') carregarFiscal();
+}
+
+// ==================== DOCUMENTO FISCAL (NFC-e do Catálogo) ====================
+/*
+ * O painel mostra o que a SEFAZ disse, sem suavizar. Rejeição aparece com o
+ * motivo inteiro: esconder isso atrás de "não foi possível emitir" deixa o
+ * lojista sem o dado que resolve o problema — quase toda rejeição de NFC-e é
+ * cadastro errado, e o texto da SEFAZ diz qual campo.
+ *
+ * Quem decide o que pode ser feito é o SERVIDOR, em /api/pedidos/:id/nfce.
+ * A tela não recalcula regra fiscal: ela desenha o que veio. Duas verdades
+ * sobre quando se pode emitir divergiriam no primeiro ajuste.
+ */
+let emissaoEmCurso = false;
+const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/* Resposta de /api/pedidos/:id/nfce, carregada junto com o pedido. `null`
+   quando o pedido não é do catálogo ou quando a leitura falhou. */
+let estadoFiscal = null;
+
+/**
+ * A frase que substitui o botão "Cancelar pedido" quando há documento fiscal.
+ *
+ * Devolve `null` quando não há trava — e é assim que o drawer decide. A mesma
+ * régua do servidor (`pedidos-routes.js`, em `cancelarPedidoInterno`):
+ * autorizada e pendente barram, rejeitada e cancelada não.
+ */
+function travaFiscalDoCancelamento(){
+  const n = estadoFiscal && estadoFiscal.nfce;
+  if (!n) return null;
+  if (n.statusSefaz === 'autorizada') {
+    return 'Este pedido tem uma NFC-e autorizada (nº ' + escHtml(n.numero) + '). '
+      + 'Cancele primeiro a NFC-e, na aba Documento fiscal, para poder cancelar este pedido.';
+  }
+  if (n.statusSefaz === 'pendente') {
+    return 'A situação da NFC-e deste pedido (nº ' + escHtml(n.numero) + ') não foi confirmada '
+      + 'pela SEFAZ. Consulte a situação dela na aba Documento fiscal antes de cancelar o pedido.';
+  }
+  return null;
+}
+
+async function carregarFiscal(){
+  const box = document.getElementById('fiscalBox');
+  if (!box) return;
+  box.innerHTML = '<em class="muted">Carregando…</em>';
+  try {
+    const r = await fetch('/api/pedidos/' + PEDIDO_ID + '/nfce');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'Falha ao ler a situação fiscal');
+    box.innerHTML = montarPainelFiscal(d);
+  } catch (e) {
+    box.innerHTML = '<div class="alert alert-error">Não foi possível ler a situação fiscal: '
+      + escHtml(e.message) + '</div>';
+  }
+}
+
+function montarPainelFiscal(d){
+  const n = d.nfce;
+  const partes = [];
+
+  /* NF-e 55 no ar: o pedido já tem documento, e a trava do servidor recusaria
+     a NFC-e. A tela diz isso em vez de oferecer um botão que vai falhar. */
+  if (d.nfe55) {
+    return '<div class="alert alert-info"><strong>Este pedido já tem NF-e modelo 55'
+      + (d.nfe55.numeroNFe ? ' nº ' + escHtml(d.nfe55.numeroNFe) : '') + ' autorizada.</strong>'
+      + '<br>Uma venda tem um documento fiscal. Para emitir NFC-e, cancele a NF-e primeiro,'
+      + ' na aba Fatura.</div>';
+  }
+
+  if (!n) {
+    partes.push('<p class="muted">Nenhuma NFC-e emitida para este pedido.</p>');
+    partes.push(blocoAcoesFiscais(d, null));
+    return partes.join('');
+  }
+
+  const st = n.statusSefaz;
+  /* Mesmo desenho da aba Fatura, logo ao lado: `panel` + `form-row`, rótulo
+     em `small.muted` e valor em `mono`. Duas telas do mesmo pedido mostrando
+     dado fiscal com aparências diferentes confundem mais do que informam. */
+  const campo = (rot, val, largo) => val
+    ? '<div' + (largo ? ' style="grid-column:1/-1;"' : '') + '><small class="muted">'
+      + rot + '</small><div class="mono"' + (largo
+        ? ' style="font-size:0.82em;word-break:break-all;"' : '') + '>'
+      + escHtml(val) + '</div></div>'
+    : '';
+  const linhaNota = '<div class="panel"><div class="form-row">'
+    + campo('Nº / série', n.numero + ' / ' + n.serie)
+    + campo('Chave de acesso', n.chaveAcesso, true)
+    + campo('Protocolo', n.protocoloAutorizacao)
+    + campo('Emitida em', n.dataEmissao)
+    + '</div></div>';
+
+  if (st === 'autorizada') {
+    partes.push('<div class="alert alert-success"><strong>NFC-e autorizada</strong></div>');
+    partes.push(linhaNota);
+  } else if (st === 'rejeitada') {
+    /* O motivo VEM INTEIRO. É o campo que diz o que corrigir. */
+    partes.push('<div class="alert alert-error"><strong>NFC-e rejeitada pela SEFAZ</strong>'
+      + '<br>' + escHtml(n.rejeicaoMotivo || 'Motivo não informado') + '</div>');
+    partes.push(linhaNota);
+    partes.push('<p class="muted">Corrija o que a SEFAZ apontou e emita de novo. '
+      + 'A numeração não foi consumida.</p>');
+  } else if (st === 'cancelada') {
+    partes.push('<div class="alert alert-warning"><strong>NFC-e cancelada</strong>'
+      + (n.motivoCancelamento ? '<br>' + escHtml(n.motivoCancelamento) : '')
+      + (n.dataCancelamento ? '<br><small>Em ' + escHtml(n.dataCancelamento) + '</small>' : '')
+      + '</div>');
+    partes.push(linhaNota);
+  } else if (st === 'pendente') {
+    partes.push('<div class="alert alert-warning"><strong>Situação não confirmada</strong>'
+      + '<br>Esta NFC-e foi transmitida e a resposta da SEFAZ não chegou. Ela pode estar '
+      + 'autorizada lá. Consulte a situação antes de qualquer outra coisa — emitir outra '
+      + 'agora produziria dois documentos para a mesma venda.</div>');
+    partes.push(linhaNota);
+  } else {
+    partes.push('<div class="alert alert-warning">Situação desconhecida: '
+      + escHtml(st) + '. Consulte a situação na SEFAZ.</div>');
+    partes.push(linhaNota);
+  }
+
+  partes.push(blocoAcoesFiscais(d, n));
+  return partes.join('');
+}
+
+function blocoAcoesFiscais(d, n){
+  const b = [];
+  if (d.podeEmitir) {
+    b.push('<button type="button" class="btn btn-primary" id="btnEmitirNFCe" '
+      + 'onclick="emitirNFCeDoPedido()">Emitir NFC-e</button>');
+  } else if (!n && !d.naturezaOk) {
+    b.push('<div class="alert alert-warning">A regra fiscal do Catálogo Online ainda não '
+      + 'foi configurada. Defina a natureza de operação da NFC-e em '
+      + '<strong>Catálogo Online › Configurações › Regras fiscais</strong>.</div>');
+  } else if (!n && !['entregue', 'faturado'].includes(d.pedido.status)) {
+    b.push('<p class="muted">A NFC-e pode ser emitida quando o pedido estiver '
+      + 'entregue ou faturado (está "' + escHtml(d.pedido.status) + '").</p>');
+  }
+
+  if (n && n.id) {
+    b.push('<button type="button" class="btn btn-secondary" '
+      + 'onclick="consultarNFCe(' + n.id + ')">Consultar situação</button>');
+    if (n.statusSefaz === 'autorizada') {
+      /* `text-decoration:none` porque `.btn` num <a> herda o sublinhado de
+         link e o botão sai riscado — a aba Fatura faz o mesmo na linha do
+         DANFE. Só apareceu ao OLHAR a captura; nenhum assert de conteúdo
+         pegaria. */
+      b.push('<a class="btn btn-secondary" style="text-decoration:none;" target="_blank" '
+        + 'rel="noopener" href="/api/nfce/' + n.id + '/danfce">DANFCe</a>');
+      b.push('<a class="btn btn-secondary" style="text-decoration:none;" '
+        + 'href="/api/nfce/' + n.id + '/xml">XML</a>');
+      b.push('<button type="button" class="btn btn-danger" '
+        + 'onclick="cancelarNFCe(' + n.id + ')">Cancelar NFC-e</button>');
+    } else if (n.xmlDisponivel !== false && n.chaveAcesso) {
+      b.push('<a class="btn btn-secondary" style="text-decoration:none;" '
+        + 'href="/api/nfce/' + n.id + '/xml">XML</a>');
+    }
+  }
+  // Sem classe nova: a faixa de ações da aba Fatura usa o mesmo inline.
+  return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">'
+    + b.join('') + '</div>';
+}
+
+async function emitirNFCeDoPedido(){
+  /* Duplo clique. A garantia de verdade é o índice UNIQUE do banco, que
+     recusa a segunda nota autorizada do mesmo pedido; esta trava é só para
+     o lojista não ver dois pedidos em voo e achar que emitiu duas. */
+  if (emissaoEmCurso) return;
+  emissaoEmCurso = true;
+  const btn = document.getElementById('btnEmitirNFCe');
+  if (btn) { btn.disabled = true; btn.textContent = 'Transmitindo à SEFAZ…'; }
+  try {
+    const r = await fetch('/api/pedidos/' + PEDIDO_ID + '/emitir-nfce', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) {
+      showAlert(d.error, 'error');
+    } else if (d.autorizada) {
+      showAlert('NFC-e ' + d.nNF + ' autorizada na SEFAZ', 'success');
+    } else {
+      /* Rejeição não é sucesso nem erro de sistema: a SEFAZ respondeu, e o
+         motivo dela é o que interessa. Vai inteiro para a tela. */
+      showAlert('NFC-e rejeitada: ' + (d.xMotivo || '') + ' (cStat ' + (d.cStat || '?') + ')', 'error');
+    }
+  } catch (e) {
+    showAlert('Erro ao emitir NFC-e: ' + e.message, 'error');
+  } finally {
+    emissaoEmCurso = false;
+    await carregarFiscal();
+  }
+}
+
+async function consultarNFCe(id){
+  try {
+    const r = await fetch('/api/nfce/' + id + '/consultar');
+    const d = await r.json();
+    if (!d.success) { showAlert(d.error, 'error'); return; }
+    showAlert(d.atualizado
+      ? 'Situação atualizada: ' + d.statusAtual + ' (' + (d.xMotivo || d.cStat) + ')'
+      : 'A SEFAZ confirma a situação atual: ' + (d.xMotivo || d.cStat), 'info');
+  } catch (e) {
+    showAlert('Erro ao consultar: ' + e.message, 'error');
+  }
+  await carregarFiscal();
+}
+
+async function cancelarNFCe(id){
+  const motivo = prompt('Motivo do cancelamento (mínimo 15 caracteres):');
+  if (motivo === null) return;
+  if (String(motivo).trim().length < 15) {
+    showAlert('O motivo precisa ter pelo menos 15 caracteres', 'error');
+    return;
+  }
+  try {
+    const r = await fetch('/api/nfce/' + id + '/cancelar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo }),
+    });
+    const d = await r.json();
+    if (!d.success) {
+      showAlert('Cancelamento recusado: ' + (d.xMotivo || d.error || '') , 'error');
+    } else {
+      /* O cancelamento desfaz o DOCUMENTO, e não a venda: o pedido do
+         catálogo é quem mandou no estoque e no financeiro, e continua
+         valendo. Dizer isso evita que o lojista ache que precisa "arrumar"
+         o estoque depois. */
+      showAlert('NFC-e cancelada na SEFAZ. O pedido, o estoque e o financeiro não mudaram.',
+        'success');
+    }
+  } catch (e) {
+    showAlert('Erro ao cancelar: ' + e.message, 'error');
+  }
+  await carregarFiscal();
 }
 
 // ==================== DIRTY TRACKING ====================
@@ -2101,7 +2368,7 @@ function preencher(){
       return `<tr data-item="${it.id}">
         <td class="muted col-indice" data-rot="Item">${i+1}</td>
         <td class="mono" data-rot="Produto">${it.sku||'<span class="muted">livre</span>'}</td>
-        <td class="col-descricao" data-rot="Descrição"><textarea rows="1" class="auto-altura desc-item" oninput="ajustarAltura(this)" onchange="salvarItemCampo(${it.id},'descricao',this.value)" title="${esc(it.descricao||'')}">${esc(it.descricao||'')}</textarea></td>
+        <td class="col-descricao" data-rot="Descrição"><textarea rows="1" class="auto-altura desc-item" oninput="ajustarAltura(this)" onchange="salvarItemCampo(${it.id},'descricao',this.value)" title="${escHtml(it.descricao||'')}">${escHtml(it.descricao||'')}</textarea></td>
         <td data-rot="Qtd"><input type="number" step="0.01" min="0" value="${Number(it.quantidade)||0}" oninput="recalcularLinha(${it.id})" onchange="salvarItemCampo(${it.id},'quantidade',this.value)" style="width:80px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;" data-campo="qtd"> <span class="muted">${it.unidade||''}</span></td>
         <td data-disp="${it.produtoId||''}" class="muted" data-rot="Disp.">—</td>
         <td data-rot="V.Unit"><input type="number" step="0.01" min="0" value="${Number(it.precoUnitario)||0}" oninput="recalcularLinha(${it.id})" onchange="salvarItemCampo(${it.id},'precoUnitario',this.value)" style="width:100px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;" data-campo="pu"></td>
@@ -2373,7 +2640,7 @@ async function acItemProd(){
       const d = await r.json();
       if(!d.success) return;
       document.getElementById('itProdList').innerHTML = (d.produtos||[]).map(p =>
-        `<div onclick="selItemProd(${p.id},'${esc(p.sku)}','${esc(p.descricao)}',${p.precoVenda||0})">${p.sku} <span class="muted">— ${p.descricao}</span></div>`
+        `<div onclick="selItemProd(${p.id},'${escHtml(p.sku)}','${escHtml(p.descricao)}',${p.precoVenda||0})">${p.sku} <span class="muted">— ${p.descricao}</span></div>`
       ).join('');
     } catch {}
   }, 200);
@@ -2540,7 +2807,7 @@ async function acTransportadora(){
       const d = await r.json();
       if(!d.success) return;
       document.getElementById('tpList').innerHTML = d.transportadoras.map(t =>
-        `<div onclick="selTransportadora(${t.id},'${esc(t.razaoSocial)}')">${t.razaoSocial} <span class="muted">— ${t.cpfCnpj}</span></div>`
+        `<div onclick="selTransportadora(${t.id},'${escHtml(t.razaoSocial)}')">${t.razaoSocial} <span class="muted">— ${t.cpfCnpj}</span></div>`
       ).join('');
     } catch {}
   }, 200);
@@ -2656,8 +2923,8 @@ function aplicarFalta(){
     `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
        <div>
          <strong>Sem saldo para ${faltantes.length} ${faltantes.length === 1 ? 'item' : 'itens'}:</strong>
-         ${faltantes.map(i => `${esc(i.sku || i.descricao)} (faltam ${fmt(i.faltando)})`).join(', ')}
-         ${emTransito.length ? `<br><span class="muted" style="font-size:.85em;">Já há compra a caminho para ${emTransito.map(i => esc(i.sku)).join(', ')}.</span>` : ''}
+         ${faltantes.map(i => `${escHtml(i.sku || i.descricao)} (faltam ${fmt(i.faltando)})`).join(', ')}
+         ${emTransito.length ? `<br><span class="muted" style="font-size:.85em;">Já há compra a caminho para ${emTransito.map(i => escHtml(i.sku)).join(', ')}.</span>` : ''}
        </div>
        <button class="btn btn-primary btn-sm" onclick="abrirModalFalta(false)">Comprar faltantes</button>
      </div>`;
@@ -2679,9 +2946,9 @@ function renderComprasVinculadas(){
     compras.map(c => {
       const link = c.tipo === 'cotacao' ? `/compras/cotacoes.html` : `/compras/pedido.html?id=${c.id}`;
       return `<tr>
-        <td class="mono">${esc(c.numero)}</td>
-        <td>${esc(c.fornecedorNome || (c.tipo === 'cotacao' ? 'cotação' : 'a definir'))}</td>
-        <td>${esc(String(c.status).replace(/_/g,' '))}</td>
+        <td class="mono">${escHtml(c.numero)}</td>
+        <td>${escHtml(c.fornecedorNome || (c.tipo === 'cotacao' ? 'cotação' : 'a definir'))}</td>
+        <td>${escHtml(String(c.status).replace(/_/g,' '))}</td>
         <td style="text-align:right;">${fmt(c.quantidade)}</td>
         <td style="text-align:right;">${c.quantidadeRecebida != null ? fmt(c.quantidadeRecebida) : '—'}</td>
         <td><a class="btn btn-ghost btn-sm" href="${link}">Abrir</a></td>
@@ -2713,13 +2980,13 @@ function abrirModalFalta(daConfirmacao, insuficiencias){
   document.getElementById('faltaItens').innerHTML = lista.map((i, n) => `
     <tr>
       <td><input type="checkbox" class="falta-chk" data-idx="${n}" checked></td>
-      <td>${esc(i.sku || '')} ${esc(i.descricao || '')}</td>
+      <td>${escHtml(i.sku || '')} ${escHtml(i.descricao || '')}</td>
       <td style="text-align:right;">${fmt(i.quantidade)}</td>
       <td style="text-align:right;">${fmt(i.disponivel)}</td>
       <td style="text-align:right;">${i.emTransito > 0 ? `<strong>${fmt(i.emTransito)}</strong>` : '<span class="muted">—</span>'}</td>
       <td><input type="number" step="0.01" min="0" class="falta-qtd" data-idx="${n}" value="${Number(i.faltando)||0}"
              style="width:100px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;"></td>
-      <td>${esc(i.fornecedorNome || 'a definir')}</td>
+      <td>${escHtml(i.fornecedorNome || 'a definir')}</td>
     </tr>`).join('');
   document.getElementById('modalFalta').classList.add('open');
 }
@@ -3032,7 +3299,7 @@ async function acBandeira(){
       const d = await r.json();
       if(!d.success) return;
       document.getElementById('fatBandeiraList').innerHTML = d.adquirentes.map(a =>
-        `<div onclick="selBandeira(${a.id},'${esc(a.nome)}')">${a.nome}${a.taxaPercentual?` <span class="muted">— ${a.taxaPercentual}%</span>`:''}</div>`
+        `<div onclick="selBandeira(${a.id},'${escHtml(a.nome)}')">${a.nome}${a.taxaPercentual?` <span class="muted">— ${a.taxaPercentual}%</span>`:''}</div>`
       ).join('');
     } catch {}
   }, 200);
