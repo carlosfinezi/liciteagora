@@ -1709,15 +1709,34 @@ function registrarRotasLojaPublica(app, db) {
 
       const total = r2c(subtotal + frete);
 
-      // ── troco: validado, e registrado em texto ────────────────────────
+      /* ── troco ──────────────────────────────────────────────────────────
+       *
+       * O que se guarda é o valor RECEBIDO, não o troco: o troco é sempre
+       * `recebido − total`, e o total é calculado aqui (`subtotal + frete`),
+       * nunca aceito do navegador. Persistir os dois criaria duas verdades.
+       *
+       * `recebidoEmDinheiro` fica NULL em três casos, e os três querem dizer
+       * a mesma coisa — não há valor estruturado: pagamento que não é
+       * dinheiro, dinheiro sem troco, e qualquer pedido interno do ERP.
+       *
+       * A linha de texto continua sendo escrita na observação, para que a
+       * apresentação dos pedidos não mude. Ela é HISTÓRICO legível, e não
+       * fonte: nada fiscal a lê.
+       */
       let linhaTroco = null;
+      let recebidoEmDinheiro = null;
       if (pagamento === 'dinheiro' && b.precisaTroco) {
         const trocoPara = r2c(Number(b.trocoPara));
+        /* `!(x > 0)` cobre de uma vez o zero, o negativo, o vazio e o texto
+           que virou NaN — comparação com NaN é sempre falsa. */
         if (!(trocoPara > 0)) return recusa(422, 'Informe para quanto precisa de troco.', { campo: 'troco' });
         if (trocoPara < total) {
           return recusa(422, `O troco precisa ser a partir de ${total.toFixed(2).replace('.', ',')}.`, { campo: 'troco' });
         }
         linhaTroco = `Troco para: R$ ${trocoPara.toFixed(2).replace('.', ',')}`;
+        /* Igual ao total é "paga certo": não há troco, e gravar o valor faria
+           a NFC-e sair com `<vTroco>0.00</vTroco>`, que é ruído no cupom. */
+        recebidoEmDinheiro = trocoPara > total ? trocoPara : null;
       }
 
       const obsCliente = txtPub(b.observacao, 300);
@@ -1783,9 +1802,9 @@ function registrarRotasLojaPublica(app, db) {
                depositoId, tipoAtendimento, meioPagamento, tipoFrete, valorFrete,
                enderecoEntrega, numeroEntrega, complementoEntrega, bairroEntrega,
                cidadeEntrega, ufEntrega, cepEntrega, contatoEntrega, telefoneEntrega,
-               idempotenciaChave, tipoOperacaoId)
+               idempotenciaChave, tipoOperacaoId, valorRecebidoDinheiro)
             VALUES (?, 'catalogo', 'pedido', ?, 'rascunho', ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
             /* `date('now','-3 hours')` é como o resto deste arquivo grava data:
                o ERP inteiro usa a hora de Brasília e não há timezone por tenant. */
             .run(numero, pessoaId, dataDeHojeBrasilia(), observacao, resolverDeposito(db, {}),
@@ -1793,7 +1812,7 @@ function registrarRotasLojaPublica(app, db) {
                  atendimento === 'entrega' ? 'CIF' : null, frete,
                  end && end.logradouro, end && end.numero, end && end.complemento,
                  end && end.bairro, end && end.cidade, end && end.uf, end && end.cep,
-                 nome, telefone, chave, natureza.id).lastInsertRowid;
+                 nome, telefone, chave, natureza.id, recebidoEmDinheiro).lastInsertRowid;
 
           const ins = db.prepare(`INSERT INTO pedido_itens
               (pedidoId, produtoId, descricao, quantidade, precoUnitario, valorTotal)

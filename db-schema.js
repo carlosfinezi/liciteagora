@@ -1334,7 +1334,29 @@ for (const col of [
    * acesso, e a revogação do link apagando a proteção contra duplicidade,
    * seriam dois defeitos de uma vez.
    */
-  'idempotenciaChave TEXT'
+  'idempotenciaChave TEXT',
+  /*
+   * Quanto o cliente vai entregar em dinheiro (2026-09-29).
+   *
+   * É o ÚNICO dado desta conta que o servidor não consegue derivar: o total
+   * ele calcula, e o troco é `recebido − total`. Por isso o que se guarda é
+   * o recebido, e não o troco — guardar os dois criaria duas verdades que
+   * divergem no dia em que o pedido for editado.
+   *
+   * NULL é o estado normal e quer dizer "não há valor recebido
+   * estruturado": todo pedido interno, todo pagamento que não é dinheiro, e
+   * o dinheiro sem troco. Nenhum pedido antigo é adotado, e a frase "Troco
+   * para: R$ X" que o checkout escreve em `observacao` desde 2026-09-20
+   * continua sendo só histórico legível — ela NUNCA é lida como dado
+   * fiscal, porque o campo é livre, mistura três assuntos e é truncado em
+   * 500 caracteres.
+   *
+   * NÃO se confunde com `valorPago`, que é quanto da venda foi quitado. O
+   * financeiro trabalha com o valor da venda; este campo é o dinheiro
+   * físico que passa pela mão do entregador, e só serve para o <vTroco> da
+   * NFC-e e para quem separa o pedido saber que precisa levar troco.
+   */
+  'valorRecebidoDinheiro REAL'
 ]) alterSafe(db, `ALTER TABLE pedidos ADD COLUMN ${col}`);
 /* A autoridade contra concorrência. Parcial porque só o checkout público
    preenche a coluna. */
