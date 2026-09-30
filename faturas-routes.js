@@ -355,11 +355,95 @@ function registrarRotasFaturas(app, db) {
           }];
         }
 
+        /* ── Uma venda, uma conta a receber ────────────────────────────────
+         *
+         * O pagamento online do catálogo (`loja-pagamento.js`) cria a CR no
+         * fechamento do pedido: `origem = 'loja'`, `pedidoId` preenchido,
+         * `faturaId` nulo, e o Pix do Asaas pendurado nela por
+         * `boletos.contaReceberId`. Quando esse pedido chegava aqui, o
+         * faturamento criava OUTRA — as duas não se enxergavam, porque uma é
+         * indexada por `pedidoId` e a outra por `faturaId`.
+         *
+         * O estrago, medido em 29/09 num ciclo completo: venda de R$ 55 com
+         * Pix já pago virava R$ 110 em recebíveis, sendo a segunda ABERTA —
+         * ou seja, a régua de cobrança voltaria a cobrar quem já pagou.
+         *
+         * Aqui a CR existente é ADOTADA pela fatura em vez de duplicada. O
+         * vínculo é pelo PEDIDO, nunca por valor, cliente ou data: match
+         * fraco adotaria a cobrança errada, e num financeiro isso é pior que
+         * duplicar.
+         */
+        const crDaLoja = db.prepare(`SELECT id, valor, valorPago, status, faturaId, formaPagamento
+            FROM contas_a_receber
+           WHERE pedidoId = ? AND origem = 'loja'
+           ORDER BY id`).all(pedido.id);
+
+        /* Estados que NÃO podem ser adotados em silêncio. `cancelada` deixou
+           de ser cobrança; `incobravel` foi dada como perda; `renegociada`
+           foi substituída por outra. Nos três, ressuscitar a linha seria
+           decisão de negócio, e ela não é do faturamento. `parcial` fica de
+           fora porque adotar uma cobrança meio paga exigiria decidir o que
+           fazer com o resto — e essa decisão também não é daqui. */
+        const ADOTAVEIS = new Set(['aberta', 'paga']);
+        const vivas = crDaLoja.filter((c) => c.status !== 'cancelada');
+
+        let crAdotada = null;
+        if (vivas.length > 1) {
+          /* Fail closed: com duas cobranças vivas para o mesmo pedido não há
+             escolha certa, e escolher uma é apostar. */
+          throw new Error(
+            `Pedido ${pedido.numero} tem ${vivas.length} cobranças da loja em aberto `
+            + `(#${vivas.map((c) => c.id).join(', #')}). Resolva no Financeiro antes de faturar.`);
+        }
+        if (vivas.length === 1) {
+          const cr = vivas[0];
+          if (!ADOTAVEIS.has(cr.status)) {
+            throw new Error(
+              `A cobrança da loja deste pedido está "${cr.status}" (conta a receber #${cr.id}) `
+              + 'e não pode ser reaproveitada automaticamente. Resolva no Financeiro antes de faturar.');
+          }
+          if (cr.faturaId != null) {
+            throw new Error(
+              `A cobrança #${cr.id} já pertence à fatura #${cr.faturaId}. Cancele-a antes de faturar de novo.`);
+          }
+          if (parcelas.length > 1) {
+            /* Uma cobrança online paga não vira três parcelas. Parcelar aqui
+               exigiria estornar e reemitir, o que mexe com dinheiro já
+               recebido. */
+            throw new Error(
+              `O pedido ${pedido.numero} já tem cobrança da loja (#${cr.id}) e não pode ser `
+              + `faturado em ${parcelas.length} parcelas. Fature em parcela única ou cancele a cobrança.`);
+          }
+          if (Math.abs(Number(cr.valor) - valorTotal) > 0.01) {
+            throw new Error(
+              `A cobrança da loja (#${cr.id}, R$ ${Number(cr.valor).toFixed(2)}) não confere com o `
+              + `total da fatura (R$ ${valorTotal.toFixed(2)}). Resolva no Financeiro antes de faturar.`);
+          }
+          crAdotada = cr;
+        }
+
         // Cria uma CR por parcela
         const idsCR = [];
         const grupoParcelaId = parcelas.length > 1 ? `fat-${faturaId}` : null;
 
-        for (const parc of parcelas) {
+        if (crAdotada) {
+          /* Adoção: só o vínculo muda. `valorPago`, `status`, `dataPagamento`,
+             `contaFinanceiraId` e o boleto/Pix do Asaas ficam como estão —
+             mexer neles seria reescrever dinheiro que já entrou. Uma CR paga
+             continua paga; uma aberta continua aberta, e o webhook que chegar
+             depois a baixa pelo mesmo `contaReceberId` de sempre.
+             `origem` permanece 'loja': é a verdade sobre de onde ela veio, e
+             é por ela que esta consulta a encontra de novo. */
+          db.prepare(`UPDATE contas_a_receber
+              SET faturaId = ?, dataAtualizacao = CURRENT_TIMESTAMP
+            WHERE id = ? AND faturaId IS NULL`).run(faturaId, crAdotada.id);
+          idsCR.push(crAdotada.id);
+        }
+
+        /* O caminho de sempre, para todo pedido sem cobrança da loja — que é
+           a esmagadora maioria: ERP, PDV, licitação, OS, e o próprio catálogo
+           quando o pagamento é na entrega. */
+        for (const parc of (crAdotada ? [] : parcelas)) {
           // CR fica em nome do cliente final (pessoaId); se é cartão, adquirenteCartaoId
           // aponta para a adquirente que vai liquidar.
           let origemCR = 'fatura';
@@ -430,8 +514,15 @@ function registrarRotasFaturas(app, db) {
       // para as parcelas correspondentes. Best-effort e fire-and-forget — não bloqueia o faturamento.
       try {
         const { tPagFromForma } = require('./meio-pagamento');
+        /* `origem != 'loja'`: a cobrança adotada do catálogo JÁ tem Pix
+           emitido no Asaas, pendurado nela por `boletos.contaReceberId`.
+           Ela chega aqui com forma '17' e status 'aberta' — exatamente o
+           perfil que esta rotina procura —, e sem esta cláusula o
+           faturamento pediria um SEGUNDO Pix para a mesma conta, com o
+           cliente já olhando o primeiro na tela. */
         const crs = db.prepare(
-          "SELECT id, formaPagamento FROM contas_a_receber WHERE faturaId = ? AND status = 'aberta'"
+          `SELECT id, formaPagamento FROM contas_a_receber
+            WHERE faturaId = ? AND status = 'aberta' AND COALESCE(origem, '') != 'loja'`
         ).all(faturaId);
         const crsBoleto = crs.filter(c => tPagFromForma(c.formaPagamento) === '15');
         const crsPix = crs.filter(c => tPagFromForma(c.formaPagamento) === '17');
