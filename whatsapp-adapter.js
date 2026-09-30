@@ -9,8 +9,10 @@
  * (abrir wa.me em massa) enquanto não houver provider configurado.
  */
 
-// Credenciais globais do Evolution (systemd Environment). A config do tenant só
-// guarda provider + instance; base/apikey vêm daqui (não replica segredo por-tenant).
+// Credenciais globais do Evolution (systemd Environment). Cada número pode ter
+// as próprias (whatsapp_canais.baseUrl/apikey, como o `status1bit` do 1bit);
+// sem elas, valem estas.
+const canais = require('./whatsapp-canais');
 const EVOLUTION_URL = process.env.EVOLUTION_URL || '';
 const EVOLUTION_APIKEY = process.env.EVOLUTION_APIKEY || '';
 
@@ -122,26 +124,15 @@ function frasesDeEstilo(escolhas) {
   return frases.join('\n');
 }
 
-// Do briefing da campanha (material de abordagem do M1), remove as frases sobre a PRÓPRIA M1
-// — elas orientam a ESCRITA da abordagem, não são fato de atendimento.
-function briefingLimpo(briefing) {
-  return String(briefing || '')
-    .split(/(?<=[.!?])\s+/)
-    .filter(s => s.trim() && !/\bM1\b/i.test(s))
-    .join(' ')
-    .trim();
-}
-
-// >>> PONTO DE INJEÇÃO DA BASE DE ATENDIMENTO DA CAMPANHA <<<
-// Precedência:
-//   1. Base de atendimento DEDICADA (atendimento_prompt/_kb) — SLOT DA PARTE 2 (factual).
-//   2. Fiação Parte 1: material de abordagem do M1 (persona = tom, briefing limpo = contexto).
-// TODO Parte 2: sem base dedicada → ESCALAR PARA HUMANO, em vez de derivar do M1. O fallback
-//   silencioso pro KB genérico do tenant (removido daqui) foi o que gerou a "planilha".
+// Base de atendimento DEDICADA da campanha (atendimento_prompt/_kb). Só é
+// chamada quando a campanha declara uma; sem ela, vale a base de todo mundo.
+//
+// A `persona` e o `briefing` da campanha deixaram de ser lidos em 2026-09-28:
+// eram o material da IA que escrevia a primeira mensagem, que saiu. A persona
+// do atendente é a de Canal › Instruções da empresa.
 function buildAtendimentoBaseCampanha(campCfg) {
-  const temDedicada = campCfg.atendimento_prompt || campCfg.atendimento_kb;
-  const prompt = temDedicada ? (campCfg.atendimento_prompt || DEFAULT_ATEND) : (campCfg.persona || DEFAULT_ATEND);
-  const kb     = temDedicada ? (campCfg.atendimento_kb || '') : briefingLimpo(campCfg.briefing);
+  const prompt = campCfg.atendimento_prompt || DEFAULT_ATEND;
+  const kb     = campCfg.atendimento_kb || '';
   const corpo  = kb ? prompt + KB_SEP + kb : prompt;
   return corpo + '\n\n' + GUARDRAIL_INTERINO;
 }
@@ -180,30 +171,12 @@ function buildAtendimentoBaseCampanha(campCfg) {
  * Sem roteiro cadastrado, ou sem conversa identificada, devolve string vazia e
  * o prompt fica exatamente como era.
  */
+// O roteiro de qualificação da conversa (roteiro-conversa.js): a etapa atual e
+// como perguntar, ou o que fazer quando o roteiro terminou. Até 29/09 era o
+// roteiro de WhatsApp padrão da empresa, com todas as perguntas que faltavam;
+// agora é o da campanha que o contato recebeu, uma etapa por vez.
 function blocoRoteiro(db, conversaId) {
-  if (!conversaId) return '';
-  try {
-    const roteiro = db.prepare(`SELECT * FROM roteiros WHERE ativo = 1 AND canal = 'whatsapp'
-      ORDER BY padrao DESC, id LIMIT 1`).get();
-    if (!roteiro) return '';
-    const cfg = JSON.parse(roteiro.config || '{}');
-    const perguntas = Array.isArray(cfg.perguntas) ? cfg.perguntas : [];
-    if (!perguntas.length) return '';
-
-    let jaTem = {};
-    try {
-      const v = db.prepare('SELECT respostas FROM roteiro_visitas WHERE conversaId = ? ORDER BY id DESC LIMIT 1')
-        .get(conversaId);
-      if (v) jaTem = JSON.parse(v.respostas || '{}') || {};
-    } catch (_) { /* tenant sem a tabela */ }
-
-    const faltam = perguntas.filter(p => !jaTem[p.chave]);
-    if (!faltam.length) return '';
-    const regras = Array.isArray(cfg.conducao) ? cfg.conducao : [];
-    return '\n\nO QUE VOCÊ AINDA PRECISA DESCOBRIR\n'
-      + faltam.map(p => `- ${p.texto}`).join('\n')
-      + (regras.length ? '\n\nCOMO PERGUNTAR\n' + regras.map(r => `- ${r}`).join('\n') : '');
-  } catch (_) { return ''; }
+  return require('./roteiro-conversa').blocoParaIA(db, conversaId);
 }
 
 function buildSystemAtendimento(db, campanhaId, opts) {
@@ -217,7 +190,9 @@ function buildSystemAtendimento(db, campanhaId, opts) {
       return buildAtendimentoBaseCampanha(campanha);
     }
   }
-  const { getConfigValue } = require('./config-helpers').createConfigHelpers(db);
+  // Instruções, tom e limites são do NÚMERO que atende; a Base da IA (ia_base,
+  // abaixo) é uma só para a empresa.
+  const getConfigValue = configDoAtendimento(db, opts && opts.canalId);
   let base = getConfigValue('whatsapp_ai_prompt') || DEFAULT_ATEND;
 
   // Tom e limites entram logo depois das instruções e antes do conhecimento:
@@ -244,9 +219,8 @@ function buildSystemAtendimento(db, campanhaId, opts) {
   // Contexto da campanha: saber de onde a pessoa veio muda o tom da resposta,
   // mas não deve tirar dela o acesso ao que a empresa sabe.
   if (campanha) {
-    const oferta = briefingLimpo(campanha.briefing);
-    const ctx = ['### Contexto: esta pessoa respondeu a uma campanha'
-      + (campanha.nome ? ` ("${campanha.nome}")` : ''), oferta].filter(Boolean).join('\n');
+    const ctx = '### Contexto: esta pessoa respondeu a uma campanha'
+      + (campanha.nome ? ` ("${campanha.nome}")` : '');
     pedacos = pedacos ? ctx + '\n\n' + pedacos : ctx;
   }
 
@@ -319,10 +293,42 @@ function migrarQueue(db) {
   `);
   // tabelas criadas antes da coluna from_bot (migração idempotente)
   try { db.exec('ALTER TABLE whatsapp_messages ADD COLUMN from_bot INTEGER DEFAULT 0'); } catch (_) { /* já existe */ }
+  // Por qual número saiu (whatsapp-canais.js). A migração de verdade roda no
+  // boot (db-schema.js); aqui só garante a coluna para fila criada depois.
+  try { db.exec('ALTER TABLE whatsapp_queue ADD COLUMN canalId INTEGER'); } catch (_) { /* já existe */ }
+  canais.criarTabela(db);
 }
 
-function loadProviderConfig(db) {
+/**
+ * As chaves do atendimento (IA, estilo, horário, ritmo) de um número. Empresa
+ * sem número cadastrado segue lendo a tabela `config`, como antes de haver
+ * vários números: é o caso do simulador antes da primeira conexão.
+ */
+function configDoAtendimento(db, canalId) {
+  const canal = canais.canalOuPadrao(db, canalId);
+  if (canal) return canais.getterDoCanal(canal);
+  return (chave) => {
+    try { return db.prepare('SELECT valor FROM config WHERE chave = ?').get(chave)?.valor || ''; }
+    catch { return ''; }
+  };
+}
+
+/**
+ * As credenciais de UM número: o pedido, ou o padrão. Quem não diz o número
+ * (cobrança, PIX, OS, agenda, fornecedor) sai pelo padrão.
+ *
+ * Empresa ainda sem canal cadastrado cai na `whatsapp_config` antiga, que a
+ * migração do boot transforma em canal; o caminho existe para o intervalo
+ * entre a edição e o boot, e para quem nunca conectou.
+ */
+function loadProviderConfig(db, canalId) {
   migrarQueue(db);
+  const canal = canais.canalOuPadrao(db, canalId);
+  if (canal) {
+    return { provider: 'evolution', baseUrl: canal.baseUrl, apikey: canal.apikey, instance: canal.instance,
+             canalId: canal.id, canalNome: canal.nome, canal };
+  }
+  if (canalId) return null;   // pediu um número que não existe: não cai em outro
   const rows = db.prepare('SELECT key, value FROM whatsapp_config').all();
   if (!rows.length) return null;
   const cfg = {};
@@ -358,51 +364,57 @@ const ESCADA_AQUECIMENTO = [
 ];
 const LIMITE_DIARIO_MAX = 300;
 
-const numeroCfg = (db, chave, padrao) => {
-  try {
-    const r = db.prepare('SELECT value FROM whatsapp_config WHERE key = ?').get(chave);
-    const n = Number(r?.value);
-    return Number.isFinite(n) && n > 0 ? n : padrao;
-  } catch { return padrao; }
+/** Um limite de ritmo do número (limite_hora, intervalo_min_s, limite_dia). */
+const numeroCfg = (cfg, chave, padrao) => {
+  const bruto = cfg && cfg.canal ? cfg.canal.config[chave] : cfg && cfg[chave];
+  const n = Number(bruto);
+  return Number.isFinite(n) && n > 0 ? n : padrao;
 };
 
 /**
- * Diz se pode enviar agora. Conta pela própria fila — sem tabela nova, e
- * conta o que de fato saiu, não o que foi tentado.
+ * O teto do dia do número: o que foi configurado, ou o do aquecimento, que
+ * depende da idade do número nesta operação (40, 90, 180 e depois 300).
  */
-function checarRitmo(db) {
+function tetoDoDia(db, cfg, filtro) {
+  const primeiro = db.prepare(`SELECT MIN(dataEnvio) d FROM whatsapp_queue WHERE status = 'enviado'${filtro}`).get().d;
+  let limiteDia = ESCADA_AQUECIMENTO[0].limite;   // primeiro envio: começa no degrau 1
+  if (primeiro) {
+    const dias = db.prepare("SELECT CAST(julianday('now') - julianday(?) AS INTEGER) d").get(primeiro).d ?? 0;
+    limiteDia = (ESCADA_AQUECIMENTO.find(e => dias <= e.ateDias) || {}).limite || LIMITE_DIARIO_MAX;
+  }
+  return numeroCfg(cfg, 'limite_dia', limiteDia);
+}
+
+/**
+ * Diz se pode enviar agora PELO NÚMERO de `cfg`. Conta pela própria fila, o
+ * que de fato saiu por aquele número: cada chip tem a sua proteção. Sem
+ * número cadastrado (fila antiga), conta a fila inteira.
+ */
+function checarRitmo(db, cfg) {
   try {
+    const filtro = cfg && cfg.canalId ? ` AND canalId = ${Number(cfg.canalId)}` : '';
     const hora = db.prepare(`SELECT COUNT(*) n FROM whatsapp_queue
-      WHERE status = 'enviado' AND dataEnvio >= datetime('now','-1 hour')`).get().n;
-    const limiteHora = numeroCfg(db, 'limite_hora', LIMITE_HORA_PADRAO);
+      WHERE status = 'enviado' AND dataEnvio >= datetime('now','-1 hour')${filtro}`).get().n;
+    const limiteHora = numeroCfg(cfg, 'limite_hora', LIMITE_HORA_PADRAO);
     if (hora >= limiteHora) {
       return { ok: false, motivo: `limite de ${limiteHora} mensagens por hora atingido (${hora} na última hora)` };
     }
 
     const ultimo = db.prepare(`SELECT dataEnvio FROM whatsapp_queue
-      WHERE status = 'enviado' AND dataEnvio IS NOT NULL ORDER BY id DESC LIMIT 1`).get();
+      WHERE status = 'enviado' AND dataEnvio IS NOT NULL${filtro} ORDER BY id DESC LIMIT 1`).get();
     if (ultimo?.dataEnvio) {
       const seg = db.prepare("SELECT CAST((julianday('now') - julianday(?)) * 86400 AS INTEGER) s").get(ultimo.dataEnvio).s;
-      const minimo = numeroCfg(db, 'intervalo_min_s', INTERVALO_MIN_S);
+      const minimo = numeroCfg(cfg, 'intervalo_min_s', INTERVALO_MIN_S);
       if (seg != null && seg < minimo) {
         return { ok: false, motivo: `aguardando intervalo entre envios (faltam ${minimo - seg}s)`, esperar: minimo - seg };
       }
     }
 
-    // Aquecimento: o teto do dia depende da idade do número nesta operação.
-    const primeiro = db.prepare(`SELECT MIN(dataEnvio) d FROM whatsapp_queue WHERE status = 'enviado'`).get().d;
-    let limiteDia = LIMITE_DIARIO_MAX;
-    if (primeiro) {
-      const dias = db.prepare("SELECT CAST(julianday('now') - julianday(?) AS INTEGER) d").get(primeiro).d ?? 0;
-      limiteDia = (ESCADA_AQUECIMENTO.find(e => dias <= e.ateDias) || {}).limite || LIMITE_DIARIO_MAX;
-    } else {
-      limiteDia = ESCADA_AQUECIMENTO[0].limite;   // primeiro envio: começa no degrau 1
-    }
-    limiteDia = numeroCfg(db, 'limite_dia', limiteDia);
+    const limiteDia = tetoDoDia(db, cfg, filtro);
     // Dia de Brasília, não UTC: com date('now') puro o contador zera às 21h
     // local e o teto diário deixa de valer justamente no fim do expediente.
     const hoje = db.prepare(`SELECT COUNT(*) n FROM whatsapp_queue
-      WHERE status = 'enviado' AND date(dataEnvio, '-3 hours') = date('now', '-3 hours')`).get().n;
+      WHERE status = 'enviado' AND date(dataEnvio, '-3 hours') = date('now', '-3 hours')${filtro}`).get().n;
     if (hoje >= limiteDia) {
       return { ok: false, motivo: `limite de ${limiteDia} mensagens no dia atingido (aquecimento do número)` };
     }
@@ -410,22 +422,31 @@ function checarRitmo(db) {
   } catch { return { ok: true }; }   // sem fila migrada ainda: não trava o envio
 }
 
-async function enviarWhatsApp(db, { telefone, texto, ignorarRitmo = false }) {
+/**
+ * Envia texto pelo número `canalId`, ou pelo padrão. Registra na fila por qual
+ * número saiu, que é o que o ritmo de cada número conta.
+ *
+ * `segurado: true` quer dizer "o ritmo deste número não deixa agora": quem
+ * dispara em lote (campanhas) espera e tenta de novo, em vez de parar.
+ */
+async function enviarWhatsApp(db, { telefone, texto, ignorarRitmo = false, canalId = null }) {
   migrarQueue(db);
 
-  const cfg = loadProviderConfig(db);
+  const cfg = loadProviderConfig(db, canalId);
   let telefoneNorm = String(telefone || '').replace(/\D/g, '');
   if (telefoneNorm && !telefoneNorm.startsWith('55')) telefoneNorm = '55' + telefoneNorm;
 
   if (!telefoneNorm) {
     return { success: false, error: 'Telefone invalido' };
   }
+  if (canalId && !cfg) return { success: false, error: 'Número de WhatsApp não encontrado ou removido' };
+  const cid = (cfg && cfg.canalId) || null;
 
   if (!cfg) {
     // Enfileira para envio manual/posterior
     const id = db.prepare(
-      'INSERT INTO whatsapp_queue (telefone, texto, status) VALUES (?, ?, ?)'
-    ).run(telefoneNorm, texto, 'pendente').lastInsertRowid;
+      'INSERT INTO whatsapp_queue (telefone, texto, status, canalId) VALUES (?, ?, ?, ?)'
+    ).run(telefoneNorm, texto, 'pendente', cid).lastInsertRowid;
     return { queued: true, queueId: id };
   }
 
@@ -433,26 +454,26 @@ async function enviarWhatsApp(db, { telefone, texto, ignorarRitmo = false }) {
   // "proteger o número" é o inverso do que protege — conversa respondida é
   // justamente o sinal bom para o WhatsApp. A trava é para envio ativo.
   if (!ignorarRitmo) {
-    const ritmo = checarRitmo(db);
+    const ritmo = checarRitmo(db, cfg);
     if (!ritmo.ok) {
       const id = db.prepare(
-        'INSERT INTO whatsapp_queue (telefone, texto, status, erro) VALUES (?, ?, ?, ?)'
-      ).run(telefoneNorm, texto, 'pendente', 'segurado: ' + ritmo.motivo).lastInsertRowid;
-      return { success: false, queued: true, queueId: id, segurado: true, motivo: ritmo.motivo };
+        'INSERT INTO whatsapp_queue (telefone, texto, status, erro, canalId) VALUES (?, ?, ?, ?, ?)'
+      ).run(telefoneNorm, texto, 'pendente', 'segurado: ' + ritmo.motivo, cid).lastInsertRowid;
+      return { success: false, queued: true, queueId: id, segurado: true, motivo: ritmo.motivo, esperar: ritmo.esperar, canalId: cid };
     }
   }
 
   try {
     const result = await dispatchViaProvider(db, cfg, { telefone: telefoneNorm, texto });
     const id = db.prepare(
-      'INSERT INTO whatsapp_queue (telefone, texto, status, provider, providerMessageId, dataEnvio) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'
-    ).run(telefoneNorm, texto, 'enviado', cfg.provider, result.providerMessageId || null).lastInsertRowid;
-    return { success: true, queueId: id, providerMessageId: result.providerMessageId };
+      'INSERT INTO whatsapp_queue (telefone, texto, status, provider, providerMessageId, dataEnvio, canalId) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)'
+    ).run(telefoneNorm, texto, 'enviado', cfg.provider, result.providerMessageId || null, cid).lastInsertRowid;
+    return { success: true, queueId: id, providerMessageId: result.providerMessageId, canalId: cid, instance: cfg.instance };
   } catch (err) {
     db.prepare(
-      'INSERT INTO whatsapp_queue (telefone, texto, status, erro, provider) VALUES (?, ?, ?, ?, ?)'
-    ).run(telefoneNorm, texto, 'erro', err.message, cfg.provider);
-    return { success: false, error: err.message };
+      'INSERT INTO whatsapp_queue (telefone, texto, status, erro, provider, canalId) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(telefoneNorm, texto, 'erro', err.message, cfg.provider, cid);
+    return { success: false, error: err.message, canalId: cid };
   }
 }
 
@@ -484,28 +505,65 @@ async function dispatchViaProvider(db, cfg, { telefone, texto }) {
   throw new Error('Provider desconhecido: ' + cfg.provider);
 }
 
-// Envia imagem (mídia) com legenda via Evolution. Fallback pra texto se não houver provider/imagem.
-async function enviarWhatsAppMidia(db, { telefone, texto, imagePath }) {
-  const cfg = loadProviderConfig(db);
+/**
+ * O que a Evolution precisa saber sobre o arquivo. O `mediatype` errado faz a
+ * mensagem chegar como imagem quebrada: vídeo tem de ir como 'video'.
+ * Os formatos aceitos são os do conjunto do modelo (comm-imagens.js).
+ */
+function midiaDoCaminho(caminho) {
+  const ext = require('path').extname(String(caminho || '')).toLowerCase();
+  if (ext === '.mp4') return { mediatype: 'video', mimetype: 'video/mp4' };
+  return { mediatype: 'image',
+           mimetype: ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp'
+                   : ext === '.gif' ? 'image/gif' : 'image/jpeg' };
+}
+
+/**
+ * Envia imagem ou vídeo com legenda, pelo número `canalId` ou pelo padrão. Sem
+ * arquivo ou sem Evolution, cai no texto.
+ *
+ * Até 28/09 a imagem não passava pelo ritmo nem entrava na fila: campanha com
+ * imagem burlava a proteção do número e não aparecia nos contadores. Agora
+ * passa pela mesma trava e fica registrada como qualquer envio.
+ */
+async function enviarWhatsAppMidia(db, { telefone, texto, imagePath, canalId = null, ignorarRitmo = false }) {
+  migrarQueue(db);
+  const cfg = loadProviderConfig(db, canalId);
   let tel = String(telefone || '').replace(/\D/g, '');
   if (tel && !tel.startsWith('55')) tel = '55' + tel;
   if (!tel) return { success: false, error: 'Telefone invalido' };
-  if (!cfg || cfg.provider !== 'evolution' || !imagePath) return enviarWhatsApp(db, { telefone, texto });
+  if (canalId && !cfg) return { success: false, error: 'Número de WhatsApp não encontrado ou removido' };
+  if (!cfg || cfg.provider !== 'evolution' || !imagePath) return enviarWhatsApp(db, { telefone, texto, ignorarRitmo, canalId });
+  const cid = cfg.canalId || null;
+  if (!ignorarRitmo) {
+    const ritmo = checarRitmo(db, cfg);
+    if (!ritmo.ok) {
+      const id = db.prepare('INSERT INTO whatsapp_queue (telefone, texto, status, erro, canalId) VALUES (?, ?, ?, ?, ?)')
+        .run(tel, texto, 'pendente', 'segurado: ' + ritmo.motivo, cid).lastInsertRowid;
+      return { success: false, queued: true, queueId: id, segurado: true, motivo: ritmo.motivo, esperar: ritmo.esperar, canalId: cid };
+    }
+  }
   try {
     const fs = require('fs'), path = require('path');
     const { base, apikey } = evoCreds(cfg);
-    const ext = path.extname(imagePath).toLowerCase();
-    const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+    const { mediatype, mimetype } = midiaDoCaminho(imagePath);
     const media = fs.readFileSync(imagePath).toString('base64');
     const r = await fetch(`${base}/message/sendMedia/${cfg.instance}`, {
       method: 'POST', headers: { apikey, 'content-type': 'application/json' },
-      body: JSON.stringify({ number: tel, mediatype: 'image', mimetype: mime, media, fileName: path.basename(imagePath), caption: texto }),
+      body: JSON.stringify({ number: tel, mediatype, mimetype, media, fileName: path.basename(imagePath), caption: texto }),
     });
     const data = await r.json().catch(() => ({}));
-    if (r.status !== 200 && r.status !== 201) return { success: false, error: `evolution media http ${r.status}` };
-    return { success: true, providerMessageId: (data && data.key && data.key.id) || null };
+    // Com a resposta, como no envio de texto: é ela que diz "exists": false
+    // quando o número não tem WhatsApp (wa-numeros.js marca o número).
+    if (r.status !== 200 && r.status !== 201) throw new Error(`evolution media http ${r.status}: ${JSON.stringify(data).slice(0, 300)}`);
+    const pid = (data && data.key && data.key.id) || null;
+    const id = db.prepare(`INSERT INTO whatsapp_queue (telefone, texto, status, provider, providerMessageId, dataEnvio, canalId)
+      VALUES (?, ?, 'enviado', 'evolution', ?, CURRENT_TIMESTAMP, ?)`).run(tel, texto, pid, cid).lastInsertRowid;
+    return { success: true, queueId: id, providerMessageId: pid, canalId: cid, instance: cfg.instance };
   } catch (e) {
-    return { success: false, error: e.message };
+    db.prepare("INSERT INTO whatsapp_queue (telefone, texto, status, erro, provider, canalId) VALUES (?, ?, 'erro', ?, 'evolution', ?)")
+      .run(tel, texto, e.message, cid);
+    return { success: false, error: e.message, canalId: cid };
   }
 }
 
@@ -548,50 +606,156 @@ function registrarRotasWhatsApp(app, db) {
     }
   });
 
+  // O número de uma chamada: ?canal=N na leitura, canalId no corpo da escrita.
+  // Sem nenhum, vale o padrão.
+  const canalDe = (req) => Number((req.query && req.query.canal) || (req.body && req.body.canalId)) || null;
+  const semApikey = (c) => c && ({ id: c.id, nome: c.nome, instance: c.instance, padrao: c.padrao });
+
   app.get('/api/whatsapp/config', gate, (req, res) => {
     try {
-      const cfg = loadProviderConfig(db);
+      const cfg = loadProviderConfig(db, canalDe(req));
       // não expõe a apikey pro frontend
-      const safe = cfg ? { ...cfg, apikey: cfg.apikey ? '***' : undefined } : { provider: null };
+      const safe = cfg ? { provider: cfg.provider, instance: cfg.instance, canalId: cfg.canalId || null, apikey: cfg.apikey ? '***' : undefined }
+        : { provider: null };
       res.json({ success: true, config: safe });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  // Estado da conexão no provider (PoC Evolution) — por-tenant via db proxy.
+  /** Estado de uma instância na Evolution, com prazo: número fora do ar não trava a lista. */
+  async function estadoDaInstancia(cfg) {
+    if (!cfg || cfg.provider !== 'evolution' || !cfg.instance) return 'sem-config';
+    const { base, apikey } = evoCreds(cfg);
+    const ctl = new AbortController();
+    const prazo = setTimeout(() => ctl.abort(), 5000);
+    try {
+      const r = await fetch(`${base}/instance/connectionState/${cfg.instance}`, { headers: { apikey }, signal: ctl.signal });
+      const data = await r.json().catch(() => ({}));
+      return data?.instance?.state || data?.state || (r.status === 404 ? 'inexistente' : null);
+    } catch (_) { return 'sem-resposta'; }
+    finally { clearTimeout(prazo); }
+  }
+
+  // Estado da conexão de um número (o padrão, sem ?canal).
   app.get('/api/whatsapp/status', gate, async (req, res) => {
     try {
-      const cfg = loadProviderConfig(db);
+      const cfg = loadProviderConfig(db, canalDe(req));
       if (!cfg || cfg.provider !== 'evolution' || !cfg.instance) {
         return res.json({ success: true, provider: cfg?.provider || null, instance: cfg?.instance || null, state: 'sem-config' });
       }
-      const { base, apikey } = evoCreds(cfg);
-      const r = await fetch(`${base}/instance/connectionState/${cfg.instance}`, { headers: { apikey } });
-      const data = await r.json().catch(() => ({}));
-      const state = data?.instance?.state || data?.state || (r.status === 404 ? 'inexistente' : null);
-      res.json({ success: true, provider: 'evolution', instance: cfg.instance, state });
+      res.json({ success: true, provider: 'evolution', instance: cfg.instance, canalId: cfg.canalId || null,
+                 state: await estadoDaInstancia(cfg) });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  // Quanto já saiu e quanto ainda cabe. Sem isto, "não enviou" vira mistério —
-  // e o operador tenta de novo, que é justamente o que queima o número.
+  // ===== Os números da empresa =====
+  app.get('/api/whatsapp/canais', gate, async (req, res) => {
+    try {
+      migrarQueue(db);
+      const lista = canais.listarCanais(db);
+      const estados = await Promise.all(lista.map(c => estadoDaInstancia(loadProviderConfig(db, c.id))));
+      res.json({ success: true, canais: lista.map((c, i) => ({ ...semApikey(c), state: estados[i] })) });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  /**
+   * Número novo. A instância na Evolution ganha nome `le_<empresa>_<n>`, e é o
+   * prefixo `le_` que deixa o setWebhook apontar o recebimento para cá. O
+   * primeiro número da empresa nasce padrão; os outros nascem com a IA
+   * desligada, até alguém configurá-los.
+   */
+  app.post('/api/whatsapp/canais', gate, (req, res) => {
+    try {
+      migrarQueue(db);
+      const slug = String(req.tenantCtx?.slug || '').replace(/[^a-z0-9-]/gi, '').toLowerCase();
+      if (!slug) return res.status(400).json({ success: false, error: 'tenant nao resolvido' });
+      const nome = String(req.body?.nome || '').trim().slice(0, 60);
+      if (!nome) return res.status(400).json({ success: false, error: 'Dê um nome ao número (ex.: Comercial, Suporte)' });
+      const existentes = canais.listarCanais(db, { incluirInativos: true });
+      const usadas = new Set(existentes.map(c => c.instance));
+      let instance = existentes.length ? null : 'le_' + slug;
+      for (let n = existentes.length + 1; !instance || usadas.has(instance); n++) instance = `le_${slug}_${n}`;
+      const padrao = canais.canalPadrao(db);
+      const primeiro = !padrao;
+      // O número novo nasce com a configuração do padrão (instruções da IA,
+      // estilo, horário e ritmo), a pedido, em 29/09: mantém o padrão, e muda
+      // quem quiser. Duas exceções. A IA nasce desligada, porque o número ainda
+      // vai ser conectado e só deve responder quando alguém ligar. O teto do dia
+      // não vem, porque o número novo precisa do aquecimento (40, 90, 180, 300):
+      // herdar o teto de um número maduro é o caminho para ele ser bloqueado.
+      const herdada = { ...((padrao && padrao.config) || {}) };
+      delete herdada.whatsapp_ai_enabled;
+      delete herdada.limite_dia;
+      const id = db.prepare('INSERT INTO whatsapp_canais (nome, instance, padrao, config) VALUES (?, ?, ?, ?)')
+        .run(nome, instance, primeiro ? 1 : 0, JSON.stringify(herdada)).lastInsertRowid;
+      res.json({ success: true, canal: semApikey(canais.canalPorId(db, id)) });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  // Renomear, ou tornar padrão (só um é padrão por vez).
+  app.put('/api/whatsapp/canais/:id', gate, (req, res) => {
+    try {
+      const canal = canais.canalPorId(db, req.params.id);
+      if (!canal) return res.status(404).json({ success: false, error: 'Número não encontrado' });
+      const nome = req.body?.nome !== undefined ? String(req.body.nome).trim().slice(0, 60) : null;
+      if (nome !== null && !nome) return res.status(400).json({ success: false, error: 'O nome não pode ficar vazio' });
+      db.transaction(() => {
+        if (nome) db.prepare('UPDATE whatsapp_canais SET nome = ? WHERE id = ?').run(nome, canal.id);
+        if (req.body?.padrao === true) {
+          db.prepare('UPDATE whatsapp_canais SET padrao = 0').run();
+          db.prepare('UPDATE whatsapp_canais SET padrao = 1 WHERE id = ?').run(canal.id);
+        }
+      })();
+      res.json({ success: true, canal: semApikey(canais.canalPorId(db, canal.id)) });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  /**
+   * Remover desconecta o aparelho e desativa o número. A linha fica, para o
+   * histórico (conversas e envios) continuar dizendo por onde passou. O padrão
+   * não sai: as mensagens do sistema ficariam sem número.
+   */
+  app.delete('/api/whatsapp/canais/:id', gate, async (req, res) => {
+    try {
+      const canal = canais.canalPorId(db, req.params.id);
+      if (!canal) return res.status(404).json({ success: false, error: 'Número não encontrado' });
+      if (canal.padrao) return res.status(400).json({ success: false, error: 'Este é o número padrão. Torne outro padrão antes de removê-lo' });
+      const { base, apikey } = evoCreds(canal);
+      if (base && apikey) {
+        await fetch(`${base}/instance/logout/${canal.instance}`, { method: 'DELETE', headers: { apikey } }).catch(() => {});
+      }
+      db.prepare('UPDATE whatsapp_canais SET ativo = 0, padrao = 0 WHERE id = ?').run(canal.id);
+      res.json({ success: true });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  // Quanto já saiu e quanto ainda cabe, por número. Sem isto, "não enviou"
+  // vira mistério — e o operador tenta de novo, que é o que queima o número.
   app.get('/api/whatsapp/ritmo', gate, (req, res) => {
     try {
       migrarQueue(db);
+      const cfg = loadProviderConfig(db, canalDe(req));
+      const filtro = cfg && cfg.canalId ? ` AND canalId = ${Number(cfg.canalId)}` : '';
       const q = (sql) => { try { return db.prepare(sql).get().n; } catch { return 0; } };
-      const hora = q(`SELECT COUNT(*) n FROM whatsapp_queue WHERE status='enviado' AND dataEnvio >= datetime('now','-1 hour')`);
-      const dia = q(`SELECT COUNT(*) n FROM whatsapp_queue WHERE status='enviado' AND date(dataEnvio, '-3 hours') = date('now', '-3 hours')`);
-      const segurados = q(`SELECT COUNT(*) n FROM whatsapp_queue WHERE status='pendente' AND erro LIKE 'segurado:%'`);
-      const primeiro = db.prepare(`SELECT MIN(dataEnvio) d FROM whatsapp_queue WHERE status='enviado'`).get().d;
+      const hora = q(`SELECT COUNT(*) n FROM whatsapp_queue WHERE status='enviado' AND dataEnvio >= datetime('now','-1 hour')${filtro}`);
+      const dia = q(`SELECT COUNT(*) n FROM whatsapp_queue WHERE status='enviado' AND date(dataEnvio, '-3 hours') = date('now', '-3 hours')${filtro}`);
+      const segurados = q(`SELECT COUNT(*) n FROM whatsapp_queue WHERE status='pendente' AND erro LIKE 'segurado:%'${filtro}`);
+      const primeiro = db.prepare(`SELECT MIN(dataEnvio) d FROM whatsapp_queue WHERE status='enviado'${filtro}`).get().d;
       const dias = primeiro
         ? db.prepare("SELECT CAST(julianday('now') - julianday(?) AS INTEGER) d").get(primeiro).d
         : null;
-      const ritmo = checarRitmo(db);
+      const ritmo = checarRitmo(db, cfg);
+      // Os três tetos que valem hoje para o número, configurados ou padrão.
+      // `padrao` é o que vale com o campo em branco (o do dia, pela idade do número).
+      let limiteDia = null, diaPadrao = null;
+      try { limiteDia = tetoDoDia(db, cfg, filtro); diaPadrao = tetoDoDia(db, {}, filtro); } catch (_) { /* fila antiga */ }
       res.json({ success: true, hora, dia, segurados, diasDeUso: dias,
-                 limiteHora: numeroCfg(db, 'limite_hora', LIMITE_HORA_PADRAO),
+                 limiteHora: numeroCfg(cfg, 'limite_hora', LIMITE_HORA_PADRAO),
+                 intervaloMinS: numeroCfg(cfg, 'intervalo_min_s', INTERVALO_MIN_S), limiteDia,
+                 padrao: { limiteHora: LIMITE_HORA_PADRAO, intervaloMinS: INTERVALO_MIN_S, limiteDia: diaPadrao },
                  podeEnviarAgora: ritmo.ok, motivo: ritmo.motivo || null });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
   });
@@ -601,21 +765,34 @@ function registrarRotasWhatsApp(app, db) {
     try {
       const { telefone, texto } = req.body || {};
       if (!telefone || !texto) return res.status(400).json({ success: false, error: 'telefone e texto obrigatorios' });
-      const result = await enviarWhatsApp(db, { telefone, texto });
+      const result = await enviarWhatsApp(db, { telefone, texto, canalId: canalDe(req) });
       res.json({ success: !result.error, ...result });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  // Pareamento por tenant: cria/garante a instância Evolution do tenant e devolve o QR.
+  /**
+   * Pareamento de um número: garante a instância na Evolution e devolve o QR.
+   * Sem número nenhum cadastrado, cria o primeiro (padrão), como a conexão
+   * única de antes fazia.
+   */
   app.post('/api/whatsapp/connect', gate, async (req, res) => {
     try {
+      migrarQueue(db);
       const slug = req.tenantCtx?.slug;
       if (!slug) return res.status(400).json({ success: false, error: 'tenant nao resolvido' });
-      const cfg = loadProviderConfig(db);
-      const instance = (cfg && cfg.instance) || ('le_' + String(slug).replace(/[^a-z0-9-]/gi, '').toLowerCase());
-      const { base, apikey } = evoCreds(cfg);
+      let canal = canais.canalOuPadrao(db, canalDe(req));
+      if (!canal && canalDe(req)) return res.status(404).json({ success: false, error: 'Número não encontrado' });
+      if (!canal) {
+        const antigo = loadProviderConfig(db);
+        const instance = (antigo && antigo.instance) || ('le_' + String(slug).replace(/[^a-z0-9-]/gi, '').toLowerCase());
+        const id = db.prepare("INSERT INTO whatsapp_canais (nome, instance, padrao, config) VALUES ('Principal', ?, 1, '{}')")
+          .run(instance).lastInsertRowid;
+        canal = canais.canalPorId(db, id);
+      }
+      const instance = canal.instance;
+      const { base, apikey } = evoCreds(canal);
       if (!base || !apikey) return res.status(500).json({ success: false, error: 'EVOLUTION_URL/APIKEY nao configurados' });
 
       // já existe? qual estado?
@@ -623,13 +800,9 @@ function registrarRotasWhatsApp(app, db) {
       const st = await fetch(`${base}/instance/connectionState/${instance}`, { headers: { apikey } });
       if (st.status === 200) { exists = true; const d = await st.json().catch(() => ({})); state = d?.instance?.state || d?.state || null; }
 
-      // persiste config do tenant (creds ficam no env global, não por-tenant)
-      const up = db.prepare('INSERT INTO whatsapp_config (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');
-      up.run('provider', 'evolution');
-      up.run('instance', instance);
       await setWebhook(base, apikey, instance); // recebimento -> liciteagora (só le_*)
 
-      if (state === 'open') return res.json({ success: true, connected: true, instance });
+      if (state === 'open') return res.json({ success: true, connected: true, instance, canalId: canal.id });
 
       let qr = null;
       if (exists) {
@@ -643,17 +816,18 @@ function registrarRotasWhatsApp(app, db) {
         const d = await c.json().catch(() => ({}));
         if (c.status !== 200 && c.status !== 201) throw new Error(`create http ${c.status}: ${JSON.stringify(d).slice(0, 160)}`);
         qr = d?.qrcode?.base64 || null;
+        await setWebhook(base, apikey, instance);   // a instância acabou de nascer
       }
-      res.json({ success: true, connected: false, instance, qr });
+      res.json({ success: true, connected: false, instance, canalId: canal.id, qr });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  // Desconecta (logout) a instância do tenant; mantém o nome pra reconectar depois.
+  // Desconecta (logout) um número; mantém o nome pra reconectar depois.
   app.post('/api/whatsapp/disconnect', gate, async (req, res) => {
     try {
-      const cfg = loadProviderConfig(db);
+      const cfg = loadProviderConfig(db, canalDe(req));
       if (!cfg || !cfg.instance) return res.json({ success: true });
       const { base, apikey } = evoCreds(cfg);
       await fetch(`${base}/instance/logout/${cfg.instance}`, { method: 'DELETE', headers: { apikey } }).catch(() => {});
@@ -703,36 +877,42 @@ function registrarRotasWhatsApp(app, db) {
       if (!jid || !texto) return res.status(400).json({ success: false, error: 'jid e texto obrigatorios' });
       const telefone = String(jid).split('@')[0];
       // Atendente respondendo no inbox: é conversa em andamento, não disparo.
-      const result = await enviarWhatsApp(db, { telefone, texto, ignorarRitmo: true });
+      const result = await enviarWhatsApp(db, { telefone, texto, ignorarRitmo: true, canalId: canalDe(req) });
       if (result.error) return res.json({ success: false, error: result.error });
       try {
         migrarQueue(db);
-        db.prepare('INSERT OR IGNORE INTO whatsapp_messages (wa_message_id, remote_jid, from_me, texto, timestamp) VALUES (?,?,?,?,?)')
-          .run(result.providerMessageId || null, jid, 1, texto, Math.floor(Date.now() / 1000));
+        db.prepare('INSERT OR IGNORE INTO whatsapp_messages (wa_message_id, instance, remote_jid, from_me, texto, timestamp) VALUES (?,?,?,?,?,?)')
+          .run(result.providerMessageId || null, result.instance || null, jid, 1, texto, Math.floor(Date.now() / 1000));
       } catch (_) {}
       res.json({ success: true, providerMessageId: result.providerMessageId });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
-  // Config da auto-resposta IA (por tenant).
+  /**
+   * Atendente de IA, horário e ritmo de UM número (?canal=N; sem ele, o
+   * padrão). O pop-up de mensagem nova continua sendo da empresa.
+   */
   app.get('/api/whatsapp/ai-config', gate, (req, res) => {
     try {
-      const enabled = db.prepare("SELECT valor FROM config WHERE chave = 'whatsapp_ai_enabled'").get();
-      const prompt = db.prepare("SELECT valor FROM config WHERE chave = 'whatsapp_ai_prompt'").get();
+      migrarQueue(db);
+      const canal = canais.canalOuPadrao(db, canalDe(req));
+      if (!canal && canalDe(req)) return res.status(404).json({ success: false, error: 'Número não encontrado' });
+      const get = configDoAtendimento(db, canal && canal.id);
       // kbLegado: só para conferência de quem migrou. Não entra mais no prompt
       // — o conhecimento vem de ia_base (tela Conversas → Base da IA).
       const kb = db.prepare("SELECT valor FROM config WHERE chave = 'whatsapp_ai_kb'").get();
-      const escopo = db.prepare("SELECT valor FROM config WHERE chave = 'whatsapp_ai_escopo'").get();
-      const hor = require('./atendimento-horario').lerHorario(
-        (chave) => db.prepare('SELECT valor FROM config WHERE chave = ?').get(chave)?.valor || '');
+      const hor = require('./atendimento-horario').lerHorario(get);
       const popup = db.prepare("SELECT valor FROM config WHERE chave = 'whatsapp_popup_ativo'").get();
       // O catálogo viaja junto das escolhas: a tela desenha os botões a partir
       // dele, e assim opção nova aparece sem ninguém editar o HTML.
-      const escolhas = lerEstilo((c) =>
-        db.prepare('SELECT valor FROM config WHERE chave = ?').get(c)?.valor || '');
-      res.json({ success: true, enabled: enabled?.valor === '1', prompt: prompt?.valor || '',
-                 escopo: escopo?.valor === 'campanha' ? 'campanha' : 'todos',
+      const escolhas = lerEstilo(get);
+      const num = (k) => { const n = Number(get(k)); return Number.isFinite(n) && n > 0 ? n : null; };
+      res.json({ success: true, canal: semApikey(canal), enabled: get('whatsapp_ai_enabled') === '1',
+                 prompt: get('whatsapp_ai_prompt') || '',
+                 escopo: get('whatsapp_ai_escopo') === 'campanha' ? 'campanha' : 'todos',
                  horario: hor,
+                 ritmo: { limiteHora: num('limite_hora'), intervaloMinS: num('intervalo_min_s'), limiteDia: num('limite_dia'),
+                          padrao: { limiteHora: LIMITE_HORA_PADRAO, intervaloMinS: INTERVALO_MIN_S, limiteDiaMax: LIMITE_DIARIO_MAX } },
                  popupAtivo: popup?.valor === '1',
                  estilo: { catalogo: ESTILO, escolhas },
                  kbLegado: kb?.valor || '', kbLegadoEmUso: false });
@@ -740,9 +920,17 @@ function registrarRotasWhatsApp(app, db) {
   });
   app.post('/api/whatsapp/ai-config', gate, (req, res) => {
     try {
-      const { enabled, prompt, kb, escopo, horario, popupAtivo, estilo } = req.body || {};
-      const up = db.prepare("INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)");
-      up.run('whatsapp_ai_enabled', enabled ? '1' : '0');
+      migrarQueue(db);
+      const { enabled, prompt, kb, escopo, horario, popupAtivo, estilo, ritmo } = req.body || {};
+      const canal = canais.canalOuPadrao(db, canalDe(req));
+      if (!canal && canalDe(req)) return res.status(404).json({ success: false, error: 'Número não encontrado' });
+      // O que é do número vai para ele; sem número cadastrado, para a empresa,
+      // como antes de haver vários (configDoAtendimento lê do mesmo lugar).
+      const mudancas = {};
+      const doCanal = canal ? { run: (k, v) => { mudancas[k] = v; } } : null;
+      const daEmpresa = db.prepare("INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)");
+      const up = doCanal || daEmpresa;
+      if (enabled !== undefined) up.run('whatsapp_ai_enabled', enabled ? '1' : '0');
 
       // Tom e limites. Recusa id que não existe no catálogo em vez de gravar:
       // escolha inventada não vira frase nenhuma, e o prompt sairia mais fraco
@@ -774,7 +962,7 @@ function registrarRotasWhatsApp(app, db) {
       // alguém. Quem recebe em qual aparelho é outra coisa, e mora em
       // `push_inscricoes` — desligar aqui cala todo mundo de uma vez, sem
       // precisar mexer em inscrição nenhuma.
-      if (popupAtivo !== undefined) up.run('whatsapp_popup_ativo', popupAtivo ? '1' : '0');
+      if (popupAtivo !== undefined) daEmpresa.run('whatsapp_popup_ativo', popupAtivo ? '1' : '0');
 
       // Horário de atendimento. Só grava quando veio, pela mesma razão do
       // escopo: a tela antiga salva sem este campo e apagaria a agenda inteira.
@@ -803,13 +991,30 @@ function registrarRotasWhatsApp(app, db) {
         up.run('whatsapp_horario_faixas', JSON.stringify(faixas));
         up.run('whatsapp_horario_msg', String(horario.mensagem || '').slice(0, 600));
       }
+      // Ritmo do número: vazio volta ao padrão do sistema. Número inválido é
+      // recusado, e não gravado: um zero aqui travaria todo envio do número.
+      if (ritmo && typeof ritmo === 'object') {
+        const limites = { limiteHora: ['limite_hora', 200], intervaloMinS: ['intervalo_min_s', 3600], limiteDia: ['limite_dia', 2000] };
+        for (const [campo, [chave, max]] of Object.entries(limites)) {
+          if (!(campo in ritmo)) continue;
+          const v = ritmo[campo];
+          if (v === null || v === '') { up.run(chave, ''); continue; }
+          const n = Number(v);
+          if (!Number.isInteger(n) || n < 1 || n > max) {
+            return res.status(400).json({ success: false, error: `Ritmo inválido em ${campo}: use um número inteiro de 1 a ${max}` });
+          }
+          up.run(chave, String(n));
+        }
+      }
       // `kb` deixou de ser aceito: gravar num campo que ninguém lê é pior que
       // recusar — quem enviasse acharia que a IA aprendeu algo.
       if (typeof kb === 'string') {
         return res.status(400).json({ success: false,
           error: 'Conhecimento agora é item da Base da IA (Conversas → Base da IA), não este campo' });
       }
-      res.json({ success: true });
+      if (canal) canais.salvarConfigCanal(db, canal.id, mudancas);
+      else if (ritmo) return res.status(400).json({ success: false, error: 'Conecte um número antes de ajustar o ritmo' });
+      res.json({ success: true, canalId: canal ? canal.id : null });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
@@ -828,7 +1033,7 @@ function registrarRotasWhatsApp(app, db) {
       if (!keys) return res.json({ success: false, error: 'tenant sem chave de IA configurada' });
       // MESMA função do atendimento real (buildSystemAtendimento) → simulação idêntica.
       const campId = req.body && req.body.campanha_id;
-      const prompt = buildSystemAtendimento(db, campId);
+      const prompt = buildSystemAtendimento(db, campId, { canalId: canalDe(req) });
       let reply = '', provider;
       try {
         const out = await chamarChatLLM([{ role: 'system', content: prompt }, ...history], keys, require('./ia-modelos').resolverModelos(db));
@@ -842,4 +1047,4 @@ function registrarRotasWhatsApp(app, db) {
   console.log('[WhatsApp] Rotas registradas (modo: ' + (loadProviderConfig(db)?.provider || 'fila') + ')');
 }
 
-module.exports = { enviarWhatsApp, enviarWhatsAppMidia, migrarQueue, loadProviderConfig, registrarRotasWhatsApp, buildSystemAtendimento, FALLBACK_SEM_RESPOSTA, checarRitmo, ESTILO, lerEstilo, frasesDeEstilo, blocoRoteiro };
+module.exports = { enviarWhatsApp, enviarWhatsAppMidia, midiaDoCaminho, migrarQueue, loadProviderConfig, configDoAtendimento, registrarRotasWhatsApp, buildSystemAtendimento, FALLBACK_SEM_RESPOSTA, checarRitmo, ESTILO, lerEstilo, frasesDeEstilo, blocoRoteiro };

@@ -777,7 +777,65 @@ o processo vivo segue com a versão que leu no boot. Antes de reiniciar, leia o
 que muda. **Mantenha a lista atualizada a cada edição de `.js` da raiz**, e
 esvazie a parte do serviço que foi reiniciado.
 
-**`consulta-licitacoes.service`** (o `server.js`) — boot atual: **2026-09-29
+**`consulta-licitacoes.service`** (o `server.js`) — boot atual: **2026-09-30
+11:29:24**, a pedido, depois do backup `backups/db/2026-09-30-1057`: **o motor
+da campanha nova não segura mais o disparo seguinte**, e a campanha enviada
+volta a ser editável. Boot limpo, `NRestarts=0`, HTTP 302; nenhum sandbox ACTIVE
+e nenhuma campanha em `enviando` em tenant nenhum no instante do restart (com
+uma em envio, o restart a deixaria presa nesse estado até o tique do
+`wa-scheduler`). **Nada pendente deste serviço.**
+
+- **"Já está enviando" ao reenviar uma campanha que já tinha terminado.** A
+  espera do intervalo era um `sleep` de 45 a 120 s que ignorava a pausa, e o laço
+  a pagava mesmo com a fila vazia; enquanto ele não saía, a chave em memória
+  recusava o `executar`. Medido na campanha 5 do 1bit: `pausar` às 11:20:48 e 409
+  em todo `executar` de 11:20:50 em diante. Agora a espera é interrompível, a
+  consulta de quem falta vem antes de qualquer espera, e a fila vazia encerra o
+  laço no último envio. Provas: R20 e R21 da `test-campanha-rodadas`.
+- **Campanha `enviada` ou `cancelada` é editável**, a pedido. O status é
+  preservado (regravar `rascunho` trocaria "Enviar de novo", que abre a rodada
+  seguinte, por "Enviar", que repetiria a atual), o que já saiu não muda, e
+  `enviando` continua recusada. Provas: R19 e B1b da `test-campanha-segmentos`.
+- A campanha 5 do 1bit ficou `pausada` com zero pendentes na rodada 7, resíduo do
+  defeito. Um clique em "Retomar" a encerra como `enviada`, porque o motor novo
+  vê a fila vazia e sai. Não mexi no banco para consertar o status.
+
+O boot anterior foi o de **2026-09-30
+10:17:53**, a pedido: **vídeo MP4 no conjunto do modelo de mensagem.** Boot
+limpo, `NRestarts=0`, HTTP 302, os 20 tenants sem sandbox ACTIVE (conferido
+antes). Nenhuma migração: o `db-schema.js` é de 29/09 e já estava no boot
+anterior. **Nada pendente deste serviço.** O que era meu:
+
+- `comm-imagens.js` aceita `.mp4` no conjunto do modelo, ao lado das imagens, e
+  o sorteio de cada envio é entre todos. Vídeo que não é MP4 é recusado pedindo
+  conversão (o `.mov` do iPhone tem a mesma caixa `ftyp` e chegaria quebrado ao
+  cliente), e o teto é `MAX_VIDEO_BYTES`, **64 MB**.
+- **O teto não é o do WhatsApp.** 16 MB é o limite da API oficial, que não é o
+  caminho daqui: o envio passa pela Evolution 2.3.7 (protocolo do WhatsApp Web),
+  que aceita corpo de 136 MB. Como o arquivo viaja em base64 (+33%), o teto
+  técnico fica perto de 100 MB de arquivo; 64 MB é a folga escolhida para não
+  pôr 130 MB de string na memória do servidor web a cada envio.
+- `whatsapp-adapter.js`: `midiaDoCaminho` decide `mediatype`/`mimetype` pelo
+  arquivo, e `.mp4` sai como `video`. Sem isso o vídeo sairia declarado como
+  imagem. O `scheduler.js` também carrega o adapter, e lá a mudança fica ociosa:
+  cobrança e OS não mandam vídeo.
+- `comm-routes.js`: o teto do multer saiu de 8 MB para o do vídeo mais 4, e
+  arquivo acima disso responde com o tamanho em vez de um 500 sem motivo.
+- Telas (estáticas, já estavam no ar antes do boot): `modelos.html` aceita
+  vídeo, mostra-o na grade e conta "arquivo(s)" no lugar de "imagem(ns)"; a
+  prévia da campanha diz "com o arquivo do modelo".
+- Provas: `test-comunicacao` (MP4 entra, sorteio misturado, `.mov` recusado,
+  teto lido do módulo), `test-whatsapp-canais` A3b (mediatype `video`, sabotada
+  e reprovada) e `test-campanha-segmentos` B2, que media a frase antiga da
+  tabela de modelos. Verify rápido de 09:39: 14 etapas, 88,5 s, zero falhas
+  novas.
+
+Levou também, de outras frentes, o que a árvore tinha nesse instante, com a
+sintaxe conferida antes: `perfis-api-map.js` (09:46), `roteiro-conversa.js`
+(09:47) e `conciliacao-routes.js` (09:58).
+
+O boot anterior foi o de **2026-09-30 08:23:10** (roteiro de qualificação por
+campanha). O de **2026-09-29
 13:16:26**, no fechamento da loja do Cantinho Verde (barra do topo por
 medida, sacola no fluxo e montável sempre no montador), depois do backup
 `backups/db/2026-09-29-1315`. Boot limpo, `NRestarts=0`, HTTP 302. **Nada
@@ -954,8 +1012,199 @@ entra pelo `--numero`. Dos outros 17 não há mensagem nenhuma, e o número se
 perdeu. O webhook de hoje já troca o LID pelo telefone
 (`whatsapp-webhook.js:28`).
 
-**Pendente de restart (29/09), só o servidor web: a campanha nova volta
-sozinha depois de um restart.** O laço de envio mora em memória, e o restart no
+**Em vigor desde o boot de 2026-09-30 09:50:58, a pedido (limpo, `NRestarts=0`,
+HTTP 302; conferido numa cópia do 1bit que o qualificado recebe o link já
+trocado): as variáveis do roteiro no prompt da IA.** O `roteiro-conversa.blocoParaIA` mandava à IA o texto do
+roteiro sem trocar as variáveis, e ela leria `{{linkTrial}}` cru. Agora troca
+pelo `roteiros.render`, com os valores do roteiro e o cadastro da empresa, na
+etapa, nas regras e no próximo passo. Prova: Q5 da `test-roteiros-campanha`,
+que reprovou com a versão anterior. Junto, a pedido, o roteiro 2 do 1bit
+("WhatsApp — licitações") ganhou o próximo passo do qualificado: o link
+`{{linkTrial}}` (https://liciteagora.app/trial.html, que cria o tenant de
+teste de 14 dias) e o aviso de que um consultor vai chamar. O config anterior
+está em `/tmp/roteiro2-1bit-antes-proximo-passo.json`.
+
+**Em vigor desde o boot de 2026-09-30 08:23:10, a pedido (limpo,
+`NRestarts=0`, HTTP 302; sandboxes conferidos SUSPENDED antes): roteiro de
+qualificação por campanha.** Conferido depois do boot nos 20 tenants: as três
+colunas de `roteiro_visitas` em todos, `comm_campanhas.roteiroId` em todos os
+que têm a tabela (o crsolucoes e o pccontabilidade não têm), e nenhum roteiro
+presencial ativo. O boot anterior era de 29/09 às 16:54:55, feito por outra
+sessão, e não o das 16:38:36 anotado abaixo. Decidido pelo usuário: cada campanha, nova ou legado, escolhe
+um roteiro; o roteiro são etapas em ordem (`roteiros.estado`), e uma resposta
+pode encerrar (desqualificado) ou pular para uma etapa MAIS ADIANTE (para trás
+é recusado pelo `validar`). A cada mensagem do lead, o webhook chama
+`roteiro-conversa.qualificarPelaIA` antes do `autoResponder`: a IA marca as
+respostas com o trecho, que precisa existir na conversa. O qualificado vira
+oportunidade no funil do roteiro (`config.funilId`, uma vez só) e filtro em
+Conversas; o desqualificado vira filtro, e o prompt da IA passa a mandar
+encerrar com cordialidade. O prompt leva só a etapa atual
+(`blocoParaIA`). Qual roteiro vale: o que a conversa já começou, senão o da
+campanha mais recente que o contato recebeu; **fora de campanha, nenhum** (o
+roteiro "padrão da casa" acabou).
+
+- Arquivos: `roteiros.js`, `roteiro-conversa.js` (novo), `roteiros-routes.js`
+  (editor: GET/POST/DELETE `/api/roteiros`, com os funis na listagem),
+  `whatsapp-adapter.js`, `whatsapp-webhook.js`, `conversas-routes.js`,
+  `comm-routes.js`, `db-schema.js`, `perfis-acesso.js`, `perfis-api-map.js`.
+  Telas (já no ar, estáticas): `public/comunicacao/roteiros.html` (nova),
+  `campanha.html` (seção "Roteiro de qualificação"), `conversas.html` (ficha e
+  filtros), `menu-config.js` e `sidebar.js`.
+- **Schema no boot** (`roteiro-conversa.migrar`, chamado no fim do
+  `db-schema.js`): `roteiro_visitas` ganha `resultado`, `finalizadoEm` e
+  `trechos`; `comm_campanhas` ganha `roteiroId`; e **o roteiro presencial
+  (`canal = 'visita'`) é desativado**, a pedido. Nada é apagado.
+- A Visita saiu do menu do Comercial. O `public/comercial/visita.html` e as
+  rotas `/api/visitas` continuam (o `rm` é negado aqui), sem link.
+- **As campanhas 5 e 6 do 1bit não têm `roteiro_id`.** Depois do restart a IA
+  deixa de fazer perguntas de roteiro a quem veio delas até alguém escolher um
+  roteiro na página da campanha. Antes, todas usavam o roteiro de WhatsApp
+  padrão.
+- Prova: etapa 150 (`test-roteiros-campanha`, 14 checagens, nove sabotagens
+  reprovadas). O bloco G da `test-visita-campo` saiu para ela. A6 a A8 da
+  `test-ia-estilo` (etapa 117) passaram à regra nova, e o A6b novo reprova com
+  o roteiro padrão de volta.
+- Verify inteiro de 29/09 às 17:51 (1.320 s): as 4 conhecidas da etapa 21, as
+  2 da 117 (já corrigidas, era a suíte antiga), e 7 nas etapas 25, 26 e 27, da
+  loja. Essas 7 não são desta frente: a 26 reprova igual com o `db-schema.js`
+  sem a linha do roteiro, e vêm do `loja-routes.js`, `public/loja/catalogo.js`
+  e `index.html` editados às 17:17–17:19 por outra sessão.
+
+**Em vigor desde o boot de 2026-09-29 16:38:36, a pedido (limpo, `NRestarts=0`,
+HTTP 302; coluna `ritmo` conferida no 1bit e no reimac): ritmo e horário da
+campanha nova.** Ela não tinha tela para isso: 30 envios por dia por número e 45 a 120 s,
+fixos no banco, e a janela de 8h às 20h conferida só no clique em "Enviar" (uma
+campanha começada às 19h55 seguia mandando de madrugada). Agora a coluna
+`comm_campanhas.ritmo` (JSON; criada pelo `migrarRodadas`, que o boot já chama)
+guarda limite por dia DA CAMPANHA, intervalo mínimo e máximo, e horário
+(início, fim e dias). Em branco vale o padrão de antes (`whatsapp_daily_limit`,
+`whatsapp_throttle_*`, `comm_janela_*`). O motor (`comm-routes.ritmoDaCampanha`)
+confere horário e limite a cada envio e ESPERA, continuando sozinho quando o
+horário abre ou o dia vira; antes, bater o teto terminava a campanha em
+'pausada'. O teto de 30 por NÚMERO saiu do motor: o teto do número é o da tela
+Canal (`checarRitmo`), que vale por cima, e o mais restritivo ganha. O "Enviar"
+de WhatsApp não recusa mais fora do horário: começa e avisa quando o envio
+começa (`aguarda`). O e-mail continua recusando. A página da campanha usa a
+mesma seção "Ritmo e horário" da legado (`data-modo="wa comm"`), com o padrão
+nos campos vazios, e a pausada muda o ritmo. As suítes que esperam o motor
+desligam a janela (`comm_janela_ativa = 0`), senão travariam à noite. Prova:
+R16 a R18 da `test-campanha-rodadas`, que reprovaram com o código anterior, e
+E1b/E2 da `test-campanha-segmentos`.
+
+**Em vigor desde o boot de 16:38:36: o número novo herda a configuração do
+padrão**, a pedido: instruções e estilo da IA, horário e ritmo.
+A IA nasce desligada, e o teto do dia não vem, porque o número novo precisa do
+aquecimento (40, 90, 180, 300). Prova: D3 da `test-whatsapp-canais`.
+
+**Em vigor desde o boot de 16:38:36: o aviso de mensagem nova em Conversas.** Comparava o número de conversas não lidas e perdia a mensagem nova
+em conversa já não lida. `GET /api/conversas` devolve `recebidas: { ultimoId,
+novas }` (com `?desde=`), e a tela avisa por isso. O som libera o áudio
+(`resume`) e toca ao ser ligado. Os dois controles saíram da linha de busca para
+o cabeçalho, com texto ("Som ligado", "Notificação desligada"). Prova: H2, H2b e
+S19, e a etapa 111 (`test-conversas-aviso`), reescrita para a regra nova: contra
+a tela anterior reprova 7 de 14. Até o restart, a tela (no ar) não recebe
+`recebidas` e não avisa.
+
+**Já no ar (estático), 29/09, fim da tarde: balão e celular de Conversas.**
+Três defeitos, dois deles anteriores a este dia:
+
+- **O balão gigante.** `.msg` tinha `white-space: pre-wrap`, que preservava
+  também a quebra e o recuo do código em volta do texto: cada mensagem curta
+  ("compra", "Bom dia") virava um bloco de 115 a 144 px. O `pre-wrap` foi para o
+  texto (`.msg .txt`).
+- **No celular não se abria conversa.** Nada punha a classe `abriu` na caixa;
+  a conversa só aparecia porque a regra que devia escondê-la perdia para
+  `.coluna`. O acerto de layout do mesmo dia fez a regra valer, e a conversa
+  sumiu de vez. Agora o `abrir` põe `abriu`, e um "Voltar" (só no celular)
+  volta à lista.
+- **A ficha nunca sumia** no tablet e no celular, pelo mesmo motivo: caía
+  embaixo da conversa. As regras de tamanho de tela usam `.central .x`.
+
+Prova: H7, I5 e I6 da `test-conversas-ux`, que reprovaram com a tela anterior
+(o balão de "Bom dia" tinha 144 px). **No acerto de layout a mesma suíte perdeu
+sem querer a H2, a H2b, a H5 e a H6**, apagadas junto com a H1 antiga; a
+contagem caiu de 40 para 38 e ninguém conferiu. Foram restauradas, e a suíte tem
+44 etapas.
+
+**Já no ar (estático), 29/09: o layout de Conversas.** Com dois números, os
+seletores de número e segmento na linha da busca deixaram o campo com 26 px;
+os filtros rolavam para o lado e escondiam "Campanhas" e "Minhas"; a caixa
+descontava a faixa de números que saiu e sobravam 96 px embaixo; e no celular a
+conversa vazia dividia a altura com a lista (a regra `.coluna` vencia a do
+celular). Agora a busca tem linha própria, os seletores dividem a de baixo, os
+filtros quebram linha, a coluna tem 340 px e a caixa vai ao pé da página. Prova:
+H1, I3, I4 e I5 da `test-conversas-ux`, que reprovaram com a tela anterior.
+
+**Em vigor desde o boot de 16:38:36: os tetos na tela Canal.** A tela
+deixava Por hora, Intervalo e Por dia vazios, com o padrão só como texto
+apagado dentro do campo (e nenhum no Por dia). `GET /api/whatsapp/ritmo`
+passa a devolver os tetos que valem (`limiteHora`, `intervaloMinS`,
+`limiteDia`) e o `padrao` de cada um, com o do dia calculado pela idade do
+número (`whatsapp-adapter.tetoDoDia`, a mesma regra do envio, agora numa
+função só). A tela (já no ar) mostra o teto do dia no quadro e escreve o
+padrão embaixo dos campos. O scheduler também carrega o adapter, mas o envio
+não mudou de comportamento. Prova: D2b da `test-whatsapp-canais`.
+
+**A etapa 142 (`test-whatsapp-canais-migracao`) media a produção.** Esperava
+"um canal só" e a configuração do canal igual à da empresa, sobre a cópia do
+banco vivo. O 1bit criou o número "Suporte" em 29/09 às 15:54, e ela reprovou
+sem defeito. Agora mede a regra: o número que existia é um canal só e o
+padrão, e num banco já migrado a migração não muda nenhum canal.
+
+**Em vigor desde o boot de 2026-09-29 16:06:04, a pedido: o filtro de
+campanha de Conversas.** Ele só listava as campanhas legado, e só quem respondeu. Agora
+(`conversas-routes.sqlDaCampanha`) lista as novas também (`comm:<id>`, e
+`wa:<id>` para a legado) e escolhe entre "responderam" e "receberam", por
+subconsulta dos últimos 8 dígitos: o telefone da conversa vem do jid, às vezes
+sem o nono dígito, e "receberam" nas legado do 1bit são 27 mil telefones.
+"Receberam" só mostra quem tem conversa; quem recebeu e nunca escreveu fica
+em Campanhas › Ver envios. Medido no 1bit: todas responderam 63, todas
+receberam 307, campanha 3 5 e 5. Até o restart, a tela (já no ar) manda
+`comm:3` a um servidor que não o entende e cai em "todas as legado".
+
+**Já no ar (estático), 29/09, a pedido: a faixa de números do topo de
+Conversas saiu** ("sem nenhuma resposta", "não lidas", "no total"). Como
+eram também os filtros, eles viraram chips ("Não lidas", "Sem resposta",
+"Sem dono", este só quando difere do total), e clicar de novo no chip marcado
+volta a mostrar todas, que era o papel do "no total". Prova: B1 a B5 da
+`test-conversas-ux` e S18 da `test-segmentos`, que reprovou com a rota antiga.
+
+**Em vigor desde o boot de 2026-09-29 15:42:41, a pedido (limpo,
+`NRestarts=0`, HTTP 302; `wa_numeros` e `wa_verificacoes` criadas no boot,
+conferidas no 1bit, reimac e crsolucoes): números sem WhatsApp.** O
+`whatsapp-adapter.js` também é carregado pelo scheduler, e lá a única mudança
+(a resposta no erro do envio com foto) espera o próximo restart dele.
+Na campanha 3 do 1bit, 10 de 22 envios falharam porque o número não tem
+WhatsApp (conferido na Evolution), e nada guardava isso. Decidido em 29/09
+(opção 2):
+
+- a marca é do NÚMERO normalizado, na tabela `wa_numeros` (o boot a cria pelo
+  `db-schema.js`), e não da ficha;
+- a falha de envio em que a Evolution responde `"exists": false` marca o
+  número. O erro do envio com foto passou a trazer a resposta
+  (`whatsapp-adapter.js`), senão não dava para saber;
+- as campanhas, nova e legado, pulam o número marcado com o motivo "número sem
+  WhatsApp", sem gastar intervalo do ritmo;
+- em Listas, "Verificar WhatsApp" consulta a lista na Evolution
+  (`/chat/whatsappNumbers`) em segundo plano, 25 números por lote com 3 s de
+  pausa, para não chamar a atenção do WhatsApp para o número da empresa.
+  Número verificado nos últimos 30 dias não é consultado de novo, então um
+  restart no meio só obriga a clicar de novo. Uma lista de 15 mil são 600
+  lotes, perto de 40 minutos. O andamento fica em `wa_verificacoes`;
+- a ficha mostra a marca do telefone e a desfaz
+  (`DELETE /api/pessoas/:id/sem-whatsapp`).
+
+Arquivos: `wa-numeros.js` (novo), `comm-destinos.js`, `comm-routes.js`,
+`wa-campaigns-routes.js`, `whatsapp-adapter.js`, `financeiro-routes.js` e
+`db-schema.js`; telas `listas.html` e `pessoas.html`, já no ar, que só mostram
+algo depois do restart. Prova: suíte 149 (`test-numeros-whatsapp`), O4 da
+`test-campanha-modelo` e B3f e B3g da `test-listas-membros`; as três
+sabotagens reprovaram.
+
+**Em vigor desde o boot de 2026-09-29 14:39:57, a pedido (limpo,
+`NRestarts=0`, HTTP 302): a campanha nova volta sozinha depois de um
+restart.** Conferido: a campanha 3 do 1bit voltou a enviar às 14:42:02, no
+primeiro tique. O laço de envio mora em memória, e o restart no
 meio deixava a campanha em 'enviando' sem nada saindo, para sempre: a campanha
 3 do 1bit parou às 12:47 com 7 pendentes. O `wa-scheduler.js` já retomava a
 campanha legado nesse estado; agora faz o mesmo com a nova, pelo

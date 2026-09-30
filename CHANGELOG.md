@@ -4,6 +4,82 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-30, vídeo no modelo de mensagem, e a campanha que já saiu volta a ser editável
+
+**Vídeo MP4 no conjunto do modelo** (`comm-imagens.js`, `whatsapp-adapter.js`,
+`comm-routes.js`, `public/comunicacao/modelos.html`). O modelo aceitava só
+imagem, e o sorteio de cada envio agora é entre imagens e vídeos juntos, com a
+mensagem indo como legenda do que saiu. Vale para as duas origens de campanha.
+
+- **O teto é 64 MB, e não os 16 MB da API oficial do WhatsApp**, que não é o
+  caminho daqui: o envio passa pela Evolution 2.3.7 (protocolo do WhatsApp
+  Web), que aceita corpo de 136 MB. Como o arquivo viaja em base64 (+33%), o
+  limite técnico fica perto de 100 MB; 64 MB é a folga para não pôr 130 MB de
+  string na memória do servidor web a cada envio. O número vive em
+  `MAX_VIDEO_BYTES`, e a suíte o lê de lá em vez de repetir o valor.
+- **A recusa de formato é por exclusão**, e não por lista de aceitos: cada
+  editor de vídeo grava o seu brand (`isom`, `mp42`, `MSNV`, `iso8`, `avc1`),
+  e uma lista de aceitos barraria exportação de programa não previsto. Ficam
+  fora o `qt  ` (o MOV do iPhone, que chegaria quebrado se fosse mandado como
+  `video/mp4`) e os `M4A`/`M4B`/`M4P`, que são áudio com a mesma caixa `ftyp`.
+- `midiaDoCaminho` decide `mediatype` e `mimetype` pelo arquivo. Sem isso o
+  vídeo sairia declarado como imagem.
+- O teto do upload saiu de 8 MB para o do vídeo mais 4, e acima disso a
+  resposta diz o tamanho, em vez de um 500 sem motivo.
+
+**O envio do arquivo na tela de modelos**, três defeitos que faziam o vídeo
+não entrar e o "Salvar modelo" parecer morto. Medidos no log do nginx: três
+POSTs recusados, quatro abortados no meio (499) e oito PUTs do modelo sem um
+único arquivo enviado.
+
+- **O arquivo recusado continua escolhido.** A tela limpava o campo em toda
+  recusa, o arquivo desaparecia da seleção sem aviso, e o clique seguinte em
+  Salvar salvava só o texto porque já não havia o que enviar.
+- **O envio aparece** ("Enviando promo.mp4 (24,3 MB)…"). Antes a tela ficava
+  muda, e vídeo de dezenas de MB demora o bastante para parecer travado.
+- **Um envio por vez.** Clicar Salvar durante o envio começava outro envio do
+  mesmo arquivo; foram quatro em paralelo, todos abortados.
+
+**"Já está enviando" ao reenviar uma campanha que já terminou** (`comm-routes.js`).
+Duas causas no motor, as duas medidas no log do nginx da campanha 5 do 1bit: um
+`pausar` às 11:20:48 e, de 11:20:50 em diante, todo `executar` respondendo 409.
+
+- **A espera do intervalo ignorava a pausa.** Era um `sleep` único de 45 a 120 s,
+  e o laço só via o pedido de parada ao acordar. Enquanto ele não saía, a chave
+  em memória recusava o disparo seguinte. Agora a espera é em pedaços de 1 s, a
+  mesma já usada nas outras esperas do laço, e a pausa vale em até um segundo.
+- **Com a fila vazia o laço pagava esse intervalo antes de descobrir que não
+  havia mais ninguém.** Uma campanha de um destinatário ficava "enviando" por até
+  dois minutos depois da única mensagem. Agora encerra no último envio.
+- **A consulta de quem falta subiu para antes das esperas** de horário, limite do
+  dia e ritmo do número. Sem fila não há o que aguardar, e esperar o horário
+  abrir para enviar o que não existe podia prender o laço até a manhã seguinte.
+- A recusa passou a dizer o que esperar, em vez de "já está enviando": quem
+  acabara de pausar clicava em sequência sem saber que o envio em curso leva
+  alguns segundos para largar a campanha.
+
+**A campanha enviada ou cancelada volta a ser editável** (`comm-routes.js`,
+`public/comunicacao/campanhas.html`, `campanha.html`), a pedido. A rota
+recusava, e a listagem não oferecia "Editar": as campanhas "(cópia)" do 1bit
+ficavam em `enviada` e mudar uma palavra obrigava a duplicá-las outra vez.
+
+- O que já saiu não muda: as linhas de `comm_envios` da rodada feita ficam como
+  estão, e a edição vale para a rodada seguinte, a que o "Enviar de novo" abre.
+- **O status é preservado.** O UPDATE regravava o status, e uma enviada editada
+  viraria `rascunho`, perdendo o histórico e trocando "Enviar de novo", que
+  abre a rodada seguinte, por "Enviar", que repetiria a rodada atual.
+- `enviando` continua recusada, agora com esse nome na mensagem: o motor está
+  lendo essas linhas naquele instante.
+- A página de edição avisa no alto que as mudanças valem para a próxima rodada.
+
+Provas: `test-comunicacao` (MP4 de vários brands, `qt` recusado, teto lido do
+módulo, sorteio misturando vídeo e imagem), `test-whatsapp-canais` A3b
+(`mediatype: video`), `test-modelos-imagens` M5 e M6 (arquivo que fica, envio
+único), `test-campanha-rodadas` R19 (enviada editada sem perder status nem
+histórico), R20 e R21 (fila vazia encerra na hora; a pausa interrompe a espera)
+e `test-campanha-segmentos` B1b (a enviada tem Editar). Todas sabotadas e
+reprovadas antes de valerem.
+
 ## 2026-09-30, o que falta preencher vira peça única da loja, e os campos se formatam sozinhos
 
 Duas peças novas em `public/loja/catalogo.js`, usadas por toda a vitrine —

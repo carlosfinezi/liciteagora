@@ -15,7 +15,8 @@
    ritmo, horário e o JSON avançado. Configurar isso rolando dentro de uma
    caixa, com o resto da tela escurecido atrás, é o que fazia ninguém mexer.
 
-   Aqui cada assunto é uma seção, com o índice à esquerda em tela larga. O
+   Aqui cada assunto é uma seção, uma embaixo da outra. O índice à esquerda
+   saiu em 28/09: com cinco seções curtas ele só repetia os títulos. O
    botão de salvar é o mesmo para tudo e fica fixo no topo, porque numa página
    longa o rodapé é longe demais.
    ========================================================================== */
@@ -25,13 +26,9 @@
 .topo-fixo h1 { font-size:1.15em; margin:0; }
 .topo-fixo .meta { font-size:0.85em; color:var(--text-2); }
 .topo-fixo .espaco { margin-left:auto; }
-.corpo { display:grid; grid-template-columns:200px 1fr; gap:26px; align-items:start; }
-.indice { position:sticky; top:74px; display:flex; flex-direction:column; gap:2px; }
-.indice a { padding:7px 10px; border-radius:6px; color:var(--text-2); text-decoration:none;
-  font-size:0.88em; border-left:2px solid transparent; }
-.indice a:hover { color:var(--accent); }
-.indice a.ativo { color:var(--accent); border-left-color:var(--accent); background:var(--accent-soft); }
-.secao { margin-bottom:34px; scroll-margin-top:80px; }
+/* O `section` ganha fundo, borda e canto do app-modern.css, mas o reset global
+   zera o padding: sem esta linha o texto encosta na borda da caixa. */
+.secao { padding:18px 20px; margin-bottom:16px; scroll-margin-top:80px; }
 .secao > h2 { font-size:1.05em; margin:0 0 4px; }
 .secao > .sub { font-size:0.88em; color:var(--text-2); margin-bottom:12px; line-height:1.5; }
 .fala { background:var(--bg-2); border-left:3px solid var(--accent); padding:12px 14px;
@@ -45,7 +42,6 @@
 .lado-a-lado { display:flex; gap:10px; flex-wrap:wrap; }
 .lado-a-lado > div { flex:1; min-width:230px; border:1px solid var(--border);
   border-radius:var(--r-md); padding:10px; }
-@media (max-width:900px) { .corpo { grid-template-columns:1fr; } .indice { display:none; } }
 </style>
 </head>
 <body>
@@ -53,7 +49,7 @@
   <div id="alertGlobal"></div>
 
   <div class="topo-fixo">
-    <a class="btn btn-ghost btn-sm" href="/comunicacao/ia.html">← Campanhas</a>
+    <a class="btn btn-ghost btn-sm" href="/comunicacao/campanhas.html">← Campanhas</a>
     <div>
       <h1 id="tituloCamp">Campanha</h1>
       <div class="meta" id="metaCamp">carregando…</div>
@@ -64,21 +60,21 @@
 
   <div id="avisoTopo"></div>
 
-  <div class="corpo">
-    <nav class="indice" id="indice"></nav>
-
+  <div>
     <div>
       <section class="secao" id="s-identificacao">
         <h2>Identificação</h2>
         <div class="form-row">
-          <div class="form-group" style="flex:2;"><label>Nome *</label>
+          <div class="form-group full-width"><label>Nome *</label>
             <input type="text" id="cNome" maxlength="80"></div>
-          <!-- Só a campanha legado tem limite próprio. Na campanha nova o teto
-               diário é do tenant (`whatsapp_daily_limit`), e um campo aqui não
-               teria efeito nenhum. -->
-          <div class="form-group" data-modo="wa"><label>Limite por dia</label>
-            <input type="number" id="cDiario" min="1" max="500" step="1"></div>
         </div>
+        <!-- Só com mais de um número de WhatsApp: com um, não há o que escolher. -->
+        <div class="form-row" id="cLinhaNumeros" style="display:none;"><div class="form-group full-width">
+          <label>Sai por</label>
+          <div id="cNumeros" style="display:flex;gap:16px;flex-wrap:wrap;"></div>
+          <small class="muted">Com mais de um marcado, os envios se revezam entre eles, cada um no seu ritmo.
+            Nenhum marcado, sai pelo número padrão.</small>
+        </div></div>
         <div class="form-row" data-modo="comm"><div class="form-group full-width">
           <label>Tipo *</label>
           <select id="cTipo">
@@ -93,8 +89,7 @@
 
       <section class="secao" id="s-mensagem" data-modo="comm">
         <h2>A mensagem</h2>
-        <div class="sub">Aqui o texto sai <strong>literal</strong>, com as variáveis trocadas no
-          envio. É o oposto dos exemplos da campanha legado, que a IA imita.</div>
+        <div class="sub">O texto sai <strong>literal</strong>, com as variáveis trocadas no envio.</div>
         <div class="form-row"><div class="form-group full-width">
           <label>Modelo</label>
           <select id="cTemplate" onchange="mudouTemplate()"><option value="">— escrever uma nova —</option></select>
@@ -102,8 +97,8 @@
         <div class="form-row" id="cNovoTemplate"><div class="form-group full-width">
           <label>Texto da mensagem *</label>
           <textarea id="cCorpo" rows="4" placeholder="Olá {{razaoSocial}}, ..."></textarea>
-          <small class="muted">Variáveis: {{razaoSocial}} · {{nomeFantasia}} · {{primeiroNome}} ·
-            {{cpfCnpj}} · {{email}} · {{telefone}}. Variável escrita errada é barrada ao salvar.</small>
+          <small class="muted">Variáveis: {{primeiroNome}} · {{nomeFantasia}} · {{razaoSocial}} · {{cpfCnpj}} ·
+            {{email}} · {{telefone}} · {{cidade}} · {{ramo}} · {{porte}}. Variável escrita errada é barrada ao salvar.</small>
         </div></div>
       </section>
 
@@ -112,87 +107,36 @@
         <div class="sub">Quem pediu para sair é descartado no envio, mesmo estando aqui.</div>
         <div class="form-row"><div class="form-group full-width">
           <label>Lista</label>
-          <select id="cLista" onchange="mudouLista()"><option value="">— montar uma nova —</option></select>
+          <select id="cLista" onchange="carregarSegmentosDaLista([])"><option value="">— escolha uma lista —</option></select>
+          <small class="muted">As listas ficam em <a href="/comunicacao/listas.html">Listas</a>.</small>
         </div></div>
-        <div id="cNovaLista">
-          <div class="toolbar" style="margin-bottom:6px;">
-            <input type="text" id="cBuscaPessoa" placeholder="Buscar cliente…" oninput="filtrarPublico()" style="flex:1;min-width:150px;">
-            <select id="fUf" onchange="filtrarPublico()" style="width:auto;"><option value="">UF</option></select>
-            <input type="text" id="fCidade" placeholder="Cidade" oninput="filtrarPublico()" style="max-width:130px;">
-            <select id="fMkt" onchange="filtrarPublico()" style="width:auto;">
-              <option value="">Marketing: tanto faz</option>
-              <option value="1">Só quem aceita</option>
-              <option value="0">Só quem não aceita</option>
-            </select>
-            <select id="fCompra" onchange="filtrarPublico()" style="width:auto;">
-              <option value="">Compras: tanto faz</option>
-              <option value="1">Já compraram</option>
-              <option value="0">Nunca compraram</option>
-            </select>
-            <input type="text" id="fTag" placeholder="Categoria/tag" oninput="filtrarPublico()" style="max-width:130px;">
-          </div>
-          <div class="toolbar" style="margin-bottom:8px;">
-            <button class="btn btn-ghost btn-sm" onclick="marcarPublico(true)">Marcar os filtrados</button>
-            <button class="btn btn-ghost btn-sm" onclick="marcarPublico(false)">Limpar seleção</button>
-            <span class="spacer"></span>
-            <span id="cContagem" style="font-size:0.85em;color:var(--text-2);"></span>
-          </div>
-          <div class="tbl-wrap" style="max-height:420px;overflow-y:auto;">
-            <table>
-              <thead><tr><th style="width:30px;"></th><th>Cliente</th><th>Telefone</th><th>Marketing</th></tr></thead>
-              <tbody id="tbPublico"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
-            </table>
-          </div>
-          <details style="margin-top:10px;">
-            <summary style="cursor:pointer;font-size:0.9em;color:var(--text-2);">Adicionar números à mão</summary>
-            <textarea id="cManuais" rows="4" style="margin-top:8px;"
-              placeholder="Um por linha:&#10;5594991234567&#10;94 99123-4567; Zé da Loja&#10;Maria, 11988887777, mercearia"></textarea>
-            <small class="muted">Telefone, nome e ramo, nesta ordem, separados por vírgula. O ramo é o
-              que dá segmento ao contato.</small>
-          </details>
-        </div>
+        <div class="form-row" id="cLinhaSegmentos" style="display:none;"><div class="form-group full-width">
+          <label>Segmentos</label>
+          <div id="cSegmentos" style="display:flex;gap:16px;flex-wrap:wrap;"></div>
+          <small class="muted">Sem nenhum marcado, a campanha vai para a lista inteira.</small>
+        </div></div>
       </section>
 
-      <section class="secao" id="s-abordagem" data-modo="wa">
-        <h2>A primeira mensagem que você manda</h2>
-        <div class="sub">Usado só para escrever a abordagem. Não é usado depois, quando a pessoa
-          responder.</div>
+      <!-- Até 28/09 a primeira mensagem era escrita pela IA para cada contato,
+           a partir de abordagem, exemplos e dores por segmento. Agora ela sai
+           do modelo, literal, e essas três seções saíram com a IA. O que elas
+           gravaram continua no config, sem ser lido por ninguém. -->
+      <section class="secao" id="s-modelo" data-modo="wa">
+        <h2>A mensagem</h2>
+        <div class="sub">Cada contato recebe o texto do modelo, com as variáveis trocadas pelos dados dele.</div>
         <div class="form-row"><div class="form-group full-width">
-          <label>O que oferecer e como abordar</label>
-          <textarea id="cBriefing" rows="4"
-            placeholder="Ex.: Oferecemos sistema de gestão para pequeno comércio. Abordar falando da dor de estoque parado."></textarea>
-          <small class="muted">Descreva a oferta, o ângulo da conversa e o que evitar. A IA escreve
-            cada mensagem a partir disto, personalizando para cada contato.</small>
+          <label>Modelo de mensagem *</label>
+          <select id="cModelo" onchange="previaModelo()"><option value="">— escolha um modelo —</option></select>
+          <small class="muted">Os modelos ficam em <a href="/comunicacao/modelos.html">Modelos de mensagem</a>.
+            Só aparecem os de WhatsApp.</small>
         </div></div>
-        <button class="btn btn-secondary btn-sm" onclick="testarAbordagem()">Ver uma mensagem de exemplo</button>
         <div id="cPrevia"></div>
-      </section>
-
-      <section class="secao" id="s-exemplos" data-modo="wa">
-        <h2>Exemplos que a IA imita</h2>
-        <div class="sub">Escreva a mensagem <strong>pronta</strong>, como se já fosse para um contato
-          real. O gerador não substitui nada aqui: exemplo com <code>{nome}</code> ensina a IA a
-          escrever <code>{nome}</code> na mensagem de verdade.</div>
-        <div id="cExemplos"><small class="muted">carregando…</small></div>
-      </section>
-
-      <section class="secao" id="s-segmentos" data-modo="wa">
-        <h2>Segmentos e dores</h2>
-        <div class="sub">A cada contato o sistema descobre o segmento pelo ramo cadastrado, sorteia
-          uma frase daquele segmento e a entrega pronta à IA, que só escreve as ligações em volta.</div>
-        <div id="cRamos"><small class="muted">carregando…</small></div>
-        <div class="form-row" style="margin-top:14px;"><div class="form-group full-width">
-          <label>Perguntas finais</label>
-          <textarea id="cPerguntas" rows="4" placeholder="Uma por linha"></textarea>
-          <small class="muted">Uma por linha. O sistema sorteia uma delas para fechar a mensagem, e
-            é ela que abre a conversa.</small>
-        </div></div>
       </section>
 
       <section class="secao" id="s-imagens" data-modo="wa">
         <h2>Imagens</h2>
         <div class="sub">A cada envio o sistema sorteia uma destas imagens e manda a mensagem como
-          legenda dela. Sem imagem, vai só o texto. Variar ajuda a mensagem a não parecer disparo.</div>
+          legenda dela. Se o modelo escolhido tiver imagens, valem as dele, e estas ficam de fora.</div>
         <div class="imgs" id="cImagens"></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <input type="file" id="cArquivo" accept="image/jpeg,image/png,image/webp" style="max-width:250px;">
@@ -210,29 +154,37 @@
         <div id="cComparacao" style="margin-top:10px;"></div>
       </section>
 
-      <section class="secao" id="s-ritmo" data-modo="wa">
+      <section class="secao" id="s-roteiro" data-modo="wa comm">
+        <h2>Roteiro de qualificação</h2>
+        <div class="sub">Quem responder passa pelas etapas deste roteiro na conversa com a IA.
+          O qualificado vira oportunidade no CRM. Os roteiros se editam em
+          <a href="/comunicacao/roteiros.html">Comunicação › Roteiros</a>.</div>
+        <div class="form-row"><div class="form-group full-width">
+          <select id="cRoteiro"><option value="">Sem roteiro</option></select>
+        </div></div>
+      </section>
+
+      <!-- Das duas origens desde 29/09. Na campanha nova, antes, os limites eram
+           fixos no banco e o horário só era conferido no clique em "Enviar". -->
+      <section class="secao" id="s-ritmo" data-modo="wa comm">
         <h2>Ritmo e horário</h2>
-        <div class="sub">Protege o número. Resposta a quem escreveu nunca é segurada.</div>
+        <div class="sub" id="ritmoSub"></div>
         <div class="form-row">
+          <div class="form-group"><label>Limite por dia</label>
+            <input type="number" id="cDiario" min="1" max="500" step="1"></div>
           <div class="form-group"><label>Intervalo mínimo (s)</label>
             <input type="number" id="cMin" min="0" step="10"></div>
           <div class="form-group"><label>Intervalo máximo (s)</label>
             <input type="number" id="cMax" min="0" step="10"></div>
           <div class="form-group"><label>Início</label>
-            <input type="text" id="cIni" placeholder="09:00" maxlength="5"></div>
+            <input type="time" id="cIni"></div>
           <div class="form-group"><label>Fim</label>
-            <input type="text" id="cFim" placeholder="18:00" maxlength="5"></div>
+            <input type="time" id="cFim"></div>
         </div>
-      </section>
-
-      <section class="secao" id="s-avancado" data-modo="wa">
-        <h2>Configuração avançada</h2>
-        <div class="sub">Persona, regras de linguagem e o resto do config. Editar aqui substitui os
-          campos acima ao salvar.</div>
-        <details>
-          <summary style="cursor:pointer;font-size:0.9em;color:var(--text-2);">Abrir o JSON</summary>
-          <textarea id="cJson" rows="14" style="font-family:ui-monospace,monospace;font-size:0.8em;margin-top:8px;"></textarea>
-        </details>
+        <div class="form-row"><div class="form-group full-width">
+          <label>Dias</label>
+          <div id="cDias" style="display:flex;gap:14px;flex-wrap:wrap;"></div>
+        </div></div>
       </section>
     </div>
   </div>
@@ -240,7 +192,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script>initSidebar('comunicacao-ia');</script>
+<script>initSidebar('comunicacao-campanhas');</script>
 <script>
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
   c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
@@ -255,8 +207,8 @@ function showAlert(m, t = 'success') {
  * Uma página para as duas origens de campanha.
  *
  * Para quem usa, "campanha" é uma coisa só. O módulo é que foi construído duas
- * vezes: `wa_campanhas` (abordagem escrita pela IA, dores por segmento) e
- * `comm_campanhas` (modelo literal + lista). Aqui a origem decide quais seções
+ * vezes: `wa_campanhas` (fila própria vinda de CSV, ritmo e imagens) e
+ * `comm_campanhas` (lista). Desde 28/09 as duas mandam o modelo, literal. Aqui a origem decide quais seções
  * aparecem, e o resto da página é a mesma.
  *
  *   ?id=5        edita a campanha legado
@@ -269,25 +221,16 @@ const COMM = Number(PARAMS.get('comm')) || null;
 const NOVA = PARAMS.has('nova');
 const MODO = (COMM || NOVA) ? 'comm' : 'wa';
 
-const INDICE = {
-  wa: [['s-identificacao', 'Identificação'], ['s-abordagem', 'A primeira mensagem'],
-       ['s-exemplos', 'Exemplos que a IA imita'], ['s-segmentos', 'Segmentos e dores'],
-       ['s-imagens', 'Imagens'], ['s-resposta', 'Quando responderem'],
-       ['s-ritmo', 'Ritmo e horário'], ['s-avancado', 'Avançado']],
-  comm: [['s-identificacao', 'Identificação'], ['s-mensagem', 'A mensagem'],
-         ['s-publico', 'Quem recebe']],
-};
+let CAMP = null, CAMP_COMM = null;
+const DIAS_SEMANA = [['seg', 'Seg'], ['ter', 'Ter'], ['qua', 'Qua'], ['qui', 'Qui'], ['sex', 'Sex'],
+                     ['sab', 'Sáb'], ['dom', 'Dom']];
 
-let CAMP = null, RAMOS_OK = false, EXEMPLOS_OK = false;
-let PUBLICO = [], SEL_PUB = new Set();
-
-/** Mostra só as seções do modo, e monta o índice com elas. */
+/** Mostra só as seções do modo. */
 function aplicarModo() {
   for (const sec of document.querySelectorAll('[data-modo]')) {
-    sec.style.display = sec.dataset.modo === MODO ? '' : 'none';
+    // Uma seção pode valer para mais de um modo: data-modo="wa comm".
+    sec.style.display = sec.dataset.modo.split(' ').includes(MODO) ? '' : 'none';
   }
-  document.getElementById('indice').innerHTML = INDICE[MODO]
-    .map(([id, rot]) => `<a href="#${id}">${rot}</a>`).join('');
 }
 
 async function carregar() {
@@ -304,42 +247,69 @@ async function carregar() {
   document.getElementById('metaCamp').textContent = `${esc(CAMP.status || '')} · ${dest}`;
   document.getElementById('cNome').value = CAMP.nome || c.nome || '';
   document.getElementById('cDesc').value = c.descricao || '';
-  document.getElementById('cBriefing').value = c.briefing || '';
-  document.getElementById('cDiario').value = c.daily_limit ?? '';
-  document.getElementById('cMin').value = c.throttle_min_sec ?? '';
-  document.getElementById('cMax').value = c.throttle_max_sec ?? '';
-  document.getElementById('cIni').value = c.horario_permitido?.inicio || '';
-  document.getElementById('cFim').value = c.horario_permitido?.fim || '';
-  document.getElementById('cJson').value = JSON.stringify(c, null, 2);
+  pintarRitmo({ limiteDia: c.daily_limit, intervaloMin: c.throttle_min_sec, intervaloMax: c.throttle_max_sec,
+    horario: c.horario_permitido });
 
   // Diz qual base o robô usa hoje para esta campanha.
   const dedicada = c.atendimento_prompt || c.atendimento_kb;
   document.getElementById('cExplicaResposta').innerHTML = dedicada
-    ? 'Esta campanha tem <strong>atendimento próprio</strong> configurado (<code>atendimento_prompt</code> / '
-      + '<code>atendimento_kb</code> no JSON avançado): quem responder é atendido por ele, e não pela Base da IA. '
-      + 'Remova esses campos para usar a base de todo mundo.'
+    ? 'Esta campanha tem <strong>atendimento próprio</strong> configurado: quem responder é atendido por ele, '
+      + 'e não pela Base da IA.'
     : 'Quem responder é atendido pela <strong>Base da IA</strong>, igual a qualquer outro cliente, mais o contexto '
-      + 'de que veio desta campanha. O texto da abordagem não é usado aqui.';
+      + 'de que veio desta campanha.';
 
+  carregarRoteiros(c.roteiro_id);
   carregarImagens();
-  carregarRamos();
-  carregarExemplos();
+  carregarModelo(!!d.mensagemPorModelo);
+  carregarNumeros(c.canais);
+}
+
+// ---------- ritmo e horário (as duas origens) ----------
+// Os mesmos campos nas duas. Em branco, a legado envia a qualquer hora; a nova
+// usa a janela de 8h às 20h e os limites de antes, e o texto diz isso.
+function pintarRitmo(r){
+  r = r || {};
+  document.getElementById('ritmoSub').textContent = MODO === 'comm'
+    ? 'Fora do horário o envio espera e continua sozinho quando o horário abre. Em branco vale o padrão: '
+      + '30 por dia, de 45 a 120 s entre envios, das 8h às 20h, todos os dias. O teto do número, na tela Canal, '
+      + 'vale por cima: o mais restritivo ganha.'
+    : 'Protege o número. Fora do horário o envio espera, e retoma sozinho quando o horário abre. '
+      + 'Sem horário, envia a qualquer hora. Resposta a quem escreveu nunca é segurada.';
+  const campo = (id, v, padrao) => { const e = document.getElementById(id); e.value = v ?? ''; e.placeholder = MODO === 'comm' ? padrao : ''; };
+  campo('cDiario', r.limiteDia, '30');
+  campo('cMin', r.intervaloMin, '45');
+  campo('cMax', r.intervaloMax, '120');
+  document.getElementById('cIni').value = r.horario?.inicio || '';
+  document.getElementById('cFim').value = r.horario?.fim || '';
+  // Sem dias gravados, a campanha envia todos os dias: todos marcados.
+  const marcados = Array.isArray(r.horario?.dias) ? r.horario.dias : DIAS_SEMANA.map(d => d[0]);
+  document.getElementById('cDias').innerHTML = DIAS_SEMANA.map(([k, rot]) =>
+    `<label style="display:flex;gap:5px;align-items:center;margin:0;font-weight:normal;">
+       <input type="checkbox" value="${k}" style="width:auto;" ${marcados.includes(k) ? 'checked' : ''}> ${rot}</label>`).join('');
+}
+
+/** O ritmo da tela, ou { erro }. Início e fim vão juntos: meia janela não diz quando parar. */
+function ritmoDaTela(){
+  const v = (id) => document.getElementById(id).value.trim();
+  const ini = v('cIni'), fim = v('cFim');
+  if (!!ini !== !!fim) return { erro: 'Preencha o início e o fim do horário, ou deixe os dois em branco' };
+  const dias = [...document.querySelectorAll('#cDias input:checked')].map(i => i.value);
+  if (ini && !dias.length) return { erro: 'Marque ao menos um dia do horário' };
+  return { limiteDia: v('cDiario'), intervaloMin: v('cMin'), intervaloMax: v('cMax'),
+           horario: ini ? { inicio: ini, fim, dias } : null };
 }
 
 // ---------- campanha nova (comm) ----------
 async function carregarComm() {
-  const [t, l, p] = await Promise.all([
+  const [t, l] = await Promise.all([
     fetch('/api/comm/templates').then(r => r.json()).catch(() => null),
     fetch('/api/comm/listas').then(r => r.json()).catch(() => null),
-    fetch('/api/conversas/publico').then(r => r.json()).catch(() => null),
   ]);
   document.getElementById('cTemplate').innerHTML = '<option value="">— escrever uma nova —</option>'
     + (t?.templates || []).filter(x => x.canal === 'whatsapp')
       .map(x => `<option value="${x.id}">${esc(x.nome)}</option>`).join('');
-  document.getElementById('cLista').innerHTML = '<option value="">— montar uma nova —</option>'
+  document.getElementById('cLista').innerHTML = '<option value="">— escolha uma lista —</option>'
     + (l?.listas || []).map(x => `<option value="${x.id}">${esc(x.nome)}</option>`).join('');
-  PUBLICO = p?.pessoas || [];
-  preencherUfs(p?.ufs);
 
   document.getElementById('tituloCamp').textContent = COMM ? 'Editar campanha' : 'Nova campanha';
   document.getElementById('metaCamp').textContent = COMM ? '' : 'nasce em rascunho, sem disparar nada';
@@ -348,76 +318,117 @@ async function carregarComm() {
     const c = await fetch('/api/comm/campanhas/' + COMM).then(r => r.json()).catch(() => null);
     if (!c?.success) { showAlert(c?.error || 'Não foi possível abrir a campanha', 'error'); return; }
     const camp = c.campanha || c;
+    CAMP_COMM = camp;
     document.getElementById('cNome').value = camp.nome || '';
     document.getElementById('cTipo').value = camp.tipo || 'operacional';
     document.getElementById('cTemplate').value = camp.templateId || '';
     document.getElementById('cLista').value = camp.listaId || '';
+    // Pausada, a lista da rodada já está preparada: quem recebe só muda na
+    // próxima rodada. Nome, modelo e números continuam editáveis.
+    const pausada = camp.status === 'pausada';
+    document.getElementById('cLista').disabled = pausada;
+    document.getElementById('cTipo').disabled = pausada;
+    // Enviada ou cancelada, tudo é editável, e o que mudar vale para a rodada
+    // seguinte. Dizer isso aqui evita a dúvida de quem abre uma campanha que já
+    // saiu e não sabe se está reescrevendo o que foi enviado.
+    if (['enviada', 'cancelada'].includes(camp.status)) {
+      document.getElementById('avisoTopo').innerHTML = '<div class="alert warn" style="display:block;">'
+        + `Esta campanha já foi ${esc(camp.status)}. O que você mudar aqui vale para a próxima rodada, `
+        + 'que começa em "Enviar de novo". As mensagens já enviadas não mudam.</div>';
+    }
     document.getElementById('tituloCamp').textContent = camp.nome || 'Editar campanha';
     document.getElementById('metaCamp').textContent = `${esc(camp.status || '')} · `
       + `${numBR(camp.totalDestinatarios || 0)} destinatário(s)`;
   }
-  renderPublico();
   mudouTemplate();
-  mudouLista();
+  let ritmo = {};
+  try { ritmo = COMM && CAMP_COMM && CAMP_COMM.ritmo ? JSON.parse(CAMP_COMM.ritmo) : {}; } catch (_) { }
+  pintarRitmo(ritmo);
+  let segs = [];
+  try { segs = COMM && CAMP_COMM && CAMP_COMM.segmentos ? JSON.parse(CAMP_COMM.segmentos) : []; } catch (_) { }
+  carregarSegmentosDaLista(segs);
+  let escolhidos = [];
+  try { escolhidos = COMM && CAMP_COMM && CAMP_COMM.canais ? JSON.parse(CAMP_COMM.canais) : []; } catch (_) { }
+  carregarNumeros(escolhidos);
+  carregarRoteiros(COMM && CAMP_COMM ? CAMP_COMM.roteiroId : null);
+}
+
+// ---------- roteiro de qualificação (as duas origens) ----------
+async function carregarRoteiros(escolhido) {
+  const d = await fetch('/api/roteiros').then(r => r.json()).catch(() => null);
+  const sel = document.getElementById('cRoteiro');
+  sel.innerHTML = '<option value="">Sem roteiro</option>'
+    + (d?.roteiros || []).map(r => `<option value="${r.id}">${esc(r.nome)}</option>`).join('');
+  sel.value = escolhido ? String(escolhido) : '';
+}
+const roteiroDaTela = () => Number(document.getElementById('cRoteiro').value) || null;
+
+// ---------- por quais números a campanha sai ----------
+// Vazio (nenhum marcado) = o número padrão. A lista vem da mesma rota da página
+// Canal; com menos de dois números a linha nem aparece.
+async function carregarNumeros(escolhidos) {
+  const d = await fetch('/api/whatsapp/canais').then(r => r.json()).catch(() => null);
+  const numeros = d?.success ? d.canais : [];
+  const linha = document.getElementById('cLinhaNumeros');
+  if (numeros.length < 2) { linha.style.display = 'none'; return; }
+  const marcados = new Set((Array.isArray(escolhidos) ? escolhidos : []).map(Number));
+  document.getElementById('cNumeros').innerHTML = numeros.map(n => `
+    <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:normal;">
+      <input type="checkbox" value="${n.id}" style="width:auto;" ${marcados.has(n.id) ? 'checked' : ''}>
+      ${esc(n.nome)}${n.padrao ? ' <small class="muted">(padrão)</small>' : ''}</label>`).join('');
+  linha.style.display = '';
+}
+
+// ---------- quais segmentos da lista recebem ----------
+// Cada segmento aparece com quantos da lista estão nele; os que não têm
+// ninguém na lista ficam de fora.
+async function carregarSegmentosDaLista(escolhidos) {
+  const linha = document.getElementById('cLinhaSegmentos');
+  const listaId = Number(document.getElementById('cLista').value) || 0;
+  if (!listaId) { linha.style.display = 'none'; return; }
+  const [s, l] = await Promise.all([
+    fetch('/api/comm/segmentos').then(r => r.json()).catch(() => null),
+    fetch(`/api/comm/listas/${listaId}?porPagina=1`).then(r => r.json()).catch(() => null),
+  ]);
+  if (!s?.success || !l?.porSegmento) { linha.style.display = 'none'; return; }
+  const qtd = new Map(l.porSegmento.map(x => [x.segmentoId, x.n]));
+  const marcados = new Set((Array.isArray(escolhidos) ? escolhidos : []).map(Number));
+  const visiveis = s.segmentos.filter(g => qtd.get(g.id) || marcados.has(g.id));
+  if (!visiveis.length) { linha.style.display = 'none'; return; }
+  document.getElementById('cSegmentos').innerHTML = visiveis.map(g => `
+    <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:normal;">
+      <input type="checkbox" value="${g.id}" style="width:auto;" ${marcados.has(g.id) ? 'checked' : ''}
+             ${CAMP_COMM && CAMP_COMM.status === 'pausada' ? 'disabled' : ''}>
+      ${esc(g.nome)} <small class="muted">${numBR(qtd.get(g.id) || 0)}</small></label>`).join('');
+  linha.style.display = '';
+}
+
+/**
+ * Os segmentos marcados. Linha escondida manda lista vazia (a lista inteira):
+ * trocada a lista, os segmentos da anterior não valem para a nova.
+ */
+function segmentosDaTela() {
+  if (document.getElementById('cLinhaSegmentos').style.display === 'none') return [];
+  return [...document.querySelectorAll('#cSegmentos input:checked')].map(i => Number(i.value));
+}
+
+/** Os números marcados; `undefined` quando a escolha não está na tela. */
+function numerosDaTela() {
+  if (document.getElementById('cLinhaNumeros').style.display === 'none') return undefined;
+  return [...document.querySelectorAll('#cNumeros input:checked')].map(i => Number(i.value));
 }
 
 function mudouTemplate() {
   document.getElementById('cNovoTemplate').style.display =
     document.getElementById('cTemplate').value ? 'none' : '';
 }
-function mudouLista() {
-  document.getElementById('cNovaLista').style.display =
-    document.getElementById('cLista').value ? 'none' : '';
-}
-
-// Os filtros rodam no servidor: a base pode ter milhares de pessoas, e trazer
-// tudo para filtrar no navegador só funciona enquanto o cadastro é pequeno.
-let _debFiltro;
-function filtrarPublico() {
-  clearTimeout(_debFiltro);
-  _debFiltro = setTimeout(async () => {
-    const v = id => document.getElementById(id)?.value || '';
-    const qs = new URLSearchParams({
-      q: v('cBuscaPessoa'), uf: v('fUf'), cidade: v('fCidade'),
-      marketing: v('fMkt'), compraram: v('fCompra'), tag: v('fTag'),
-    });
-    const d = await fetch('/api/conversas/publico?' + qs).then(r => r.json()).catch(() => null);
-    if (d?.success) { PUBLICO = d.pessoas; preencherUfs(d.ufs); }
-    renderPublico();
-  }, 250);
-}
-
-function preencherUfs(ufs) {
-  const el = document.getElementById('fUf');
-  if (!el || el.dataset.pronto || !ufs?.length) return;
-  el.innerHTML = '<option value="">UF</option>' + ufs.map(u => `<option>${esc(u)}</option>`).join('');
-  el.dataset.pronto = '1';
-}
-
-function renderPublico() {
-  const lista = PUBLICO;   // já vem filtrado do servidor
-  document.getElementById('cContagem').textContent =
-    `${numBR(lista.length)} no filtro · ${numBR(SEL_PUB.size)} selecionado(s)`;
-  const tb = document.getElementById('tbPublico');
-  if (!lista.length) { tb.innerHTML = '<tr><td colspan="4" class="empty">Nenhum cliente com telefone</td></tr>'; return; }
-  tb.innerHTML = lista.slice(0, 300).map(p => `<tr>
-    <td><input type="checkbox" ${SEL_PUB.has(p.id) ? 'checked' : ''} ${p.optOut ? 'disabled' : ''}
-         onchange="alternarPub(${p.id}, this.checked)" style="width:auto;"></td>
-    <td>${esc(p.razaoSocial || p.nomeFantasia || '—')}${p.cidade ? `<br><small class="muted">${esc(p.cidade)}/${esc(p.uf || '')}</small>` : ''}</td>
-    <td>${esc(p.telefone)}</td>
-    <td>${p.optOut ? '<span class="badge inativo">pediu para sair</span>'
-                   : (p.aceitaMarketing ? '<span class="badge ativo">aceita</span>' : '<span class="badge inativo">não aceita</span>')}</td>
-  </tr>`).join('');
-}
-
-function alternarPub(id, on) { if (on) SEL_PUB.add(id); else SEL_PUB.delete(id); renderPublico(); }
-function marcarPublico(on) {
-  if (!on) { SEL_PUB.clear(); return renderPublico(); }
-  PUBLICO.filter(p => !p.optOut).forEach(p => SEL_PUB.add(p.id));
-  renderPublico();
-}
-
-/** Cria o modelo e a lista quando não vieram escolhidos, e então a campanha. */
+/**
+ * Cria o modelo quando não veio escolhido, e então a campanha.
+ *
+ * Quem recebe é sempre uma lista que já existe. Até 28/09 dava para montar
+ * uma lista ali mesmo, marcando clientes ou digitando números; agora gente
+ * nova entra pela página Listas, e a campanha só escolhe a lista.
+ */
 async function salvarComm() {
   const nome = document.getElementById('cNome').value.trim();
   const tipo = document.getElementById('cTipo').value;
@@ -436,27 +447,15 @@ async function salvarComm() {
     templateId = t.template.id;
   }
 
-  let listaId = Number(document.getElementById('cLista').value) || null;
-  if (!listaId) {
-    const manuais = document.getElementById('cManuais')?.value || '';
-    if (!SEL_PUB.size && !manuais.trim()) return erro('Escolha clientes ou informe números à mão');
-    const l = await fetch('/api/comm/listas', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nome: nome.slice(0, 60), descricao: 'Criada pela página de campanha' }) }).then(r => r.json());
-    if (!l.success) return erro(l.error);
-    listaId = l.lista.id;
-    const m = await fetch(`/api/comm/listas/${listaId}/membros`, { method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pessoaIds: [...SEL_PUB], manuais }) }).then(r => r.json());
-    if (!m.success) return erro(m.error);
-    if (m.recusados?.length) {
-      showAlert(`${m.recusados.length} linha(s) sem telefone válido: ${m.recusados.slice(0, 3).join(' · ')}`, 'warn');
-    }
-  }
+  const listaId = Number(document.getElementById('cLista').value) || null;
+  if (!listaId) return erro('Escolha a lista de quem recebe');
+  const ritmo = ritmoDaTela();
+  if (ritmo.erro) return erro(ritmo.erro);
 
   const url = COMM ? '/api/comm/campanhas/' + COMM : '/api/comm/campanhas';
   const c = await fetch(url, { method: COMM ? 'PUT' : 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nome, templateId, listaId, tipo }) }).then(r => r.json());
+    body: JSON.stringify({ nome, templateId, listaId, tipo, canais: numerosDaTela(), segmentos: segmentosDaTela(), ritmo, roteiroId: roteiroDaTela() }) }).then(r => r.json());
   if (!c.success) return erro(c.error);
   av.innerHTML = '';
   // A campanha nasce em rascunho: quem dispara é a listagem, com a confirmação
@@ -465,206 +464,54 @@ async function salvarComm() {
   showAlert(COMM
     ? `Campanha atualizada — ${numBR(c.campanha.totalDestinatarios)} destinatário(s)`
     : `Campanha criada em rascunho com ${numBR(c.campanha.totalDestinatarios)} destinatário(s). Revise e envie na listagem.`);
-  if (!COMM) location.href = '/comunicacao/ia.html';
+  if (!COMM) location.href = '/comunicacao/campanhas.html';
 }
 
-// ---------- exemplos ----------
-async function carregarExemplos() {
-  const el = document.getElementById('cExemplos');
-  EXEMPLOS_OK = false;
-  const d = await fetch(`/api/conversas/campanhas/wa/${ID}/exemplos`).then(r => r.json()).catch(() => null);
-  if (!d?.success) {
-    // Sem os dados, o salvar não mexe em exemplo nenhum: ver `salvar`.
-    el.innerHTML = `<small class="muted">${esc(d?.error || 'Não foi possível carregar os exemplos')}</small>`;
+// ---------- a mensagem: o modelo ----------
+/**
+ * Sem `mensagemPorModelo` na resposta, o servidor em execução ainda é o que
+ * manda o texto da IA. A escolha fica travada até o restart: gravar um modelo
+ * que o motor antigo ignora faria a pessoa achar que mandou o modelo.
+ */
+async function carregarModelo(servidorUsaModelo) {
+  const sel = document.getElementById('cModelo');
+  const d = await fetch('/api/comm/templates').then(r => r.json()).catch(() => null);
+  const modelos = (d?.templates || []).filter(x => x.canal === 'whatsapp');
+  sel.innerHTML = '<option value="">— escolha um modelo —</option>'
+    + modelos.map(x => `<option value="${x.id}">${esc(x.nome)}</option>`).join('');
+  sel.value = CAMP?.config?.templateId || '';
+  if (!servidorUsaModelo) {
+    sel.disabled = true;
+    document.getElementById('cPrevia').innerHTML = '<div class="alert warn" style="display:block;">'
+      + 'O envio pelo modelo passa a valer no próximo restart do servidor. Até lá, esta campanha '
+      + 'ainda manda o texto escrito pela IA.</div>';
     return;
   }
-  EXEMPLOS_OK = true;
-  const caixa = (txt) => `<textarea rows="4" style="width:100%;margin-bottom:8px;font-size:0.85em;">${esc(txt)}</textarea>`;
-  el.innerHTML = `
-    ${d.legado ? `<div class="alert warn" style="display:block;">
-      Esta campanha tem um texto no campo antigo, que o gerador nunca leu.
-      <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="aproveitarLegado()">Aproveitar como exemplo</button>
-      <div style="margin-top:8px;font-size:0.85em;white-space:pre-wrap;">${esc(d.legado)}</div>
-    </div>` : ''}
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
-      <select id="cDeModelo" style="flex:1;min-width:180px;">
-        <option value="">— trazer de um modelo de mensagem —</option>
-        ${(d.modelos || []).map(m => `<option value="${m.id}">${esc(m.nome)} (${esc(m.canal)})</option>`).join('')}
-      </select>
-      <button class="btn btn-secondary btn-sm" onclick="trazerDeModelo()">Trazer</button>
-    </div>
-    <small class="muted">Ao trazer, as variáveis do modelo são resolvidas com um contato de exemplo,
-      porque é assim que a IA precisa ver a mensagem.</small>
-    <h3 style="margin:14px 0 6px;font-size:0.92em;">Bons — imite estes</h3>
-    <div id="cBons">${(d.bons.length ? d.bons : ['']).map(caixa).join('')}</div>
-    <button class="btn btn-ghost btn-sm" onclick="maisExemplo('cBons')">+ exemplo bom</button>
-    <h3 style="margin:14px 0 6px;font-size:0.92em;">Ruins — nunca faça assim</h3>
-    <div id="cRuins">${(d.ruins.length ? d.ruins : ['']).map(caixa).join('')}</div>
-    <button class="btn btn-ghost btn-sm" onclick="maisExemplo('cRuins')">+ exemplo ruim</button>`;
-  el.querySelectorAll('textarea').forEach(ta => {
-    ajustarAltura(ta);
-    ta.addEventListener('input', () => ajustarAltura(ta));
-  });
+  previaModelo();
 }
 
-function maisExemplo(onde) {
-  const el = document.getElementById(onde);
-  el.insertAdjacentHTML('beforeend',
-    '<textarea rows="4" style="width:100%;margin-bottom:8px;font-size:0.85em;"></textarea>');
-  const nova = el.lastElementChild;
-  nova.addEventListener('input', () => ajustarAltura(nova));
-  nova.focus();
-}
-
-async function trazerDeModelo() {
-  const id = document.getElementById('cDeModelo').value;
-  if (!id) return showAlert('Escolha um modelo', 'error');
-  const d = await fetch(`/api/conversas/campanhas/wa/${ID}/exemplos/previa`, {
+/** O texto exato que o próximo contato da fila receberia com o modelo escolhido. */
+async function previaModelo() {
+  const el = document.getElementById('cPrevia');
+  const id = document.getElementById('cModelo').value;
+  if (!id) {
+    el.innerHTML = '<div class="alert warn" style="display:block;">Sem modelo, a campanha não envia.</div>';
+    return;
+  }
+  el.innerHTML = '<small class="muted">Montando a prévia…</small>';
+  const d = await fetch(`/api/wa-campanhas/${ID}/sim-m1`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ templateId: Number(id) }) }).then(r => r.json()).catch(() => null);
-  if (!d?.success) return showAlert(d?.error || 'Não foi possível converter', 'error');
-  porNoPrimeiroVazio('cBons', d.texto);
-  if (d.sobrando?.length) {
-    showAlert('Sobrou variável que ninguém resolve: ' + d.sobrando.join(', ') + '. Ajuste à mão.', 'warn');
-  }
-}
-
-async function aproveitarLegado() {
-  const d = await fetch(`/api/conversas/campanhas/wa/${ID}/exemplos/previa`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ texto: document.querySelector('#cExemplos .alert div').textContent }) })
-    .then(r => r.json()).catch(() => null);
-  if (!d?.success) return showAlert(d?.error || 'Não foi possível converter', 'error');
-  porNoPrimeiroVazio('cBons', d.texto);
-  showAlert('Texto antigo convertido em exemplo. Confira e salve.');
-}
-
-function porNoPrimeiroVazio(onde, texto) {
-  const caixas = [...document.querySelectorAll(`#${onde} textarea`)];
-  const vazia = caixas.find(t => !t.value.trim());
-  if (vazia) { vazia.value = texto; vazia.focus(); return; }
-  maisExemplo(onde);
-  const nova = document.querySelector(`#${onde} textarea:last-child`);
-  nova.value = texto; nova.focus();
-}
-
-// ---------- segmentos ----------
-async function carregarRamos() {
-  const el = document.getElementById('cRamos');
-  RAMOS_OK = false;
-  const d = await fetch(`/api/conversas/campanhas/wa/${ID}/ramos`).then(r => r.json()).catch(() => null);
   if (!d?.success) {
-    el.innerHTML = `<small class="muted">${esc(d?.error || 'Não foi possível carregar os segmentos')}</small>`;
+    el.innerHTML = `<div class="alert error" style="display:block;">${esc(d?.error || 'Não foi possível montar a prévia')}</div>`;
     return;
   }
-  RAMOS_OK = true;
-  document.getElementById('cPerguntas').value = (d.perguntas || []).join('\n');
-
-  const avisos = [];
-  if (d.semDor) avisos.push(`${numBR(d.semDor)} contato(s) estão em segmento sem frase própria e vão receber a do genérico.`);
-  if (d.orfaos.length) avisos.push('Fora do alcance do gerador: '
-    + d.orfaos.map(o => `${o.chave} (${o.dores} frase(s))`).join(', ')
-    + '. Nenhum contato cai nessas chaves, e elas nunca serão sorteadas.');
-
-  el.innerHTML = (avisos.length
-    ? `<div class="alert warn" style="display:block;">${avisos.map(esc).join('<br>')}</div>` : '')
-    + `<small class="muted">${d.proprios
-        ? 'Esta campanha tem segmentos próprios.'
-        : 'Usando os segmentos padrão. Editar qualquer palavra aqui passa a valer só para esta campanha.'}
-       A primeira palavra que casar decide, então a ORDEM importa.</small>
-      <div class="tbl-wrap" style="margin-top:8px;"><table>
-      <thead><tr><th style="width:150px;">Segmento</th><th style="width:80px;text-align:right;">Contatos</th>
-        <th style="width:220px;">Palavras (uma por linha)</th>
-        <th>Frases (uma por linha)</th><th style="width:30px;"></th></tr></thead>
-      <tbody>${d.ramos.map(linhaSegmento).join('')}</tbody></table></div>
-      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
-        <button class="btn btn-ghost btn-sm" onclick="novoSegmento()">+ segmento</button>
-        <button class="btn btn-secondary btn-sm" onclick="previaSegmentos()">Ver quem cai onde</button>
-      </div>
-      <div id="cPreviaSeg" style="margin-top:8px;"></div>`;
-  el.querySelectorAll('textarea').forEach(ta => {
-    ajustarAltura(ta);
-    ta.addEventListener('input', () => ajustarAltura(ta));
-  });
-}
-
-/**
- * Uma linha de segmento. O genérico não tem palavras: ele é o destino de quem
- * não casa com nenhuma, e dar-lhe palavra-chave só confundiria.
- */
-function linhaSegmento(r) {
-  const generico = r.chave === 'generico';
-  return `<tr data-seg="${esc(r.chave)}">
-    <td>${generico ? 'generico'
-      : `<input type="text" value="${esc(r.chave)}" data-campo="chave" style="width:100%;font-size:0.85em;">`}</td>
-    <td style="text-align:right;${r.contatos && !r.dores.length ? 'color:var(--warn);' : ''}">${numBR(r.contatos)}</td>
-    <td>${generico ? '<small class="muted">quem não casa com nenhuma</small>'
-      : `<textarea data-campo="palavras" rows="2" style="font-size:0.85em;">${esc((r.palavras || []).join('\n'))}</textarea>`}</td>
-    <td><textarea data-campo="dores" rows="2" style="font-size:0.85em;">${esc(r.dores.join('\n'))}</textarea></td>
-    <td>${generico ? '' : `<button class="btn btn-ghost btn-sm" style="color:var(--danger);"
-      onclick="this.closest('tr').remove()" title="remover">×</button>`}</td>
-  </tr>`;
-}
-
-function novoSegmento() {
-  const corpo = document.querySelector('#cRamos tbody');
-  const generico = corpo.querySelector('tr[data-seg="generico"]');
-  const html = linhaSegmento({ chave: '', palavras: [], dores: [], contatos: 0 });
-  if (generico) generico.insertAdjacentHTML('beforebegin', html);
-  else corpo.insertAdjacentHTML('beforeend', html);
-}
-
-function segmentosDaTela() {
-  return [...document.querySelectorAll('#cRamos tbody tr')]
-    .filter(tr => tr.dataset.seg !== 'generico')
-    .map(tr => ({
-      chave: (tr.querySelector('[data-campo="chave"]')?.value || '').trim(),
-      palavras: (tr.querySelector('[data-campo="palavras"]')?.value || '')
-        .split('\n').map(x => x.trim()).filter(Boolean),
-    }))
-    .filter(x => x.chave && x.palavras.length);
-}
-
-async function previaSegmentos() {
-  const el = document.getElementById('cPreviaSeg');
-  el.innerHTML = '<small class="muted">Classificando os contatos…</small>';
-  const d = await fetch(`/api/conversas/campanhas/wa/${ID}/segmentos/previa`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ segmentos: segmentosDaTela() }) }).then(r => r.json()).catch(() => null);
-  if (!d?.success) { el.innerHTML = `<div class="alert error" style="display:block;">${esc(d?.error || 'Falhou')}</div>`; return; }
-  el.innerHTML = '<div class="alert info" style="display:block;">'
-    + d.contagem.map(c => `${esc(c.chave)}: <strong>${numBR(c.contatos)}</strong>`).join(' · ')
-    + '</div>';
-}
-
-/**
- * O campo cresce com o conteúdo, e não ganha barra própria.
- *
- * Com teto de altura, cada célula de frases virava uma barra de rolagem dentro
- * da barra da página. Duas barras na mesma tela é o tipo de coisa que faz a
- * pessoa perder o lugar onde estava — e a página já rola, então basta deixar o
- * campo ocupar o que precisa.
- */
-function ajustarAltura(ta) {
-  ta.style.height = 'auto';
-  ta.style.height = (ta.scrollHeight + 2) + 'px';
-  ta.style.overflowY = 'hidden';
+  const quem = d.contato?.exemplo ? 'um contato de exemplo' : `${esc(d.contato?.nome)}, o próximo da fila`;
+  el.innerHTML = `<div class="fala">${esc(d.reply)}</div>
+    <small class="muted">Como chega para ${quem}${d.comImagem ? ', com o arquivo do modelo' : ''}.</small>`;
 }
 
 // ---------- provas práticas ----------
-async function testarAbordagem() {
-  const el = document.getElementById('cPrevia');
-  el.innerHTML = '<small class="muted">Gerando com a IA…</small>';
-  const d = await fetch(`/api/wa-campanhas/${ID}/sim-m1`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contact: { nome: 'Rosete', primeiro_nome: 'Rosete', ramo: 'vestuario', cidade: 'Marabá' } })
-  }).then(r => r.json()).catch(() => null);
-  el.innerHTML = d?.success
-    ? `<div class="fala">${esc(d.reply)}</div>
-       <small class="muted">Exemplo para um contato fictício (Rosete, loja de vestuário em Marabá).</small>`
-    : `<div class="alert warn" style="display:block;">${esc(d?.error || 'Não foi possível gerar')}</div>`;
-}
-
 async function compararResposta() {
   const texto = document.getElementById('cPergunta').value.trim();
   if (!texto) return showAlert('Escreva a pergunta do cliente', 'error');
@@ -735,53 +582,40 @@ async function salvar() {
   if (!nome) return showAlert('Informe o nome', 'error');
   const av = document.getElementById('avisoTopo');
 
-  let config;
-  try { config = JSON.parse(document.getElementById('cJson').value || '{}'); }
-  catch { av.innerHTML = '<div class="alert error" style="display:block;">A configuração avançada não é um JSON válido</div>'; return; }
+  // Só os campos desta tela. O servidor mescla com o config gravado, então o
+  // que a tela não mostra continua como está.
+  const config = {};
 
   const num = (id) => { const v = document.getElementById(id).value; return v === '' ? undefined : Number(v); };
   const txt = (id) => document.getElementById(id).value.trim();
   const aplicar = (chave, valor) => { if (valor !== undefined && valor !== '') config[chave] = valor; };
   aplicar('descricao', txt('cDesc'));
-  aplicar('briefing', txt('cBriefing'));
   aplicar('daily_limit', num('cDiario'));
   aplicar('throttle_min_sec', num('cMin'));
   aplicar('throttle_max_sec', num('cMax'));
+  // Os dois ou nenhum: meia janela não diz quando parar. Em branco, `null`
+  // tira o horário e a campanha envia a qualquer hora.
   const ini = txt('cIni'), fim = txt('cFim');
-  if (ini || fim) config.horario_permitido = { ...(config.horario_permitido || {}),
-    ...(ini ? { inicio: ini } : {}), ...(fim ? { fim } : {}) };
-
-  // Só mexe no que chegou a carregar: com a lista vazia, salvar apagaria as
-  // frases de quem só queria trocar o nome da campanha.
-  if (RAMOS_OK) {
-    const dores = { ...(config.dores_por_ramo || {}) };
-    for (const tr of document.querySelectorAll('#cRamos tbody tr')) {
-      const ta = tr.querySelector('textarea[data-campo="dores"]');
-      if (!ta) continue;
-      // A chave vem do INPUT, e não do `data-seg`: renomear leva as frases junto.
-      const antiga = tr.dataset.seg;
-      const chave = tr.querySelector('[data-campo="chave"]')?.value?.trim() || antiga;
-      if (antiga && chave !== antiga) delete dores[antiga];
-      const linhas = ta.value.split('\n').map(l => l.trim()).filter(Boolean);
-      if (chave && linhas.length) dores[chave] = linhas;
-      else if (chave) delete dores[chave];
-    }
-    config.dores_por_ramo = dores;
-    const segs = segmentosDaTela();
-    if (segs.length) config.segmentos = segs; else delete config.segmentos;
-    const perguntas = document.getElementById('cPerguntas').value
-      .split('\n').map(l => l.trim()).filter(Boolean);
-    if (perguntas.length) config.variantes_pergunta_final = perguntas;
-    else delete config.variantes_pergunta_final;
+  if (!!ini !== !!fim) {
+    av.innerHTML = '<div class="alert error" style="display:block;">Preencha o início e o fim do horário, ou deixe os dois em branco</div>';
+    return;
   }
-
-  if (EXEMPLOS_OK) {
-    const linhas = (id) => [...document.querySelectorAll(`#${id} textarea`)]
-      .map(t => t.value.trim()).filter(Boolean);
-    const bons = linhas('cBons'), ruins = linhas('cRuins');
-    if (bons.length) config.exemplos_bons = bons; else delete config.exemplos_bons;
-    if (ruins.length) config.exemplos_ruins = ruins; else delete config.exemplos_ruins;
+  const dias = [...document.querySelectorAll('#cDias input:checked')].map(i => i.value);
+  if (ini && !dias.length) {
+    av.innerHTML = '<div class="alert error" style="display:block;">Marque ao menos um dia do horário</div>';
+    return;
   }
+  config.horario_permitido = ini ? { inicio: ini, fim, dias } : null;
+
+  // Com a escolha travada (servidor antigo), o modelo não é tocado. `null`, e
+  // não apagar a chave: o servidor mescla o config, e chave ausente manteria o
+  // modelo anterior.
+  const sel = document.getElementById('cModelo');
+  if (!sel.disabled) config.templateId = sel.value ? Number(sel.value) : null;
+  const numeros = numerosDaTela();
+  if (numeros !== undefined) config.canais = numeros;
+  // `null` tira o roteiro: o servidor mescla o config, e chave ausente o manteria.
+  config.roteiro_id = roteiroDaTela();
 
   const d = await fetch('/api/conversas/campanhas/wa/' + ID, { method: 'PUT',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nome, config }) })
@@ -793,20 +627,7 @@ async function salvar() {
   av.innerHTML = '';
   showAlert('Campanha salva');
   document.getElementById('tituloCamp').textContent = nome;
-  document.getElementById('cJson').value = JSON.stringify(d.campanha?.config || config, null, 2);
 }
-
-/** Marca no índice a seção que está na tela. */
-const links = new Map([...document.querySelectorAll('.indice a')]
-  .map(a => [a.getAttribute('href').slice(1), a]));
-const observador = new IntersectionObserver((entradas) => {
-  for (const e of entradas) {
-    if (!e.isIntersecting) continue;
-    links.forEach(a => a.classList.remove('ativo'));
-    links.get(e.target.id)?.classList.add('ativo');
-  }
-}, { rootMargin: '-80px 0px -70% 0px' });
-document.querySelectorAll('.secao').forEach(s => observador.observe(s));
 
 carregar();
 </script>

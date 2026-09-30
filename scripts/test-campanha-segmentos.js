@@ -20,6 +20,12 @@
  * A terceira parte cobre o modelo de mensagem: a campanha mostrava o nome dela
  * sem dizer qual texto vai sair, e a lista de modelos não dizia quais estavam
  * em uso.
+ *
+ * Desde 2026-09-28 a primeira mensagem da campanha legado sai do MODELO, e
+ * nunca da IA. As seções da página que configuravam a IA saíram, e a parte C
+ * passou a guardar a escolha do modelo. A parte A continua medindo o
+ * classificador de segmento, que a lista de contatos ainda usa. O envio em si,
+ * sem IA, é provado em `test-campanha-modelo.js`.
  */
 const path = require('path');
 
@@ -41,10 +47,10 @@ const t = (nome, fn) => {
 };
 const assert = (c, m) => { if (!c) throw new Error(m); };
 
-const { chaveDoRamo, RAMOS, buildM1Messages } = require('../wa-m1-utils');
+const { chaveDoRamo, RAMOS } = require('../wa-m1-utils');
 
 (async () => {
-  // ==================== A. o gerador ====================
+  // ==================== A. o classificador de segmento ====================
 
   await t('A1. o ramo do cadastro cai no segmento certo', () => {
     const cheias = Object.fromEntries([...RAMOS, 'generico'].map(k => [k, ['.']]));
@@ -63,67 +69,58 @@ const { chaveDoRamo, RAMOS, buildM1Messages } = require('../wa-m1-utils');
       'um segmento vazio não deveria ser escolhido');
   });
 
-  await t('A3. a frase escolhida chega FIXA ao modelo, nao como sugestao', () => {
-    const cfg = { dores_por_ramo: { mercado: ['faltar na prateleira o que mais sai'] },
-                  variantes_pergunta_final: ['Isso pega ai tambem?'] };
-    const m = buildM1Messages(cfg, { nome: 'Ana Souza', ramo: 'mercadinho', cidade: 'Marabá' });
-    const user = m.messages.find(x => x.role === 'user').content;
-    assert(/nao substitua, nao invente outra/.test(user), 'a dor foi entregue como sugestão');
-    assert(user.includes('faltar na prateleira o que mais sai'), 'a frase do segmento não entrou');
-    assert(m.contact.ramoKey === 'mercado', `o segmento resolvido foi ${m.contact.ramoKey}`);
-  });
-
   // ==================== B. a tela ====================
 
   const express = require(path.join(RAIZ, 'node_modules/express'));
   const puppeteer = require(path.join(RAIZ, 'node_modules/puppeteer-core'));
   const app = express();
   app.use(express.json());
+  // As imagens do modelo 1: duas, servidas como PNG de 1x1, e a remoção anotada.
+  const PNG1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  let imagemRemovida = null;
+  app.get('/api/comm/templates/:id/imagens', (_q, rs) => rs.json({ success: true, imagens: ['img-1-1.png', 'img-2-2.png'], max: 20 }));
+  app.get('/api/comm/templates/:id/imagens/:arquivo', (_q, rs) => rs.type('png').send(PNG1));
+  app.delete('/api/comm/templates/:id/imagens/:arquivo', (rq, rs) => {
+    imagemRemovida = rq.params.arquivo; rs.json({ success: true, imagens: ['img-2-2.png'] });
+  });
 
-  const RAMOS_RESP = {
-    success: true, total: 15885, semRamo: 0, semDor: 10617,
-    perguntas: ['Isso ainda acontece ai?', 'Ja resolveu isso?'],
-    orfaos: [{ chave: 'farmacia', dores: 3 }],
-    proprios: false,
-    ramos: [
-      { chave: 'bebidas', palavras: ['bebida'], dores: ['venceu na prateleira'], contatos: 1212 },
-      { chave: 'mercado', palavras: ['mercad', 'mercearia'], dores: [], contatos: 2110 },
-      { chave: 'generico', palavras: [], dores: [], contatos: 10617 },
-    ],
-  };
-  let salvo = null;
-  app.get('/api/conversas/campanhas/wa/:id/ramos', (_q, rs) => rs.json(RAMOS_RESP));
-  app.get('/api/conversas/campanhas/wa/:id', (_q, rs) => rs.json({ success: true,
-    campanha: { id: 6, nome: 'leads-pa-pregao', status: 'pausada',
-      config: { briefing: 'b', dores_por_ramo: { farmacia: ['a', 'b', 'c'] } } },
-    destinatarios: { pendente: 15885 } }));
+  // A campanha 6 está num servidor que já envia pelo modelo; a 8 simula o
+  // servidor antigo, que ainda não manda o sinal `mensagemPorModelo`.
+  let salvo = null, pedidoPrevia = null;
+  app.get('/api/conversas/campanhas/wa/:id', (rq, rs) => rs.json({ success: true,
+    campanha: { id: Number(rq.params.id), nome: 'leads-pa-pregao', status: 'pausada',
+      config: { templateId: rq.params.id === '8' ? undefined : 1, dores_por_ramo: { farmacia: ['a', 'b', 'c'] }, canais: [2],
+                horario_permitido: { inicio: '09:00', fim: '18:00', dias: ['seg', 'ter', 'qua', 'qui', 'sex'] } } },
+    destinatarios: { pendente: 15885 },
+    ...(rq.params.id === '8' ? {} : { mensagemPorModelo: true }) }));
   app.put('/api/conversas/campanhas/wa/:id', (rq, rs) => { salvo = rq.body; rs.json({ success: true }); });
+  // Os números da empresa (desde 28/09): dois, para a campanha escolher.
+  app.get('/api/whatsapp/canais', (_q, rs) => rs.json({ success: true, canais: [
+    { id: 1, nome: 'Comercial', padrao: true, state: 'open' }, { id: 2, nome: 'Suporte', padrao: false, state: 'open' } ] }));
+  app.get('/api/roteiros', (_q, rs) => rs.json({ success: true, roteiros: [], funis: [] }));
   app.get('/api/wa-campanhas/:id/images', (_q, rs) => rs.json({ success: true, images: [] }));
-  // Os exemplos que a IA imita, e o modelo de onde trazê-los.
-  app.get('/api/conversas/campanhas/wa/:id/exemplos', (_q, rs) => rs.json({ success: true,
-    bons: ['Boa tarde, Rosete. Aqui e o Carlos, da 1bit.'], ruins: ['Oi! Tudo bem?? Promocao!!!'],
-    legado: '{saudacao}, {primeiro_nome}. Aqui e o Carlos.',
-    modelos: [{ id: 1, nome: 'liciteagora', canal: 'whatsapp', corpo: 'Olá {{primeiroNome}} tudo bem?' }] }));
-  app.post('/api/conversas/campanhas/wa/:id/segmentos/previa', (rq, rs) => {
-    const segs = rq.body.segmentos || [];
-    rs.json({ success: true, contagem: [...segs.map(x => ({ chave: x.chave, contatos: 100 })),
-                                        { chave: 'generico', contatos: 7 }] });
-  });
-  app.post('/api/conversas/campanhas/wa/:id/exemplos/previa', (rq, rs) => {
-    const texto = rq.body.templateId ? 'Olá Rosete tudo bem?' : 'Boa tarde, Rosete. Aqui e o Carlos.';
-    rs.json({ success: true, texto, sobrando: [] });
-  });
+  app.post('/api/wa-campanhas/:id/sim-m1', (rq, rs) => { pedidoPrevia = rq.body; rs.json({ success: true,
+    reply: 'Olá ADABOX tudo bem?\n\nResponda PARAR para nao receber mais.',
+    contato: { nome: 'ADABOX', telefone: '5594991032093', exemplo: false }, comImagem: false,
+    modelo: { id: 1, nome: 'Aviso de boleto' } }); });
   app.get('/api/comm/templates', (_q, rs) => rs.json({ success: true, templates: [
-    { id: 1, nome: 'Aviso de boleto', canal: 'whatsapp', corpo: 'Olá {{primeiroNome}}', emUso: 2 },
+    { id: 1, nome: 'Aviso de boleto', canal: 'whatsapp', corpo: 'Olá {{primeiroNome}}', emUso: 2, imagens: 2 },
     { id: 2, nome: 'Modelo parado', canal: 'email', assunto: 'x', corpo: 'texto', emUso: 0 },
   ] }));
+  // O cadastro de segmentos e a contagem por segmento da lista (28/09): a
+  // campanha nova escolhe para quais segmentos da lista ela sai.
+  app.get('/api/comm/segmentos', (_q, rs) => rs.json({ success: true, segmentos: [
+    { id: 1, nome: 'Bebidas', chave: 'bebidas' }, { id: 9, nome: 'Genérico', chave: 'generico' }] }));
+  app.get('/api/comm/listas/:id', (rq, rs) => rs.json({ success: true, lista: { id: Number(rq.params.id) },
+    membros: [], total: 3, pagina: 1, porPagina: 1, porSegmento: [{ segmentoId: 1, n: 2 }, { segmentoId: 9, n: 1 }] }));
   app.get('/api/comm/listas', (_q, rs) => rs.json({ success: true,
     listas: [{ id: 3, nome: 'clientes ativos', qtdMembros: 40 }] }));
   let criado = null;
   app.post('/api/comm/campanhas', (rq, rs) => { criado = rq.body;
     rs.json({ success: true, campanha: { id: 9, totalDestinatarios: 12 } }); });
   app.post('/api/comm/templates', (rq, rs) => rs.json({ success: true, template: { id: 5 } }));
-  app.post('/api/comm/listas', (_q, rs) => rs.json({ success: true, lista: { id: 8 } }));
+  let listaCriada = false;
+  app.post('/api/comm/listas', (_q, rs) => { listaCriada = true; rs.json({ success: true, lista: { id: 8 } }); });
   app.post('/api/comm/listas/:id/membros', (_q, rs) => rs.json({ success: true, adicionados: 2 }));
   app.get('/api/comm/campanhas/:id', (_q, rs) => rs.json({ success: true,
     campanha: { id: 7, nome: 'Cobrança de agosto', tipo: 'operacional', templateId: 1,
@@ -133,6 +130,9 @@ const { chaveDoRamo, RAMOS, buildM1Messages } = require('../wa-m1-utils');
       destinatarios: null, totalDestinatarios: 30, templateId: 1, templateNome: 'Aviso de boleto' },
     { origem: 'wa', id: 6, nome: 'leads-pa-pregao', status: 'pausada', criadoEm: '2026-08-14',
       destinatarios: { pendente: 15468 } },
+    // Enviada: é a que ficava sem "Editar" (as "(cópia)" do 1bit, 30/09).
+    { origem: 'comm', id: 8, nome: 'Alimentação.. (cópia)', status: 'enviada', criadoEm: '2026-09-29',
+      destinatarios: { enviado: 12 }, totalDestinatarios: 12, rodada: 2, templateId: 1 },
   ] }));
   app.get('/api/conversas/publico', (_q, rs) => rs.json({ success: true, ufs: ['PA'], total: 2, pessoas: [
     { id: 1, razaoSocial: 'Mercado Sao Jose', telefone: '5594999990001', cidade: 'Maraba', uf: 'PA',
@@ -166,14 +166,11 @@ const { chaveDoRamo, RAMOS, buildM1Messages } = require('../wa-m1-utils');
   await page.setViewport({ width: 1400, height: 1000 });
   page.on('pageerror', e => erros.push(String(e.message)));
   page.on('response', r => { if (r.status() >= 400) erros.push(`${r.status()} em ${r.url()}`); });
-  await page.goto(`http://127.0.0.1:${PORTA}/__wrapper/ia`, { waitUntil: 'networkidle0' });
-  let frame = page.frames().find(f => f.url().includes('ia.html'));
+  await page.goto(`http://127.0.0.1:${PORTA}/__wrapper/campanhas`, { waitUntil: 'networkidle0' });
+  let frame = page.frames().find(f => f.url().includes('/comunicacao/campanhas.html'));
   if (!frame) { console.log('FALHA a tela não carregou'); process.exit(1); }
   const esperar = (ms) => new Promise(r => setTimeout(r, ms));
 
-  await frame.evaluate(() => {
-    [...document.querySelectorAll('.tab')].find(t => t.textContent.trim() === 'Campanhas').click();
-  });
   await frame.waitForFunction(() =>
     !/Carregando/.test(document.getElementById('tbCamp').textContent), { timeout: 8000 });
 
@@ -183,15 +180,16 @@ const { chaveDoRamo, RAMOS, buildM1Messages } = require('../wa-m1-utils');
     assert(/modelo: Aviso de boleto/.test(linha), `a linha diz "${linha}"`);
   });
 
-  await t('B2. a lista de modelos diz quais estao em uso', async () => {
-    await frame.evaluate(() => {
-      [...document.querySelectorAll('.sub-abas .sub')].find(b => b.textContent.trim() === 'Modelos de mensagem').click();
+  await t('B1b. a campanha enviada tem Editar, junto de Enviar de novo', async () => {
+    const linha = await frame.evaluate(() => {
+      const tr = [...document.querySelectorAll('#tbCamp tr')].find(e => /\(cópia\)/.test(e.textContent));
+      if (!tr) return null;
+      return { principal: tr.querySelector('.acoes .btn')?.textContent.trim(),
+               menu: [...tr.querySelectorAll('.acoes .itens button')].map(b => b.textContent.trim()) };
     });
-    await frame.waitForFunction(() =>
-      !/Carregando/.test(document.getElementById('tbModelos').textContent), { timeout: 8000 });
-    const txt = await frame.$$eval('#tbModelos tr', els => els.map(e => e.textContent.replace(/\s+/g, ' ')));
-    assert(/2 campanha\(s\)/.test(txt.find(x => /Aviso de boleto/.test(x))), 'o modelo em uso não diz quantas');
-    assert(/nenhuma/.test(txt.find(x => /Modelo parado/.test(x))), 'o modelo sem uso não diz que está parado');
+    assert(linha, 'a campanha enviada não apareceu na listagem');
+    assert(linha.principal === 'Enviar de novo', `o botão principal é "${linha.principal}"`);
+    assert(linha.menu.includes('Editar'), 'o menu da enviada não tem Editar: ' + linha.menu.join(', '));
   });
 
   await t('B3. editar a campanha leva para a PAGINA, e nao abre modal', async () => {
@@ -203,83 +201,88 @@ const { chaveDoRamo, RAMOS, buildM1Messages } = require('../wa-m1-utils');
     assert(/\/comunicacao\/campanha\.html/.test(destino), `a edição iria para: ${destino}`);
   });
 
-  // ==================== C. a página da campanha ====================
-
-  await page.goto(`http://127.0.0.1:${PORTA}/__wrapper/campanha?id=6`, { waitUntil: 'networkidle0' });
-  frame = page.frames().find(f => f.url().includes('campanha.html'));
-  if (!frame) { console.log('FALHA a página da campanha não carregou'); process.exit(1); }
-  await frame.waitForFunction(() =>
-    !/carregando/i.test(document.getElementById('cRamos').textContent), { timeout: 8000 });
-
-  await t('C1. cada segmento aparece com as frases dele', async () => {
-    const linhas = await frame.$$eval('#cRamos tbody tr', els => els.length);
-    assert(linhas === 3, `${linhas} segmento(s) na tabela`);
-    const v = await frame.$eval('#cRamos tr[data-seg="bebidas"] textarea[data-campo="dores"]', e => e.value);
-    assert(v === 'venceu na prateleira', `o textarea de bebidas tem "${v}"`);
+  await t('B2. a lista de modelos diz quais estao em uso', async () => {
+    // Modelos era subguia de Campanhas até 28/09; agora é página própria.
+    await page.goto(`http://127.0.0.1:${PORTA}/__wrapper/modelos`, { waitUntil: 'networkidle0' });
+    frame = page.frames().find(f => f.url().includes('/comunicacao/modelos.html'));
+    assert(!!frame, 'modelos.html não carregou');
+    await frame.waitForFunction(() =>
+      !/Carregando/.test(document.getElementById('tbModelos').textContent), { timeout: 8000 });
+    const txt = await frame.$$eval('#tbModelos tr', els => els.map(e => e.textContent.replace(/\s+/g, ' ')));
+    assert(/2 campanha\(s\)/.test(txt.find(x => /Aviso de boleto/.test(x))), 'o modelo em uso não diz quantas');
+    assert(/nenhuma/.test(txt.find(x => /Modelo parado/.test(x))), 'o modelo sem uso não diz que está parado');
+    // "arquivo(s)", e não "imagem(ns)": o conjunto do modelo aceita vídeo MP4
+    // desde 30/09, e a contagem é dos dois.
+    assert(/2 arquivo\(s\)/.test(txt.find(x => /Aviso de boleto/.test(x))), 'a tabela não diz quantos arquivos o modelo tem');
   });
 
-  await t('C2. a contagem de contatos por segmento esta VISIVEL', async () => {
-    const cel = await frame.$$eval('#cRamos tbody tr', els => els.map(e => ({
-      txt: e.textContent.replace(/\s+/g, ' '), h: Math.round(e.getBoundingClientRect().height) })));
-    assert(cel.every(c => c.h > 0), 'as linhas têm altura zero');
-    assert(/10\.617/.test(cel.find(c => /generico/.test(c.txt)).txt),
-      'a contagem do genérico não apareceu formatada');
-  });
-
-  await t('C3. segmento com gente e sem frase e DENUNCIADO', async () => {
-    const aviso = await frame.$eval('#cRamos .alert', e => e.textContent.replace(/\s+/g, ' '));
-    assert(/10\.617 contato\(s\) estão em segmento sem frase própria/.test(aviso),
-      `o aviso diz "${aviso}"`);
-  });
-
-  await t('C4. frase em chave que o gerador ignora e denunciada', async () => {
-    const aviso = await frame.$eval('#cRamos .alert', e => e.textContent.replace(/\s+/g, ' '));
-    assert(/farmacia \(3 frase\(s\)\)/.test(aviso), `o aviso não citou a chave órfã: "${aviso}"`);
-  });
-
-  await t('C4b. os exemplos que a IA imita aparecem, bons e ruins', async () => {
-    await frame.waitForSelector('#cBons textarea', { timeout: 8000 });
-    const bons = await frame.$eval('#cBons textarea', e => e.value);
-    const ruins = await frame.$eval('#cRuins textarea', e => e.value);
-    assert(/Boa tarde, Rosete/.test(bons), `o exemplo bom veio "${bons}"`);
-    assert(/Promocao/.test(ruins), `o exemplo ruim veio "${ruins}"`);
-  });
-
-  await t('C4c. o campo antigo e DENUNCIADO, e nao descartado calado', async () => {
-    // Ele era lido e gravado pela tela, e consumido por ninguém.
-    const aviso = await frame.$eval('#cExemplos .alert', e => e.textContent.replace(/\s+/g, ' '));
-    assert(/o gerador nunca leu/.test(aviso), `o aviso diz "${aviso.slice(0, 80)}"`);
-    assert(/\{saudacao\}/.test(aviso), 'o texto antigo não foi mostrado');
-  });
-
-  await t('C4d. trazer de um modelo resolve a variavel, e nao copia a chave', async () => {
-    // Copiar "Olá {{primeiroNome}}" ensinaria a IA a escrever a chave, e ela
-    // sairia crua para o cliente: aqui ninguém substitui nada.
-    await frame.evaluate(() => {
-      document.getElementById('cDeModelo').value = '1';
-      trazerDeModelo();
-    });
+  await t('B2b. o modelo mostra as imagens dele, e o x remove a certa', async () => {
+    // O modelo tem um conjunto de imagens desde 28/09; cada envio sorteia uma.
+    await frame.evaluate(() => abrirModelo(1));
+    await frame.waitForFunction(() => document.querySelectorAll('#mdImagens img').length === 2, { timeout: 8000 });
+    await frame.waitForFunction(() => [...document.querySelectorAll('#mdImagens img')].every(i => i.complete && i.naturalWidth > 0),
+      { timeout: 8000 });
+    const tam = await frame.$$eval('#mdImagens img', els => els.map(e => Math.round(e.getBoundingClientRect().width)));
+    assert(tam.every(w => w > 40), 'as miniaturas não aparecem: ' + tam.join(','));
+    await frame.evaluate(() => document.querySelector('#mdImagens button[data-arquivo="img-1-1.png"]').click());
     await esperar(500);
-    const textos = await frame.$$eval('#cBons textarea', els => els.map(e => e.value));
-    assert(textos.some(t => /Olá Rosete tudo bem/.test(t)), 'o texto resolvido não entrou: ' + textos.join(' | '));
-    assert(!textos.some(t => /\{\{/.test(t)), 'a chave crua foi copiada para o exemplo');
+    assert(imagemRemovida === 'img-1-1.png', 'removeu: ' + imagemRemovida);
+    // Modelo de e-mail não manda imagem: a grade some.
+    await frame.evaluate(() => { document.getElementById('mdCanal').value = 'email'; mudouCanalModelo(); });
+    const vis = await frame.$eval('#mdLinhaImagem', e => e.style.display);
+    assert(vis === 'none', 'a grade de imagens aparece num modelo de e-mail');
+    await frame.evaluate(() => fechar('modalModelo'));
   });
 
-  await t('C4e. as palavras de cada segmento sao editaveis', async () => {
-    const palavras = await frame.$eval('#cRamos tr[data-seg="bebidas"] [data-campo="palavras"]', e => e.value);
-    assert(palavras === 'bebida', `as palavras vieram "${palavras}"`);
-    // O genérico é o destino de quem não casa com nada: dar-lhe palavra confunde.
-    const generico = await frame.$$eval('#cRamos tr[data-seg="generico"] [data-campo="palavras"]', els => els.length);
-    assert(generico === 0, 'o genérico apareceu com campo de palavras');
+  // ==================== C. a página da campanha legado ====================
+  //
+  // Desde 28/09 a primeira mensagem sai do modelo, e nunca da IA. As seções que
+  // configuravam a IA (abordagem, exemplos, segmentos) saíram da página; o que
+  // elas gravaram continua no config.
+
+  const abrirLegado = async (id) => {
+    salvo = null; pedidoPrevia = null;
+    await page.goto(`http://127.0.0.1:${PORTA}/__wrapper/campanha?id=${id}`, { waitUntil: 'networkidle0' });
+    frame = page.frames().find(f => f.url().includes('campanha.html'));
+    if (!frame) { console.log('FALHA a página da campanha não carregou'); process.exit(1); }
+    await frame.waitForFunction(() => document.querySelectorAll('#cModelo option').length > 1, { timeout: 8000 });
+  };
+  await abrirLegado(6);
+
+  await t('C1. a campanha legado nao tem mais as secoes que configuravam a IA', async () => {
+    const sobras = await frame.$$eval('#s-abordagem, #s-exemplos, #s-segmentos, #cRamos, #cExemplos, #s-avancado, #cJson',
+      els => els.length);
+    assert(sobras === 0, `${sobras} elemento(s) das seções da IA continuam na página`);
   });
 
-  await t('C4f. a previa conta quem cai onde ANTES de salvar', async () => {
-    // Acrescentar uma palavra move gente na frente de 15 mil contatos, e sem a
-    // prévia isso se faz às cegas.
-    await frame.evaluate(() => previaSegmentos());
-    await esperar(500);
-    const txt = await frame.$eval('#cPreviaSeg', e => e.textContent);
-    assert(/bebidas/.test(txt) && /generico/.test(txt), `a prévia diz "${txt}"`);
+  await t('C1b. sem indice lateral, e o limite por dia fica em Ritmo e horario', async () => {
+    // O índice repetia os títulos de cinco seções curtas e saiu em 28/09.
+    const indice = await frame.$$eval('.indice, #indice', els => els.length);
+    assert(indice === 0, 'o índice lateral continua na página');
+    const secao = await frame.$eval('#cDiario', e => e.closest('section').id);
+    assert(secao === 's-ritmo', `o limite por dia está em #${secao}`);
+  });
+
+  await t('C2. o seletor traz so os modelos de WhatsApp, com o da campanha marcado', async () => {
+    const opcoes = await frame.$$eval('#cModelo option', els => els.map(e => e.value));
+    assert(JSON.stringify(opcoes) === JSON.stringify(['', '1']), 'opções: ' + JSON.stringify(opcoes));
+    const v = await frame.$eval('#cModelo', e => e.value);
+    assert(v === '1', `o modelo da campanha veio "${v}"`);
+  });
+
+  await t('C3. a previa mostra o texto exato, e para quem', async () => {
+    await frame.waitForSelector('#cPrevia .fala', { visible: true, timeout: 8000 });
+    const txt = await frame.$eval('#cPrevia .fala', e => e.textContent);
+    assert(txt === 'Olá ADABOX tudo bem?\n\nResponda PARAR para nao receber mais.', `a prévia mostra "${txt}"`);
+    assert(pedidoPrevia && pedidoPrevia.templateId === 1, 'a prévia não pediu o modelo escolhido: ' + JSON.stringify(pedidoPrevia));
+    const quem = await frame.$eval('#cPrevia small', e => e.textContent);
+    assert(/ADABOX, o próximo da fila/.test(quem), `a legenda diz "${quem}"`);
+  });
+
+  await t('C4. sem modelo escolhido, a pagina diz que a campanha nao envia', async () => {
+    await frame.evaluate(() => { document.getElementById('cModelo').value = ''; previaModelo(); });
+    const txt = await frame.$eval('#cPrevia', e => e.textContent);
+    assert(/Sem modelo, a campanha não envia/.test(txt), `a página diz "${txt}"`);
   });
 
   await t('C4g. a pagina tem UMA barra de rolagem, e nao duas', async () => {
@@ -299,69 +302,76 @@ const { chaveDoRamo, RAMOS, buildM1Messages } = require('../wa-m1-utils');
     assert(rolando.length === 0, 'rolam por conta própria: ' + rolando.join(', '));
   });
 
-  await t('C5. as perguntas finais aparecem, uma por linha', async () => {
-    const v = await frame.$eval('#cPerguntas', e => e.value);
-    assert(v === 'Isso ainda acontece ai?\nJa resolveu isso?', `veio "${v}"`);
-  });
-
-  await t('C6. salvar leva as frases editadas, e preserva a chave orfa', async () => {
-    await frame.evaluate(() => {
-      document.querySelector('#cRamos tr[data-seg="mercado"] textarea[data-campo="dores"]').value =
-        'faltar na prateleira\ndiferenca no caixa';
-      salvar();
-    });
+  await t('C5. salvar leva o modelo escolhido, e null quando ele e tirado', async () => {
+    await frame.evaluate(() => { document.getElementById('cModelo').value = '1'; salvar(); });
     await esperar(600);
-    assert(salvo, 'nada chegou ao servidor');
-    const d = salvo.config.dores_por_ramo;
-    assert(JSON.stringify(d.mercado) === '["faltar na prateleira","diferenca no caixa"]',
-      `mercado foi como ${JSON.stringify(d.mercado)}`);
-    assert(d.bebidas.length === 1, 'a frase que não foi tocada se perdeu');
-    assert(!('generico' in d), 'segmento esvaziado continuou gravado');
-    // A chave que a tela não mostra não pode ser apagada por quem só editou
-    // outra coisa.
-    assert(d.farmacia && d.farmacia.length === 3, 'a chave órfã foi descartada no salvar');
-    assert(salvo.config.variantes_pergunta_final.length === 2, 'as perguntas não viajaram');
-  });
-
-  await t('C6c. renomear o segmento leva as frases junto', async () => {
-    // Sem isso, "beleza" virando "salao" deixaria as frases órfãs na chave
-    // antiga e o segmento novo nasceria sem dor nenhuma.
-    await frame.evaluate(() => {
-      const tr = document.querySelector('#cRamos tr[data-seg="bebidas"]');
-      tr.querySelector('[data-campo="chave"]').value = 'bebidas-frias';
-      salvar();
-    });
+    assert(salvo && salvo.config.templateId === 1, 'o modelo não viajou: ' + JSON.stringify(salvo && salvo.config));
+    await frame.evaluate(() => { document.getElementById('cModelo').value = ''; salvar(); });
     await esperar(600);
-    const d = salvo.config.dores_por_ramo;
-    assert(d['bebidas-frias']?.length === 1, `as frases não seguiram: ${JSON.stringify(d)}`);
-    assert(!('bebidas' in d), 'a chave antiga ficou órfã no config');
-    assert(salvo.config.segmentos.some(x => x.chave === 'bebidas-frias'),
-      'o segmento renomeado não foi gravado');
+    // null, e não a chave ausente: o servidor mescla o config, e ausente
+    // manteria o modelo anterior.
+    assert(salvo.config.templateId === null, 'tirar o modelo foi como ' + JSON.stringify(salvo.config.templateId));
   });
 
-  await t('C6b. salvar leva os exemplos, e aposenta o campo que nao fazia nada', async () => {
-    assert(salvo.config.exemplos_bons?.length >= 1, 'os exemplos bons não viajaram');
-    assert(salvo.config.exemplos_ruins?.length >= 1, 'os exemplos ruins não viajaram');
-    assert(salvo.config.exemplos_bons.some(t => /Olá Rosete/.test(t)),
-      'o exemplo trazido do modelo não foi salvo');
+  await t('C6. salvar manda so os campos da tela, e o servidor mescla o resto', async () => {
+    // Sem o JSON avançado, a tela não conhece o resto do config e não pode
+    // reescrevê-lo. A mescla do servidor é provada em test-campanha-modelo (D5).
+    const chaves = Object.keys(salvo.config).sort();
+    const permitidas = ['canais', 'daily_limit', 'descricao', 'horario_permitido', 'roteiro_id', 'templateId', 'throttle_max_sec', 'throttle_min_sec'];
+    assert(chaves.every(k => permitidas.includes(k)), 'mandou chave que a tela não mostra: ' + chaves.join(', '));
+    assert(!('dores_por_ramo' in salvo.config), 'reenviou o config inteiro');
   });
 
-  await t('C7. sem carregar os segmentos, salvar NAO mexe nas frases', async () => {
-    // O caso de quem abre a campanha só para trocar o nome, com a rota de
-    // segmentos fora do ar. Apagar 35 frases aí seria o pior desfecho.
-    // Recarrega para partir do config original: as checagens anteriores
-    // salvaram, e a página passa a refletir o que foi salvo — depender desse
-    // acúmulo faria o teste medir a ordem em que ele roda.
+  await t('C9. a campanha escolhe por quais numeros sai, e a escolha vai no salvar', async () => {
+    await abrirLegado(6);
+    await frame.waitForFunction(() => document.getElementById('cLinhaNumeros').style.display !== 'none', { timeout: 8000 });
+    const caixas = await frame.$$eval('#cNumeros input', els => els.map(e => [e.value, e.checked]));
+    assert(JSON.stringify(caixas) === '[["1",false],["2",true]]', 'caixas: ' + JSON.stringify(caixas));
+    await frame.evaluate(() => { document.querySelector('#cNumeros input[value="1"]').checked = true; salvar(); });
+    await esperar(600);
+    assert(JSON.stringify(salvo.config.canais) === '[1,2]', 'salvou ' + JSON.stringify(salvo.config.canais));
+    await frame.evaluate(() => { document.querySelectorAll('#cNumeros input').forEach(i => { i.checked = false; }); salvar(); });
+    await esperar(600);
+    // Nenhum marcado = lista vazia, que o servidor lê como "pelo padrão".
+    assert(JSON.stringify(salvo.config.canais) === '[]', 'desmarcar tudo salvou ' + JSON.stringify(salvo.config.canais));
+  });
+
+  await t('C8. o horario carrega com os dias, e salva inicio, fim e dias juntos', async () => {
+    await abrirLegado(6);
+    const ini = await frame.$eval('#cIni', e => e.type + ' ' + e.value);
+    assert(ini === 'time 09:00', `o início veio "${ini}"`);
+    const marcados = await frame.$$eval('#cDias input:checked', els => els.map(e => e.value));
+    assert(JSON.stringify(marcados) === '["seg","ter","qua","qui","sex"]', 'dias marcados: ' + marcados.join(','));
+    await frame.evaluate(() => { document.querySelector('#cDias input[value="sab"]').checked = true; salvar(); });
+    await esperar(600);
+    assert(JSON.stringify(salvo.config.horario_permitido)
+      === '{"inicio":"09:00","fim":"18:00","dias":["seg","ter","qua","qui","sex","sab"]}',
+      'salvou ' + JSON.stringify(salvo.config.horario_permitido));
+  });
+
+  await t('C8b. meia janela e recusada na tela, e os dois em branco tiram o horario', async () => {
     salvo = null;
-    await page.goto(`http://127.0.0.1:${PORTA}/__wrapper/campanha?id=6`, { waitUntil: 'networkidle0' });
-    frame = page.frames().find(f => f.url().includes('campanha.html'));
-    await frame.waitForFunction(() =>
-      !/carregando/i.test(document.getElementById('cRamos').textContent), { timeout: 8000 });
-    await frame.evaluate(() => { RAMOS_OK = false; salvar(); });
+    await frame.evaluate(() => { document.getElementById('cFim').value = ''; salvar(); });
+    await esperar(400);
+    const aviso = await frame.$eval('#avisoTopo', e => e.textContent);
+    assert(salvo === null && /início e o fim/.test(aviso), `salvou meia janela, ou o aviso diz "${aviso}"`);
+    await frame.evaluate(() => { document.getElementById('cIni').value = ''; salvar(); });
     await esperar(600);
-    assert(salvo, 'nada chegou ao servidor');
-    assert(JSON.stringify(salvo.config.dores_por_ramo) === JSON.stringify({ farmacia: ['a', 'b', 'c'] }),
-      `o config foi com ${JSON.stringify(salvo.config.dores_por_ramo)}`);
+    assert(salvo && salvo.config.horario_permitido === null, 'em branco foi como ' + JSON.stringify(salvo && salvo.config.horario_permitido));
+  });
+
+  await t('C7. com o servidor antigo, a escolha fica travada e o salvar nao toca no modelo', async () => {
+    // Antes do restart o motor ainda manda o texto da IA. Deixar escolher o
+    // modelo ali faria a pessoa achar que o modelo seria enviado.
+    await abrirLegado(8);
+    const travado = await frame.$eval('#cModelo', e => e.disabled);
+    assert(travado, 'o seletor ficou livre com o servidor antigo');
+    const aviso = await frame.$eval('#cPrevia', e => e.textContent);
+    assert(/próximo restart/.test(aviso), `o aviso diz "${aviso}"`);
+    assert(pedidoPrevia === null, 'pediu prévia a um servidor que não sabe fazê-la');
+    await frame.evaluate(() => salvar());
+    await esperar(600);
+    assert(salvo && !('templateId' in salvo.config), 'o salvar mexeu no modelo: ' + JSON.stringify(salvo && salvo.config));
   });
 
   // ==================== E. criar campanha, na mesma página ====================
@@ -369,7 +379,7 @@ const { chaveDoRamo, RAMOS, buildM1Messages } = require('../wa-m1-utils');
   await t('E1. criar campanha abre a PAGINA, com as secoes dela', async () => {
     await page.goto(`http://127.0.0.1:${PORTA}/__wrapper/campanha?nova=1`, { waitUntil: 'networkidle0' });
     frame = page.frames().find(f => f.url().includes('campanha.html'));
-    await frame.waitForSelector('#tbPublico tr', { timeout: 8000 });
+    await frame.waitForFunction(() => document.querySelectorAll('#cLista option').length > 1, { timeout: 8000 });
     const titulo = await frame.$eval('#tituloCamp', e => e.textContent);
     assert(/Nova campanha/.test(titulo), `o título diz "${titulo}"`);
     // As seções do legado não fazem sentido aqui, e o contrário também não.
@@ -380,23 +390,33 @@ const { chaveDoRamo, RAMOS, buildM1Messages } = require('../wa-m1-utils');
       'seções da campanha legado apareceram na campanha nova: ' + visiveis.join(', '));
   });
 
-  await t('E1b. campo que nao faz nada na campanha nova fica ESCONDIDO', async () => {
-    // O limite diário é do tenant aqui, não da campanha. Mostrar o campo seria
-    // repetir o defeito do "Exemplo de mensagem pronta", que ninguém lia.
-    const visivel = await frame.$eval('#cDiario', e => e.closest('[data-modo]').style.display !== 'none');
-    assert(!visivel, 'o limite por dia aparece numa campanha que não o usa');
+  await t('E1b. a campanha nova tem ritmo e horario, com o padrao dito nos campos', async () => {
+    // Desde 29/09. Antes, o limite era fixo no banco e o horário só valia no
+    // clique em "Enviar"; a seção era só da legado.
+    const m = await frame.evaluate(() => ({
+      visivel: document.getElementById('s-ritmo').style.display !== 'none',
+      ph: ['cDiario', 'cMin', 'cMax'].map(id => document.getElementById(id).placeholder),
+      sub: document.getElementById('ritmoSub').textContent,
+    }));
+    assert(m.visivel, 'a seção de ritmo não aparece na campanha nova');
+    assert(m.ph.join() === '30,45,120', 'placeholders: ' + m.ph.join());
+    assert(/8h às 20h/.test(m.sub) && /mais restritivo/.test(m.sub), 'o texto não diz o padrão: ' + m.sub);
   });
 
-  await t('E2. o indice acompanha o modo', async () => {
-    const itens = await frame.$$eval('.indice a', els => els.map(e => e.textContent));
-    assert(itens.length === 3, `o índice tem ${itens.length} itens: ${itens.join(', ')}`);
-    assert(itens.includes('Quem recebe'), itens.join(', '));
+  await t('E2. a campanha nova mostra as secoes dela, com o ritmo', async () => {
+    const secoes = await frame.$$eval('section.secao', els =>
+      els.filter(e => e.style.display !== 'none').map(e => e.id));
+    assert(JSON.stringify(secoes) === JSON.stringify(['s-identificacao', 's-mensagem', 's-publico', 's-roteiro', 's-ritmo']),
+      'seções visíveis: ' + secoes.join(', '));
   });
 
-  await t('E3. quem pediu para sair nao pode ser marcado', async () => {
-    const caixas = await frame.$$eval('#tbPublico input[type=checkbox]', els =>
-      els.map(e => e.disabled));
-    assert(caixas.length === 2 && caixas[1] === true, JSON.stringify(caixas));
+  await t('E3. a campanha nova so escolhe uma lista que existe, sem montar outra ali', async () => {
+    // Até 28/09 dava para marcar clientes e digitar números na própria
+    // campanha. Gente nova entra agora pela página Listas.
+    const sobras = await frame.$$eval('#cNovaLista, #tbPublico, #cManuais, #cBuscaPessoa', els => els.length);
+    assert(sobras === 0, `${sobras} elemento(s) da montagem de lista continuam na página`);
+    const opcoes = await frame.$$eval('#cLista option', els => els.map(e => e.textContent.trim()));
+    assert(!opcoes.some(o => /montar/i.test(o)), 'a opção de montar lista continua: ' + opcoes.join(' | '));
   });
 
   await t('E4. criar sem mensagem e sem publico e RECUSADO', async () => {
@@ -406,15 +426,22 @@ const { chaveDoRamo, RAMOS, buildM1Messages } = require('../wa-m1-utils');
     assert(/Escreva a mensagem/.test(av), `o aviso diz "${av}"`);
   });
 
-  await t('E5. criar monta modelo, lista e campanha, em rascunho', async () => {
-    await frame.evaluate(() => {
-      document.getElementById('cCorpo').value = 'Olá {{primeiroNome}}';
-      document.querySelector('#tbPublico input[type=checkbox]').click();
-      salvar();
-    });
+  await t('E4b. criar sem lista e RECUSADO, e nenhuma lista nasce no servidor', async () => {
+    criado = null; listaCriada = false;
+    await frame.evaluate(() => { document.getElementById('cCorpo').value = 'Olá {{primeiroNome}}'; salvar(); });
+    await esperar(600);
+    const av = await frame.$eval('#avisoTopo', e => e.textContent);
+    assert(/Escolha a lista/.test(av), `o aviso diz "${av}"`);
+    assert(!listaCriada && !criado, 'criou lista ou campanha sem lista escolhida');
+  });
+
+  await t('E5. criar monta o modelo e a campanha com a lista escolhida, em rascunho', async () => {
+    await frame.evaluate(() => { document.getElementById('cLista').value = '3'; salvar(); });
     await esperar(700);
     assert(criado, 'a campanha não chegou ao servidor');
-    assert(criado.templateId === 5 && criado.listaId === 8, JSON.stringify(criado));
+    assert(criado.templateId === 5 && criado.listaId === 3, JSON.stringify(criado));
+    assert(Array.isArray(criado.canais), 'a campanha nova não levou a escolha dos números: ' + JSON.stringify(criado.canais));
+    assert(!listaCriada, 'a campanha criou uma lista por conta própria');
     assert(criado.tipo === 'operacional', `o tipo foi ${criado.tipo}`);
   });
 

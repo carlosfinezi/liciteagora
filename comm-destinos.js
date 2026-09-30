@@ -28,9 +28,13 @@ const CANAIS = ['email', 'whatsapp'];
 const TIPOS_CAMPANHA = ['marketing', 'operacional'];
 const COLUNA_CONSENTIMENTO = { email: 'aceitaEmailMarketing', whatsapp: 'aceitaWhatsappMarketing' };
 
+const { ehIdentificadorInterno } = require('./pessoa-sem-documento');
+const { semWhatsapp } = require('./wa-numeros');
+
 // Placeholders que renderizar() sabe substituir. Qualquer outro é erro de
 // template, não texto.
-const VARIAVEIS = ['razaoSocial', 'nomeFantasia', 'primeiroNome', 'cpfCnpj', 'email', 'telefone'];
+const VARIAVEIS = ['razaoSocial', 'nomeFantasia', 'primeiroNome', 'cpfCnpj', 'email', 'telefone',
+  'cidade', 'ramo', 'porte'];
 
 const erro = (codigo, mensagem, extra = {}) => ({ nivel: 'erro', codigo, mensagem, ...extra });
 const aviso = (codigo, mensagem, extra = {}) => ({ nivel: 'aviso', codigo, mensagem, ...extra });
@@ -178,6 +182,40 @@ function registrarOptOut(db, { canal, destino, pessoaId, origem, motivo }) {
 }
 
 /**
+ * "Não contatar mais" pelo WhatsApp, em todas as campanhas de marketing
+ * (decisão de 29/09): o campo "Aceita campanha por WhatsApp" é o controle, e
+ * as listas de bloqueio seguem junto.
+ *
+ * - entra em `comm_optout` (campanha nova) e em `wa_optout` (legado), com o
+ *   número normalizado e também como veio. A legado compara o telefone como
+ *   foi importado, e um número sem o nono dígito ("559492069221", de 17/08)
+ *   ficava bloqueado só nela;
+ * - toda ficha com esse telefone fica com `aceitaWhatsappMarketing = 0`;
+ * - os envios pendentes da legado para esse número saem da fila como optout.
+ *
+ * A campanha operacional (boleto, entrega) segue ignorando o campo, mas não
+ * a lista de bloqueio, como antes.
+ */
+function descadastrarWhatsApp(db, telefone, { origem, motivo, pessoaId } = {}) {
+  const r = registrarOptOut(db, { canal: 'whatsapp', destino: telefone, origem, motivo, pessoaId });
+  const d = r.destino;
+  const bruto = String(telefone || '').replace(/\D/g, '');
+  try { db.prepare('INSERT OR IGNORE INTO wa_optout (telefone) VALUES (?)').run(bruto); } catch { /* tabela ausente */ }
+  let fichas = 0;
+  const desmarcar = db.prepare('UPDATE pessoas SET aceitaWhatsappMarketing = 0 WHERE id = ?');
+  for (const p of db.prepare(`SELECT id, telefone FROM pessoas
+      WHERE COALESCE(aceitaWhatsappMarketing, 0) = 1 AND COALESCE(telefone, '') <> ''`).all()) {
+    if (normalizarDestino('whatsapp', p.telefone) === d) fichas += desmarcar.run(p.id).changes;
+  }
+  let pendentesLegado = 0;
+  try {
+    pendentesLegado = db.prepare(`UPDATE wa_campanha_dest SET status = 'optout'
+      WHERE status = 'pendente' AND (telefone IN (?, ?) OR jid LIKE ?)`).run(d, bruto, bruto + '@%').changes;
+  } catch { /* tenant sem a campanha legado */ }
+  return { destino: d, fichas, pendentesLegado };
+}
+
+/**
  * Reinclusão. Exige confirmação explícita de quem manda porque desfazer um
  * "não me mande mais" é decisão de risco, não correção de digitação.
  */
@@ -191,18 +229,105 @@ function removerOptOut(db, canal, destino) {
   return { removidos: r.changes };
 }
 
+// ==================== ENVIO PARA CONTATO AVULSO ====================
+
+// Colunas de comm_envios, na ordem da reconstrução. Coluna que a tabela tenha e
+// não esteja aqui faz a migração recusar, em vez de perdê-la.
+const COLUNAS_ENVIO = ['id', 'campanhaId', 'pessoaId', 'canal', 'destino', 'mensagemRenderizada',
+  'assuntoRenderizado', 'status', 'dataEnvio', 'erro', 'dia', 'motivoDescartado', 'canalId', 'rodada'];
+
+/**
+ * `comm_envios.pessoaId` deixa de ser obrigatório.
+ *
+ * A lista aceita contato AVULSO (digitado, importado de planilha ou vindo do
+ * legado), que não tem ficha de cliente. A tabela exigia pessoaId, e o disparo
+ * falhava com "NOT NULL constraint failed: comm_envios.pessoaId" em qualquer
+ * lista com avulso, que no 1bit são as três listas importadas (27.775
+ * contatos). Descoberto em 28/09, ao enviar a campanha "exemplo".
+ *
+ * SQLite não tira NOT NULL por ALTER: a tabela é reconstruída, com os mesmos
+ * ids. Idempotente: já reconstruída, não faz nada.
+ */
+function permitirEnvioAvulso(db) {
+  let cols;
+  try { cols = db.prepare('PRAGMA table_info(comm_envios)').all(); } catch { return false; }
+  const pessoa = cols.find(c => c.name === 'pessoaId');
+  if (!pessoa || !pessoa.notnull) return false;
+  const nomes = cols.map(c => c.name);
+  const desconhecidas = nomes.filter(c => !COLUNAS_ENVIO.includes(c));
+  if (desconhecidas.length) throw new Error('comm_envios tem coluna que a migração não conhece: ' + desconhecidas.join(', '));
+  const antes = db.prepare('SELECT COUNT(*) n FROM comm_envios').get().n;
+  db.transaction(() => {
+    db.exec(`CREATE TABLE comm_envios_avulso (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campanhaId INTEGER NOT NULL,
+      pessoaId INTEGER,
+      canal TEXT NOT NULL,
+      destino TEXT,
+      mensagemRenderizada TEXT,
+      assuntoRenderizado TEXT,
+      status TEXT NOT NULL DEFAULT 'pendente',
+      dataEnvio TEXT,
+      erro TEXT, dia TEXT, motivoDescartado TEXT, canalId INTEGER, rodada INTEGER NOT NULL DEFAULT 1,
+      FOREIGN KEY (campanhaId) REFERENCES comm_campanhas(id) ON DELETE CASCADE,
+      FOREIGN KEY (pessoaId) REFERENCES pessoas(id)
+    )`);
+    db.exec(`INSERT INTO comm_envios_avulso (${nomes.join(', ')}) SELECT ${nomes.join(', ')} FROM comm_envios`);
+    const depois = db.prepare('SELECT COUNT(*) n FROM comm_envios_avulso').get().n;
+    if (depois !== antes) throw new Error(`reconstrução de comm_envios copiou ${depois} de ${antes}`);
+    db.exec('DROP TABLE comm_envios');
+    db.exec('ALTER TABLE comm_envios_avulso RENAME TO comm_envios');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_env_campanha ON comm_envios(campanhaId, status)');
+  })();
+  return true;
+}
+
+// ==================== RODADAS ====================
+
+/**
+ * A mesma campanha pode ser enviada mais de uma vez (decisão de 28/09): cada
+ * envio é uma RODADA, com a lista inteira de novo. `comm_campanhas.rodada` é a
+ * atual; `comm_envios.rodada` diz de qual rodada é cada envio. Os totais da
+ * campanha são sempre os da rodada atual, e as anteriores ficam nos envios.
+ * O que já existia é a rodada 1. Idempotente.
+ */
+function migrarRodadas(db) {
+  const colunas = (t) => { try { return db.prepare(`PRAGMA table_info(${t})`).all().map(c => c.name); } catch { return []; } };
+  const camp = colunas('comm_campanhas'), env = colunas('comm_envios');
+  if (camp.length && !camp.includes('rodada')) db.exec('ALTER TABLE comm_campanhas ADD COLUMN rodada INTEGER NOT NULL DEFAULT 1');
+  if (env.length && !env.includes('rodada')) db.exec('ALTER TABLE comm_envios ADD COLUMN rodada INTEGER NOT NULL DEFAULT 1');
+  if (env.length) db.exec('CREATE INDEX IF NOT EXISTS idx_env_rodada ON comm_envios(campanhaId, rodada, status)');
+  // Ritmo e horário da campanha nova (29/09): JSON com limiteDia,
+  // intervaloMin, intervaloMax e horario { inicio, fim, dias }. Nulo = padrão.
+  if (camp.length && !camp.includes('ritmo')) db.exec('ALTER TABLE comm_campanhas ADD COLUMN ritmo TEXT');
+}
+
 // ==================== TEMPLATE ====================
 
 function renderizar(texto, pessoa) {
   if (!texto) return '';
-  const primeiroNome = (pessoa.razaoSocial || '').trim().split(/\s+/)[0] || '';
+  // Quem chama pode mandar o primeiro nome pronto (a campanha legado manda o
+  // do nome do lead). Sem ele, sai do NOME FANTASIA, e da razão social só
+  // quando não há fantasia: em 1 de cada 5 leads a razão social é outra
+  // pessoa ("BUXIM XEI CHURRASCARIA" tem razão "G DOS S FREITAS MARQUES…"), e
+  // sairia "Olá G". Desde 29/09 a ficha do lead guarda o nome dele em
+  // `nomeFantasia` e a razão social da Receita em `razaoSocial`.
+  const nome = String(pessoa.nomeFantasia || '').trim() || String(pessoa.razaoSocial || '').trim();
+  const primeiroNome = pessoa.primeiroNome != null ? String(pessoa.primeiroNome)
+    : (nome.split(/\s+/)[0] || '');
+  // O identificador interno de quem não tem documento (SD-…) não é CPF nem
+  // CNPJ, e não pode chegar ao cliente.
+  const documento = pessoa.cpfCnpj && !ehIdentificadorInterno(pessoa.cpfCnpj) ? pessoa.cpfCnpj : '';
   const vars = {
     razaoSocial: pessoa.razaoSocial || '',
     nomeFantasia: pessoa.nomeFantasia || pessoa.razaoSocial || '',
     primeiroNome,
-    cpfCnpj: pessoa.cpfCnpj || '',
+    cpfCnpj: documento,
     email: pessoa.email || '',
     telefone: pessoa.telefone || '',
+    cidade: pessoa.cidade || '',
+    ramo: pessoa.ramo || pessoa.cnaeDescricao || '',
+    porte: pessoa.porte || '',
   };
   return String(texto).replace(/\{\{(\w+)\}\}/g, (m, k) => (vars[k] != null ? vars[k] : m));
 }
@@ -253,16 +378,20 @@ function validarTemplate(dados) {
  * campanha que diz "500 enviados" sem dizer que 120 estavam em opt-out e 30
  * tinham e-mail inválido dá uma taxa de sucesso que não existe.
  */
-function prepararDestinatarios(db, { listaId, canal, tipo }) {
+function prepararDestinatarios(db, { listaId, canal, tipo, segmentos }) {
   const exigeConsentimento = (tipo || 'marketing') === 'marketing';
+  // Só alguns segmentos: o segmento mora na ficha, então o contato avulso,
+  // sem ficha, fica de fora do filtro.
+  const ids = Array.isArray(segmentos) ? segmentos.map(Number).filter(Boolean) : [];
+  const soSegmentos = ids.length ? ` AND p.segmentoId IN (${ids.map(() => '?').join(',')})` : '';
   // LEFT JOIN e não JOIN: a lista aceita contato avulso (digitado à mão), que
   // não existe em pessoas. Nesse caso o destino vem da própria linha do membro.
   const membros = db.prepare(`
     SELECT p.*, m.destinoManual, m.nomeManual, m.id AS membroId
     FROM comm_lista_membros m
     LEFT JOIN pessoas p ON p.id = m.pessoaId
-    WHERE m.listaId = ?
-    ORDER BY COALESCE(p.id, m.id)`).all(listaId)
+    WHERE m.listaId = ?${soSegmentos}
+    ORDER BY COALESCE(p.id, m.id)`).all(listaId, ...ids)
     .map(r => r.id ? r : {
       // Avulso: monta uma "pessoa" mínima, com o mesmo formato que o resto do
       // fluxo espera (renderização de {{razaoSocial}}, descarte, dedup).
@@ -293,6 +422,12 @@ function prepararDestinatarios(db, { listaId, canal, tipo }) {
     }
     if (optouts.has(destino)) {
       descartados.push({ pessoaId: p.id, nome: p.razaoSocial, destino, motivo: 'pediu para não receber (opt-out)' });
+      continue;
+    }
+    // Número que a Evolution disse não ter WhatsApp (wa-numeros.js): tentar de
+    // novo só ocupa um intervalo do ritmo e falha igual.
+    if (canal === 'whatsapp' && semWhatsapp(db, destino)) {
+      descartados.push({ pessoaId: p.id, nome: p.razaoSocial, destino, motivo: 'número sem WhatsApp' });
       continue;
     }
     // Opt-out vale sempre; consentimento só para marketing. Aviso de entrega e
@@ -326,6 +461,7 @@ function prepararDestinatarios(db, { listaId, canal, tipo }) {
       optout: descartados.filter((d) => /opt-out/.test(d.motivo)).length,
       semConsentimento: descartados.filter((d) => /não autorizou/.test(d.motivo)).length,
       duplicados: descartados.filter((d) => /repetido/.test(d.motivo)).length,
+      semWhatsapp: descartados.filter((d) => d.motivo === 'número sem WhatsApp').length,
     },
   };
 }
@@ -404,13 +540,14 @@ function diagnosticoConsentimento(db, canal) {
 }
 
 module.exports = {
+  migrarRodadas, descadastrarWhatsApp,
   CANAIS, VARIAVEIS, TIPOS_CAMPANHA, COLUNA_CONSENTIMENTO,
   diagnosticoConsentimento,
   aceitaMarketing,
   migrarDB,
   normalizarEmail, normalizarTelefone, normalizarDestino, destinoBruto,
   estaOptOut, registrarOptOut, removerOptOut,
-  renderizar, placeholdersDesconhecidos, validarTemplate,
+  renderizar, placeholdersDesconhecidos, validarTemplate, permitirEnvioAvulso,
   prepararDestinatarios,
   janelaPermitida,
 };

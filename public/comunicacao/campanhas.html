@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Campanhas · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<link rel="stylesheet" href="/css/comunicacao.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Campanhas</h1></div>
+  </div>
+  <div id="alertGlobal"></div>
+
+      <div class="toolbar">
+        <button class="btn btn-primary" onclick="novaCampanha()">+ Nova campanha</button>
+        <span class="spacer"></span>
+        <span id="campResumo" style="font-size:0.85em;color:var(--text-2);"></span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Campanha</th><th>Origem</th><th>Status</th><th>Destinatários</th><th>Criada</th><th></th></tr></thead>
+          <tbody id="tbCamp"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+</main></div>
+<!-- modal de envios: quem recebeu, quem falhou e por quê -->
+<div class="modal-bg" id="modalEnvios">
+  <div class="modal" style="max-width:860px;">
+    <div class="modal-header">
+      <div><h3 style="margin:0;">Envios da campanha</h3>
+        <small class="muted" id="envSub"></small></div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalEnvios')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div id="envFiltros" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;"></div>
+    <div style="max-height:52vh;overflow:auto;">
+      <table class="tabela">
+        <thead><tr><th>Telefone</th><th>Nome</th><th>Situação</th><th>Quando</th><th>Motivo</th></tr></thead>
+        <tbody id="tbEnvios"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="baixarEnviosCsv()">Baixar CSV</button>
+      <button class="btn btn-ghost" onclick="fechar('modalEnvios')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- modal de disparo: agora ou agendado, para os dois módulos -->
+<div class="modal-bg" id="modalDisparo">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <div><h3 style="margin:0;">Enviar campanha</h3>
+        <small class="muted" id="dispSub"></small></div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalDisparo')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div id="dispResumo"></div>
+    <div class="form-row"><div class="form-group full-width">
+      <label><input type="radio" name="dispQuando" value="agora" checked onchange="mudouQuando()" style="width:auto;">
+        <strong>Começar agora</strong></label>
+      <small class="muted">As mensagens saem no ritmo do canal — não vão todas de uma vez.</small>
+    </div></div>
+    <div class="form-row"><div class="form-group full-width">
+      <label><input type="radio" name="dispQuando" value="agendar" onchange="mudouQuando()" style="width:auto;">
+        <strong>Agendar início</strong></label>
+      <input type="datetime-local" id="dispData" disabled style="max-width:230px;margin-top:6px;">
+      <small class="muted">O sistema confere a cada 2 minutos e começa quando a hora chegar.</small>
+    </div></div>
+    <div id="dispAviso"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalDisparo')">Cancelar</button>
+      <button class="btn btn-ghost" id="btnDesagendar" style="display:none;" onclick="desagendarDisparo()">Cancelar agendamento</button>
+      <button class="btn btn-primary" onclick="confirmarDisparo()">Confirmar</button>
+    </div>
+  </div>
+</div>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('comunicacao-campanhas');</script>
+<script src="/js/comunicacao-comum.js"></script>
+<script>
+// ---------- campanhas (as duas fontes) ----------
+async function carregarCampanhas(){
+  const d = await fetch('/api/conversas/campanhas').then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  const tb = document.getElementById('tbCamp');
+  document.getElementById('campResumo').textContent = `${d.campanhas.length} campanha(s)`;
+  if (!d.campanhas.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma campanha ainda — comece por "+ Nova campanha"</td></tr>'; return; }
+  tb.innerHTML = d.campanhas.map(c => {
+    // Cada contador abre a lista já filtrada — ver "1 falha" sem poder clicar
+    // nela obriga a caçar o número por fora.
+    const dest = c.destinatarios
+      ? Object.entries(c.destinatarios).map(([k,v]) =>
+          `<a href="#" onclick="verEnvios(event, ${c.id}, '${c.origem}', ${argJs(c.nome)}, '${k}')">${numBR(v)} ${k}</a>`).join(' · ')
+      : (c.totalDestinatarios != null ? `${numBR(c.totalDestinatarios)} na lista` : '—');
+    // A lista, quando existe. A campanha legado guarda os próprios
+    // destinatários e nunca tem uma — dizer isso em toda linha só somaria
+    // textura à coluna Origem, que já a marca como legado.
+    const vinculo = c.listaId
+      ? `<br><small class="muted">lista: <a href="/comunicacao/listas.html?lista=${c.listaId}">${esc(c.listaNome || 'sem nome')}</a></small>`
+      : '';
+    const pend = c.destinatarios?.pendente || 0;
+    // comm em rascunho pode ser executada; wa com pendentes pode ser cancelada.
+    // Uma ação principal (a mais provável no estado atual) e o resto num menu:
+    // quatro botões por linha viravam parede.
+    const st = String(c.status || '');
+    const org = c.origem;
+    const agenda = argJs(c.agendadaPara);
+    let principal = '', itens = [];
+
+    // "Enviar" abre o modal de disparo, onde se escolhe entre começar agora e
+    // agendar. Antes eram duas ações separadas e o agendamento vivia escondido
+    // no menu ⋯, atrás de um prompt de texto.
+    const quantos = c.totalDestinatarios != null ? c.totalDestinatarios : pend;
+    const disparo = `abrirDisparo(${c.id}, '${org}', ${agenda}, ${quantos || 0}, ${argJs(c.nome)})`;
+
+    if (org === 'comm') {
+      if (['rascunho','agendada','pausada'].includes(st)) {
+        principal = { rotulo: st === 'pausada' ? 'Retomar' : 'Enviar', fn: disparo };
+        itens = [
+          { rotulo: 'Editar', fn: `abrirCampanhaComm(${c.id})` },
+          { rotulo: 'Duplicar', fn: `duplicarCampanha(${c.id})` },
+        ];
+      } else if (st === 'enviando') {
+        principal = { rotulo: 'Pausar', fn: `pausarCampanha(${c.id}, 'comm')` };
+        itens = [{ rotulo: 'Cancelar envio', fn: `cancelarCommCampanha(${c.id})`, perigo: true }];
+      } else if (['enviada','cancelada'].includes(st)) {
+        // A mesma campanha sai de novo, para a lista inteira, como a rodada
+        // seguinte. O histórico fica nela (Ver envios, por rodada).
+        principal = { rotulo: 'Enviar de novo',
+          fn: `abrirDisparo(${c.id}, '${org}', null, ${c.totalDestinatarios || 0}, ${argJs(c.nome)}, ${(c.rodada || 1) + 1})` };
+        // Editar a que já saiu vale para a rodada seguinte, e não mexe no que
+        // foi enviado. Sem isto, mudar uma palavra numa campanha enviada (as
+        // "(cópia)" do 1bit) obrigava a duplicá-la outra vez.
+        itens = [
+          { rotulo: 'Editar', fn: `abrirCampanhaComm(${c.id})` },
+          { rotulo: 'Duplicar', fn: `duplicarCampanha(${c.id})` },
+        ];
+      } else {
+        principal = { rotulo: 'Duplicar', fn: `duplicarCampanha(${c.id})` };
+        itens = [{ rotulo: 'Editar', fn: `abrirCampanhaComm(${c.id})` }];
+      }
+    } else if (st === 'enviando') {
+      principal = { rotulo: 'Pausar', fn: `pausarCampanha(${c.id}, 'wa')` };
+      itens = [{ rotulo: 'Editar', fn: `abrirCampanha(${c.id})` }];
+    } else {
+      principal = { rotulo: st === 'pausada' ? 'Retomar' : 'Enviar', fn: disparo };
+      itens = [{ rotulo: 'Editar', fn: `abrirCampanha(${c.id})` }];
+    }
+    if (org !== 'comm' && pend) {
+      itens.push({ rotulo: `Cancelar ${pend} pendente(s)`, fn: `cancelarCampanha(${c.id}, ${pend})`, perigo: true });
+    }
+    // Vale para qualquer estado: é onde se vê quem falhou e por quê.
+    itens.push({ rotulo: 'Ver envios', fn: `abrirEnvios(${c.id}, '${org}', ${argJs(c.nome)})` });
+
+    const acao = `<div class="acoes">
+      ${principal ? `<button class="btn btn-primary btn-sm" onclick="${principal.fn}">${principal.rotulo}</button>` : ''}
+      ${itens.length ? `<details class="menu"><summary title="Mais ações">⋯</summary><div class="itens">
+        ${itens.map(i => `<button class="${i.perigo?'perigo':''}" onclick="fecharMenus(); ${i.fn}">${i.rotulo}</button>`).join('')}
+      </div></details>` : ''}
+    </div>`;
+    return `<tr>
+      <td><strong>${esc(c.nome||'(sem nome)')}</strong>${c.descricao?`<br><small class="muted">${esc(String(c.descricao).slice(0,90))}</small>`:''}${c.templateNome?`<br><small class="muted">modelo: ${esc(c.templateNome)}</small>`:''}</td>
+      <td><span class="badge ${c.origem==='wa'?'inativo':'ativo'}">${c.origem==='wa'?'legado':'campanha'}</span></td>
+      <td>${esc(c.status||'—')}${c.rodada > 1 ? `<br><small class="muted">rodada ${c.rodada}</small>` : ''}</td>
+      <td>${dest}${vinculo}</td>
+      <td>${esc(dataBR(c.criadoEm))}</td>
+      <td style="text-align:right;">${acao}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ---------- editar campanha legado (wa_campanhas) ----------
+// A edição virou PÁGINA (`/comunicacao/campanha.html`). Ela cresceu muito além
+// do que cabe num modal: abordagem, exemplos que a IA imita, nove segmentos com
+// palavras e frases, perguntas finais, imagens, ritmo e o JSON avançado. Num
+// modal isso era rolagem dentro de uma caixa, com o resto da tela escurecido
+// atrás — e foi o que fez ninguém mexer nessas configurações.
+function abrirCampanha(id){
+  location.href = '/comunicacao/campanha.html?id=' + id;
+}
+
+// ---------- nova campanha ----------
+// Criar e editar campanha viraram PÁGINA, a mesma da campanha legado. O que era
+// modal tinha filtro de público, tabela de 2.000 clientes e o campo de números
+// à mão — grande demais para uma caixa sobre a tela.
+function novaCampanha(){
+  location.href = '/comunicacao/campanha.html?nova=1';
+}
+function abrirCampanhaComm(id){
+  location.href = '/comunicacao/campanha.html?comm=' + id;
+}
+
+async function duplicarCampanha(id){
+  const d = await fetch(`/api/comm/campanhas/${id}/duplicar`, { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: '{}' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Cópia criada em rascunho: "${d.campanha.nome}" — edite antes de executar`);
+  carregarCampanhas();
+}
+
+// ---------- envios: quem recebeu, quem falhou e por quê ----------
+let ENVIOS = null;   // { id, origem, nome, filtro, linhas }
+
+// O adapter guarda o erro cru da Evolution. Traduz o que é recorrente para
+// algo acionável — "http 400" não diz a ninguém o que fazer.
+function motivoLegivel(erro){
+  const e = String(erro || '');
+  if (!e) return '';
+  if (/http 400/.test(e)) return 'número não tem WhatsApp';
+  if (/http 40[13]/.test(e)) return 'instância recusou (verifique a conexão do canal)';
+  if (/http 5\d\d/.test(e)) return 'erro no servidor da Evolution';
+  if (/M1 reprovada/.test(e)) return e.replace('M1 reprovada:', 'texto reprovado:');
+  return e;
+}
+
+function verEnvios(ev, id, origem, nome, filtro){
+  ev.preventDefault();
+  abrirEnvios(id, origem, nome, filtro);
+}
+
+async function abrirEnvios(id, origem, nome, filtro){
+  ENVIOS = { id, origem, nome, filtro: filtro || '', linhas: [] };
+  document.getElementById('envSub').textContent = nome || '';
+  document.getElementById('tbEnvios').innerHTML = '<tr><td colspan="5" class="empty">Carregando…</td></tr>';
+  document.getElementById('envFiltros').innerHTML = '';
+  document.getElementById('modalEnvios').classList.add('open');
+  await carregarEnvios();
+}
+
+async function carregarEnvios(){
+  const { id, origem } = ENVIOS;
+  if (origem === 'wa') {
+    // 500 é o teto da rota; numa lista de 15 mil, o filtro por situação é o
+    // que torna a tela útil — ninguém audita 15 mil linhas de uma vez.
+    const q = ENVIOS.filtro ? `?status=${ENVIOS.filtro}&limit=500` : '?limit=500';
+    const d = await fetch(`/api/wa-campanhas/${id}/dest${q}`).then(r=>r.json());
+    if (!d.success) return showAlert(d.error,'error');
+    ENVIOS.linhas = (d.dest || []).map(x => ({
+      telefone: x.telefone, nome: x.nome, status: x.status, quando: x.enviado_em, erro: x.erro }));
+  } else {
+    const d = await fetch(`/api/comm/campanhas/${id}` + (ENVIOS.rodada ? `?rodada=${ENVIOS.rodada}` : ''))
+      .then(r=>r.json());
+    if (!d.success) return showAlert(d.error,'error');
+    ENVIOS.rodada = d.rodada || null;
+    ENVIOS.rodadas = d.rodadas || [];
+    ENVIOS.linhas = (d.envios || [])
+      .filter(x => !ENVIOS.filtro || x.status === ENVIOS.filtro)
+      .map(x => ({ telefone: x.destino, nome: x.razaoSocial, status: x.status, quando: x.dataEnvio, erro: x.erro }));
+  }
+  pintarEnvios();
+}
+
+function pintarEnvios(){
+  const chips = ['', 'falha', 'pendente', 'enviado']
+    .map(s => `<button class="btn btn-sm ${ENVIOS.filtro === s ? 'btn-primary' : 'btn-ghost'}"
+      onclick="filtrarEnvios('${s}')">${s ? esc(s) : 'todos'}</button>`).join('');
+  // Com mais de uma rodada, escolhe-se de qual são os envios mostrados.
+  const rodadas = ENVIOS.rodadas || [];
+  const seletor = rodadas.length > 1
+    ? `<select onchange="ENVIOS.rodada = Number(this.value); carregarEnvios()" style="width:auto;padding:4px;">
+        ${rodadas.map(r => `<option value="${r.rodada}" ${r.rodada === ENVIOS.rodada ? 'selected' : ''}>Rodada ${r.rodada}
+          · ${numBR(r.enviados || 0)} enviado(s)${r.inicio ? ' · ' + new Date(r.inicio).toLocaleDateString('pt-BR') : ''}</option>`).join('')}
+      </select>`
+    : '';
+  document.getElementById('envFiltros').innerHTML = seletor + chips
+    + `<span class="muted" style="align-self:center;margin-left:8px;">${ENVIOS.linhas.length} linha(s)</span>`;
+
+  const tb = document.getElementById('tbEnvios');
+  if (!ENVIOS.linhas.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">Nada aqui</td></tr>'; return; }
+  tb.innerHTML = ENVIOS.linhas.map(l => `<tr>
+    <td style="white-space:nowrap;">${esc(l.telefone)}</td>
+    <td>${esc(l.nome || '')}</td>
+    <td>${esc(l.status || '')}</td>
+    <td style="white-space:nowrap;">${l.quando ? new Date(l.quando).toLocaleString('pt-BR') : '—'}</td>
+    <td>${esc(motivoLegivel(l.erro))}</td>
+  </tr>`).join('');
+}
+
+function filtrarEnvios(s){ ENVIOS.filtro = s; carregarEnvios(); }
+
+function baixarEnviosCsv(){
+  if (!ENVIOS?.linhas.length) return showAlert('Nada para baixar','error');
+  const linhas = [['telefone','nome','situacao','quando','motivo'],
+    ...ENVIOS.linhas.map(l => [l.telefone, l.nome || '', l.status || '', l.quando || '', motivoLegivel(l.erro)])];
+  const csv = linhas.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(';')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type:'text/csv;charset=utf-8' }));
+  a.download = `envios-${ENVIOS.origem}-${ENVIOS.id}${ENVIOS.filtro ? '-' + ENVIOS.filtro : ''}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ---------- disparo: começar agora ou agendar ----------
+// Um modal só para as duas coisas, nos dois subsistemas. As rotas diferem
+// (o legado dispara por /run, o comm por /executar), a decisão do usuário não.
+let DISPARO = null;
+
+// `novaRodada`: o número da rodada que o disparo abre, quando a campanha já
+// terminou. A rodada só é aberta ao confirmar, e uma vez só.
+function abrirDisparo(id, origem, agendadaPara, quantos, nome, novaRodada){
+  DISPARO = { id, origem, quantos, novaRodada: novaRodada || null };
+  document.getElementById('dispSub').textContent = nome || '';
+  document.getElementById('dispResumo').innerHTML = novaRodada
+    ? `<div class="alert info" style="display:block;">Esta é a rodada ${novaRodada}. A lista inteira recebe de
+       novo, inclusive quem já recebeu nas anteriores. Quem pediu para sair é descartado no envio.</div>`
+    : quantos
+    ? `<div class="alert info" style="display:block;">Vai para <strong>${quantos}</strong> destinatário(s).
+       Quem pediu para sair é descartado no envio.</div>`
+    : `<div class="alert warn" style="display:block;">Esta campanha ainda não tem destinatários —
+       adicione a lista antes de enviar.</div>`;
+
+  const agendada = !!agendadaPara;
+  document.querySelector('input[name="dispQuando"][value="agora"]').checked = !agendada;
+  document.querySelector('input[name="dispQuando"][value="agendar"]').checked = agendada;
+  // datetime-local trabalha em hora local; o valor guardado é ISO em UTC.
+  document.getElementById('dispData').value = agendada ? paraLocalInput(new Date(agendadaPara)) : '';
+  document.getElementById('btnDesagendar').style.display = agendada ? '' : 'none';
+  document.getElementById('dispAviso').innerHTML = '';
+  mudouQuando();
+  document.getElementById('modalDisparo').classList.add('open');
+}
+
+function paraLocalInput(d){
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function mudouQuando(){
+  const agendar = document.querySelector('input[name="dispQuando"]:checked')?.value === 'agendar';
+  const campo = document.getElementById('dispData');
+  campo.disabled = !agendar;
+  if (agendar && !campo.value) campo.value = paraLocalInput(new Date(Date.now() + 3600000));
+}
+
+async function confirmarDisparo(forcar){
+  if (!DISPARO) return;
+  const { id, origem } = DISPARO;
+  const av = document.getElementById('dispAviso');
+  const agendar = document.querySelector('input[name="dispQuando"]:checked')?.value === 'agendar';
+  const erro = (m) => { av.innerHTML = `<div class="alert error" style="display:block;">${esc(m)}</div>`; };
+
+  if (DISPARO.novaRodada) {
+    const n = await fetch(`/api/comm/campanhas/${id}/nova-rodada`, { method:'POST',
+      headers:{'Content-Type':'application/json'}, body:'{}' }).then(r=>r.json()).catch(()=>null);
+    if (!n?.success) return erro(n?.error || 'Não foi possível abrir a nova rodada');
+    // Aberta: uma nova tentativa (fora da janela, por exemplo) não abre outra.
+    DISPARO.novaRodada = null;
+  }
+
+  if (agendar) {
+    const v = document.getElementById('dispData').value;
+    if (!v) return erro('Escolha a data e a hora de início');
+    const quando = new Date(v);                       // ISO com fuso: não depende do TZ do servidor
+    if (isNaN(quando)) return erro('Data inválida');
+    if (quando.getTime() < Date.now()) return erro('Essa hora já passou');
+    const url = origem === 'wa' ? `/api/wa-campanhas/${id}/agendar` : `/api/comm/campanhas/${id}/agendar`;
+    const d = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ quando: quando.toISOString() }) }).then(r=>r.json());
+    if (!d.success) return erro(d.error);
+    fechar('modalDisparo');
+    showAlert('Agendada para ' + new Date(d.agendadaPara).toLocaleString('pt-BR'));
+    return carregarCampanhas();
+  }
+
+  const url = origem === 'wa' ? `/api/wa-campanhas/${id}/run` : `/api/comm/campanhas/${id}/executar`;
+  const d = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(forcar ? { ignorarJanela: true } : {}) }).then(r=>r.json());
+  if (!d.success) {
+    erro(d.error);
+    // Fora da janela de horário é recusa recuperável — o próprio comm aceita
+    // ignorarJanela, então oferecemos o forçar em vez de só barrar.
+    if (d.janela) {
+      av.innerHTML += `<div style="margin-top:8px;"><button class="btn btn-ghost btn-sm"
+        onclick="confirmarDisparo(true)">Enviar mesmo assim</button></div>`;
+    }
+    return;
+  }
+  fechar('modalDisparo');
+  // A campanha de WhatsApp envia em segundo plano (`started`), e fora do
+  // horário dela espera: a resposta diz quando começa (`aguarda`).
+  showAlert(d.aguarda ? 'Campanha pronta, ' + d.aguarda
+    : (origem === 'wa' || d.started) ? 'Envio iniciado. Acompanhe pelo status da campanha.'
+    : `Campanha executada: ${d.enviados ?? 0} enviado(s)`
+      + (d.descartados ? `, ${d.descartados} descartado(s) por opt-out ou consentimento` : ''));
+  carregarCampanhas();
+}
+
+async function desagendarDisparo(){
+  if (!DISPARO) return;
+  const { id, origem } = DISPARO;
+  const url = origem === 'wa' ? `/api/wa-campanhas/${id}/desagendar` : `/api/comm/campanhas/${id}/agendar`;
+  const d = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' })
+    .then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  fechar('modalDisparo');
+  showAlert('Agendamento cancelado — a campanha voltou para rascunho');
+  carregarCampanhas();
+}
+
+
+async function cancelarCommCampanha(id){
+  const d = await fetch(`/api/comm/campanhas/${id}/cancelar`, { method:'POST' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Campanha cancelada');
+  carregarCampanhas();
+}
+
+async function pausarCampanha(id, origem){
+  const url = origem === 'wa' ? `/api/wa-campanhas/${id}/pausar` : `/api/comm/campanhas/${id}/pausar`;
+  const d = await fetch(url, { method:'POST' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(d.emExecucao ? 'Envio interrompido' : 'Campanha marcada como pausada');
+  carregarCampanhas();
+}
+
+async function cancelarCampanha(id, pend){
+  const d = await fetch(`/api/conversas/campanhas/wa/${id}/cancelar`, { method:'POST' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`${d.cancelados} destinatário(s) cancelado(s)`);
+  carregarCampanhas();
+}
+
+carregarCampanhas();
+</script>
+</body>
+</html>

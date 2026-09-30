@@ -53,7 +53,7 @@ const app = express();
 app.use(express.json());
 require('../comm-routes').registrarRotasComm(app, db);
 
-function call(m, p, body = {}, params = {}, query = {}) {
+function call(m, p, body = {}, params = {}, query = {}, arquivo = null) {
   let h = null;
   for (const c of app.router.stack) {
     if (c.route && c.route.path === p && c.route.methods[m]) h = c.route.stack[c.route.stack.length - 1].handle;
@@ -65,7 +65,8 @@ function call(m, p, body = {}, params = {}, query = {}) {
       status(c) { this.statusCode = c; return this; },
       json(j) { resolve({ status: this.statusCode, body: j }); return this; },
     };
-    Promise.resolve(h({ body, params, query, user: { username: 't' }, session: { username: 't' },
+    // `arquivo` faz o papel do multer, que fica de fora por chamarmos só o handler.
+    Promise.resolve(h({ body, params, query, file: arquivo, user: { username: 't' }, session: { username: 't' },
       tenantCtx: { slug: 'demo' }, tenantDb: db }, res, () => {})).catch(() => {});
   });
 }
@@ -521,65 +522,91 @@ await t('a prévia aponta problema de template antes do disparo', async () => {
     JSON.stringify(r.body.problemasTemplate));
 });
 
-// ==================== lead digitado à mão na lista ====================
+// ==================== contato avulso por planilha ====================
 //
-// A rota aceitava `manuais` desde sempre e nenhuma tela mandava o campo, então
-// o caminho inteiro nunca tinha sido exercido. Ele entrou na tela em 18/09 e
-// merece teste pelo que pode dar errado: telefone inválido aceito calado,
-// contato manual furando o opt-out, e a mesma linha entrando duas vezes.
+// Até 28/09 o contato avulso era digitado num campo de texto; desde então vem
+// de planilha (.xlsx, .xls ou .csv). As garantias são as mesmas de antes:
+// telefone inválido não entra calado, o mesmo número não entra duas vezes, e
+// contato avulso não fura o opt-out.
 
-await t('lead digitado a mao entra na lista, com e sem nome', async () => {
+const XLSX = require('xlsx');
+const planilha = (linhas, tipo = 'xlsx') => {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhas), 'Contatos');
+  return { buffer: XLSX.write(wb, { type: 'buffer', bookType: tipo }), originalname: 'contatos.' + tipo };
+};
+const importar = (l, linhas, tipo) => call('post', '/api/comm/listas/:id/importar', {}, { id: l }, {}, planilha(linhas, tipo));
+const membrosDe = (l) => db.prepare('SELECT destinoManual, nomeManual, ramo FROM comm_lista_membros WHERE listaId = ? ORDER BY id').all(l);
+
+await t('planilha entra na lista, com nome e ramo, e o telefone normalizado', async () => {
   limpar();
   const l = novaLista();
-  const r = await call('post', '/api/comm/listas/:id/membros',
-    { manuais: '94 99123-4567\n5594988887777, Zé da Loja\nMaria Souza; (94) 97777-6666' }, { id: l });
+  const r = await importar(l, [['Telefone', 'Nome', 'Ramo'],
+    ['94 99123-4567', 'Zé da Loja', 'Comércio varejista de bebidas'],
+    [5594988887777, 'Maria Souza', ''],
+    ['(94) 97777-6666', '', 'mercearia']]);
   assert(r.body.success, 'falhou: ' + (r.body.error || ''));
-  assert(r.body.manuais === 3, `entraram ${r.body.manuais} de 3`);
-  const linhas = db.prepare('SELECT destinoManual, nomeManual FROM comm_lista_membros WHERE listaId = ? ORDER BY id').all(l);
-  assert(linhas.every((x) => x.destinoManual && !x.destinoManual.includes(' ')),
-    'telefone entrou sem normalizar: ' + JSON.stringify(linhas.map((x) => x.destinoManual)));
-  assert(linhas[1].nomeManual === 'Zé da Loja', 'nome depois do telefone: ' + linhas[1].nomeManual);
-  assert(linhas[2].nomeManual === 'Maria Souza', 'nome antes do telefone: ' + linhas[2].nomeManual);
+  assert(r.body.adicionados === 3, `entraram ${r.body.adicionados} de 3`);
+  const m = membrosDe(l);
+  assert(m.every((x) => /^\d+$/.test(x.destinoManual)), 'telefone sem normalizar: ' + JSON.stringify(m.map((x) => x.destinoManual)));
+  // Digitado como NÚMERO no Excel: tem de chegar inteiro, e não como 5,59E+12.
+  assert(m[1].destinoManual === '5594988887777', 'o número do Excel chegou como ' + m[1].destinoManual);
+  assert(m[0].nomeManual === 'Zé da Loja' && m[0].ramo === 'Comércio varejista de bebidas', JSON.stringify(m[0]));
+  assert(m[2].nomeManual === null && m[2].ramo === 'mercearia', JSON.stringify(m[2]));
 });
 
-await t('telefone invalido e RECUSADO e volta nomeado', async () => {
+await t('titulo com acento e caixa alta tambem vale, e csv tambem', async () => {
   limpar();
   const l = novaLista();
-  const r = await call('post', '/api/comm/listas/:id/membros',
-    { manuais: '5594988887777\nnão é telefone\n123' }, { id: l });
-  assert(r.body.manuais === 1, `entraram ${r.body.manuais} — só um era válido`);
+  // "Segmento" é coluna própria desde 28/09 (vai ao cadastro de segmentos, ver
+  // test-segmentos); o ramo sai de Ramo, Atividade ou CNAE.
+  const r = await importar(l, [['CELULAR', 'Razão Social', 'ATIVIDADE'], ['5594988887777', 'Loja A', 'moda']], 'csv');
+  assert(r.body.success && r.body.adicionados === 1, JSON.stringify(r.body));
+  assert(membrosDe(l)[0].nomeManual === 'Loja A' && membrosDe(l)[0].ramo === 'moda', JSON.stringify(membrosDe(l)));
+});
+
+await t('planilha sem a coluna Telefone e RECUSADA, e diz o que falta', async () => {
+  limpar();
+  const l = novaLista();
+  const r = await importar(l, [['Nome', 'Ramo'], ['Zé', 'bar']]);
+  assert(r.status === 400 && /Telefone/.test(r.body.error || ''), JSON.stringify(r));
+  assert(membrosDe(l).length === 0, 'gravou membro sem telefone');
+});
+
+await t('telefone invalido e RECUSADO e volta com a linha do Excel', async () => {
+  limpar();
+  const l = novaLista();
+  const r = await importar(l, [['Telefone'], ['5594988887777'], ['não é telefone'], ['123']]);
+  assert(r.body.adicionados === 1, `entraram ${r.body.adicionados}, só um era válido`);
   assert(r.body.recusados.length === 2, 'recusados: ' + JSON.stringify(r.body.recusados));
-  assert(r.body.recusados.includes('não é telefone'),
-    'a linha recusada precisa voltar como foi digitada, para a pessoa achar o erro');
+  assert(r.body.recusados.includes('linha 3: não é telefone'),
+    'a linha recusada precisa voltar com o número da linha, para a pessoa achar o erro: ' + JSON.stringify(r.body.recusados));
 });
 
 await t('so linha invalida nao cria membro nenhum e explica', async () => {
   limpar();
   const l = novaLista();
-  const r = await call('post', '/api/comm/listas/:id/membros', { manuais: 'abc\n123' }, { id: l });
+  const r = await importar(l, [['Telefone'], ['abc'], ['123']]);
   assert(r.status === 400, `deveria recusar (veio ${r.status})`);
   assert(/Recusados/.test(r.body.error || ''), 'o erro não diz quais foram: ' + r.body.error);
-  assert(db.prepare('SELECT COUNT(*) n FROM comm_lista_membros WHERE listaId = ?').get(l).n === 0,
-    'gravou membro a partir de linha inválida');
+  assert(membrosDe(l).length === 0, 'gravou membro a partir de linha inválida');
 });
 
-await t('a mesma linha duas vezes nao duplica o contato', async () => {
+await t('o mesmo numero em dois formatos nao duplica o contato', async () => {
   limpar();
   const l = novaLista();
-  await call('post', '/api/comm/listas/:id/membros', { manuais: '5594988887777' }, { id: l });
-  const r = await call('post', '/api/comm/listas/:id/membros', { manuais: '94 98888-7777' }, { id: l });
-  assert(r.body.manuais === 0, `entrou de novo (${r.body.manuais}) — o mesmo número em dois formatos`);
-  assert(db.prepare('SELECT COUNT(*) n FROM comm_lista_membros WHERE listaId = ?').get(l).n === 1,
-    'a lista ficou com o mesmo telefone duas vezes');
+  await importar(l, [['Telefone'], ['5594988887777']]);
+  const r = await importar(l, [['Telefone'], ['94 98888-7777']]);
+  assert(r.body.adicionados === 0 && r.body.repetidos === 1, JSON.stringify(r.body));
+  assert(membrosDe(l).length === 1, 'a lista ficou com o mesmo telefone duas vezes');
 });
 
-await t('lead a mao NAO fura o opt-out no disparo', async () => {
-  // É a garantia que torna a adição manual aceitável. Sem ela, digitar o número
-  // seria o caminho para alcançar justamente quem pediu para parar.
+await t('contato da planilha NAO fura o opt-out no disparo', async () => {
+  // É a garantia que torna o contato avulso aceitável. Sem ela, importar o
+  // número seria o caminho para alcançar justamente quem pediu para parar.
   limpar();
   const l = novaLista();
-  await call('post', '/api/comm/listas/:id/membros',
-    { manuais: '5594988887777, Quem pediu para sair\n5594977776666, Pode receber' }, { id: l });
+  await importar(l, [['Telefone', 'Nome'], ['5594988887777', 'Quem pediu para sair'], ['5594977776666', 'Pode receber']]);
   db.prepare("INSERT INTO comm_optout (canal, destino) VALUES ('whatsapp', '5594988887777')").run();
 
   const r = dest.prepararDestinatarios(db, { listaId: l, canal: 'whatsapp', tipo: 'marketing' });
@@ -589,15 +616,207 @@ await t('lead a mao NAO fura o opt-out no disparo', async () => {
     'o opt-out não apareceu entre os descartes: ' + JSON.stringify(r.descartados));
 });
 
-await t('a tela manda o campo que a rota espera', async () => {
-  // A rota aceitava `manuais` havia meses e nenhuma tela enviava o campo. Se o
-  // nome mudar de um lado só, o formulário volta a não fazer nada — sem erro.
+// ==================== o segmento de cada contato ====================
+//
+// Até 28/09 o ramo era editável por contato e o segmento saía dele a cada
+// consulta. Agora o segmento mora na FICHA da pessoa e a lista o mostra dali;
+// o cadastro, a edição e os filtros estão em test-segmentos.
+
+await t('a lista mostra o segmento da ficha de cada contato', async () => {
+  limpar();
+  require('../segmentos').migrarSegmentos(db);
+  const l = novaLista();
+  const pid = novaPessoa({ telefone: '5594966665555' });
+  const bebidas = require('../segmentos').segmentoPorNome(db, 'Bebidas');
+  db.prepare('UPDATE pessoas SET segmentoId = ? WHERE id = ?').run(bebidas, pid);
+  await call('post', '/api/comm/listas/:id/membros', { pessoaIds: [pid] }, { id: l });
+  const r = await call('get', '/api/comm/listas/:id', {}, { id: l });
+  assert(r.body.membros[0].segmentoId === bebidas, JSON.stringify(r.body.membros[0]));
+  assert(r.body.porSegmento.some(x => x.segmentoId === bebidas && x.n === 1), JSON.stringify(r.body.porSegmento));
+});
+
+await t('a tela manda a planilha para a rota que a le', async () => {
+  // Se o nome do campo ou da rota mudar de um lado só, a importação volta a
+  // não fazer nada, sem erro.
   const tela = fs.readFileSync(
-    require('path').join(__dirname, '..', 'public/comunicacao/ia.html'), 'utf8');
-  assert(/id="ltManuais"/.test(tela), 'a tela não tem o campo de adição manual');
-  assert(/JSON\.stringify\(\{ pessoaIds: \[\.\.\.SEL_LISTA\], manuais \}\)/.test(tela),
-    'a tela não envia `manuais` junto dos selecionados do cadastro');
+    require('path').join(__dirname, '..', 'public/comunicacao/listas.html'), 'utf8');
+  assert(/id="ltArquivo"/.test(tela), 'a tela não tem o campo da planilha');
+  assert(/fd\.append\('arquivo', arquivo\)/.test(tela) && /\/importar`/.test(tela),
+    'a tela não envia a planilha no campo `arquivo` para /importar');
   assert(/recusados/.test(tela), 'a tela não mostra os telefones recusados');
+  assert(!/ltManuais/.test(tela), 'o campo de números à mão continua na tela');
+});
+
+// ==================== imagens do modelo ====================
+//
+// Desde 28/09 o modelo tem um conjunto de imagens, e cada envio sorteia uma
+// (comm-imagens.js). A pasta vai para /tmp: nenhuma suíte grava em data/.
+
+const imagensModelo = require('../comm-imagens');
+imagensModelo.raiz = fs.mkdtempSync('/tmp/comunicacao-img-');
+const PNG = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(16, 7)]);
+const subir = (id, buffer) => call('post', '/api/comm/templates/:id/imagens', {}, { id }, {}, { buffer, originalname: 'x.png' });
+
+await t('imagem do modelo: arquivo que nao e imagem e recusado pela assinatura', async () => {
+  const tpl = novoTemplate();
+  const r = await subir(tpl, Buffer.from('não sou imagem, só me chamo .png'));
+  assert(r.status === 400 && /não é uma imagem/.test(r.body.error || ''), JSON.stringify(r));
+  const l = await call('get', '/api/comm/templates/:id/imagens', {}, { id: tpl });
+  assert(l.body.imagens.length === 0, 'gravou o arquivo recusado');
+});
+
+await t('imagem do modelo: entra, aparece na lista e na contagem, e sai', async () => {
+  const tpl = novoTemplate();
+  const a = await subir(tpl, PNG);
+  const b = await subir(tpl, PNG);
+  assert(a.body.success && b.body.success && b.body.imagens.length === 2, JSON.stringify(b.body));
+  const lista = await call('get', '/api/comm/templates', {}, {});
+  assert(lista.body.templates.find(x => x.id === tpl).imagens === 2, 'a tabela de modelos não conta as imagens');
+  const d = await call('delete', '/api/comm/templates/:id/imagens/:arquivo', {}, { id: tpl, arquivo: a.body.arquivo });
+  assert(d.body.success && d.body.imagens.length === 1 && d.body.imagens[0] === b.body.arquivo, JSON.stringify(d.body));
+});
+
+await t('imagem do modelo: nome com caminho nao sai da pasta do modelo', async () => {
+  const tpl = novoTemplate();
+  await subir(tpl, PNG);
+  for (const nome of ['../../../../etc/passwd', '..%2F..%2Fpncp.db', 'img-1-1.png/../../x']) {
+    assert(imagensModelo.caminho('demo', tpl, nome) === null, 'aceitou ' + nome);
+    const d = await call('delete', '/api/comm/templates/:id/imagens/:arquivo', {}, { id: tpl, arquivo: nome });
+    assert(d.status === 404, `apagar "${nome}" respondeu ${d.status}`);
+  }
+  assert(imagensModelo.listar('demo', tpl).length === 1, 'a imagem verdadeira sumiu');
+});
+
+await t('imagem do modelo: o limite de ' + imagensModelo.MAX_IMAGENS + ' e dito, e nao estoura calado', async () => {
+  const tpl = novoTemplate();
+  for (let i = 0; i < imagensModelo.MAX_IMAGENS; i++) await subir(tpl, PNG);
+  const r = await subir(tpl, PNG);
+  assert(r.status === 400 && /máximo/.test(r.body.error || ''), JSON.stringify(r.body));
+  assert(imagensModelo.listar('demo', tpl).length === imagensModelo.MAX_IMAGENS, 'passou do limite');
+});
+
+// Vídeo MP4 no conjunto (30/09, a pedido): o modelo de alimentação só aceitava
+// imagem. Só MP4 porque a Evolution recebe o arquivo como `video/mp4`, e o .mov
+// do iPhone, que tem a mesma caixa `ftyp`, chegaria quebrado a quem abrisse.
+const MP4 = (brand, bytes = 32) => Buffer.concat([
+  Buffer.from('0000001c', 'hex'), Buffer.from('ftyp' + brand, 'ascii'), Buffer.alloc(bytes, 9)]);
+
+await t('video MP4 entra no conjunto do modelo, ao lado das imagens', async () => {
+  const tpl = novoTemplate();
+  // Vários brands, porque cada editor grava o seu: a regra recusa o que não é
+  // vídeo (qt, M4A) em vez de manter lista de aceitos, que barraria exportação
+  // de programa não previsto.
+  for (const brand of ['isom', 'mp42', 'MSNV', 'iso8']) {
+    const r = await call('post', '/api/comm/templates/:id/imagens', {}, { id: tpl }, {},
+      { buffer: MP4(brand), originalname: `promo-${brand.trim()}.mp4` });
+    assert(r.body.success, `brand ${brand} recusado: ` + JSON.stringify(r.body));
+    await call('delete', '/api/comm/templates/:id/imagens/:arquivo', {}, { id: tpl, arquivo: r.body.arquivo });
+  }
+  const v = await call('post', '/api/comm/templates/:id/imagens', {}, { id: tpl }, {},
+    { buffer: MP4('isom'), originalname: 'promo.mp4' });
+  assert(v.body.success && /\.mp4$/.test(v.body.arquivo), JSON.stringify(v.body));
+  await subir(tpl, PNG);
+  const l = await call('get', '/api/comm/templates/:id/imagens', {}, { id: tpl });
+  assert(l.body.imagens.length === 2, 'o conjunto não guardou os dois: ' + JSON.stringify(l.body.imagens));
+  // O sorteio é entre todos: 40 voltas têm de cair nos dois arquivos.
+  const sorteados = new Set();
+  for (let i = 0; i < 40; i++) sorteados.add(require('path').extname(imagensModelo.sortear('demo', tpl)));
+  assert(sorteados.has('.mp4') && sorteados.has('.png'), 'o sorteio não mistura vídeo e imagem: ' + [...sorteados]);
+});
+
+await t('video que nao e MP4 e recusado dizendo para converter', async () => {
+  const tpl = novoTemplate();
+  const r = await call('post', '/api/comm/templates/:id/imagens', {}, { id: tpl }, {},
+    { buffer: MP4('qt  '), originalname: 'do-iphone.mov' });
+  assert(r.status === 400 && /não um vídeo MP4/.test(r.body.error || '')
+    && /qt/.test(r.body.error), JSON.stringify(r));
+  assert(imagensModelo.listar('demo', tpl).length === 0, 'gravou o vídeo recusado');
+});
+
+await t('video acima do teto e recusado com o tamanho, e nao no envio', async () => {
+  const tpl = novoTemplate();
+  // O teto sai do módulo, e não escrito aqui: em 30/09 ele passou de 16 para 64
+  // MB (o de 16 era o da API oficial do WhatsApp, que não é o caminho daqui) e
+  // uma suíte com o número fixo teria reprovado sem defeito nenhum.
+  const teto = Math.round(imagensModelo.MAX_VIDEO_BYTES / 1048576);
+  const r = await call('post', '/api/comm/templates/:id/imagens', {}, { id: tpl }, {},
+    { buffer: MP4('isom', imagensModelo.MAX_VIDEO_BYTES + 1), originalname: 'grande.mp4' });
+  assert(r.status === 400 && new RegExp(`${teto} MB`).test(r.body.error || ''), JSON.stringify(r.body));
+  assert(imagensModelo.listar('demo', tpl).length === 0, 'gravou o vídeo grande');
+});
+
+await t('a tela de modelos aceita video e mostra o que subiu', async () => {
+  const tela = fs.readFileSync(require('path').join(__dirname, '..', 'public/comunicacao/modelos.html'), 'utf8');
+  const campo = tela.match(/<input[^>]*id="mdArquivo"[^>]*>/)[0];
+  assert(/video\/mp4/.test(campo), 'o seletor de arquivo não aceita vídeo: ' + campo);
+  assert(/<video[^>]*src=/.test(tela), 'a grade do modelo não mostra vídeo');
+});
+
+await t('a tela de modelos usa as rotas do conjunto, e nao a da imagem unica', async () => {
+  const tela = fs.readFileSync(require('path').join(__dirname, '..', 'public/comunicacao/modelos.html'), 'utf8');
+  assert(/\/imagens`, \{ method:'POST'/.test(tela), 'a tela não envia para /imagens');
+  assert(/multiple/.test(tela.match(/<input[^>]*id="mdArquivo"[^>]*>/)[0]), 'o seletor não aceita várias imagens');
+  assert(!/\/imagem`/.test(tela) && !/imagemPath/.test(tela), 'a tela ainda usa a imagem única');
+});
+
+// ==================== campanha para contato avulso ====================
+//
+// A lista aceita contato sem ficha de cliente (planilha, digitado, legado), e a
+// tabela de envios exigia pessoaId: o disparo falhava com "NOT NULL constraint
+// failed: comm_envios.pessoaId" (campanha "exemplo" do 1bit, 28/09). O banco
+// desta suíte sai do schema real, com a restrição, e reproduz o caso.
+
+await t('campanha para lista de avulsos prepara os envios, e "Ver envios" mostra o nome', async () => {
+  limpar();
+  const l = novaLista('Só avulsos');
+  // Direto na lista, como os do legado: a planilha, desde 28/09, dá ficha a
+  // cada contato, e o avulso sem ficha continua existindo até a migração.
+  for (const [tel, nome] of [['5594992620471', 'paloma'], ['5594991112936', 'carlos']]) {
+    db.prepare('INSERT INTO comm_lista_membros (listaId, destinoManual, nomeManual) VALUES (?, ?, ?)').run(l, tel, nome);
+  }
+  const tpl = novoTemplate({ canal: 'whatsapp', corpo: 'Olá {{primeiroNome}}' });
+  const camp = novaCampanha(tpl, l, 'whatsapp');
+  // O disparo do WhatsApp grava os envios e passa ao motor, que pausa sozinho:
+  // este banco não tem número conectado, então nada sai para a rede.
+  require('../comm-routes').dispararCommWhatsApp(db, 'demo', camp);
+  await new Promise(r => setTimeout(r, 300));
+  const n = db.prepare('SELECT COUNT(*) n FROM comm_envios WHERE campanhaId = ? AND pessoaId IS NULL').get(camp).n;
+  assert(n === 2, `${n} envio(s) de avulso gravado(s)`);
+  const v = await call('get', '/api/comm/campanhas/:id', {}, { id: camp });
+  const nomes = v.body.envios.map(e => e.razaoSocial).sort().join(',');
+  assert(nomes === 'carlos,paloma', '"Ver envios" mostra: ' + nomes);
+  const msgs = v.body.envios.map(e => e.mensagemRenderizada).sort().join(' | ');
+  assert(msgs === 'Olá carlos | Olá paloma', 'a mensagem do avulso saiu: ' + msgs);
+});
+
+await t('a reconstrucao da tabela de envios nao perde envio e roda uma vez so', () => {
+  const antes = db.prepare('SELECT COUNT(*) n, MAX(id) m FROM comm_envios').get();
+  assert(dest.permitirEnvioAvulso(db) === false, 'rodou de novo numa tabela já reconstruída');
+  const depois = db.prepare('SELECT COUNT(*) n, MAX(id) m FROM comm_envios').get();
+  assert(JSON.stringify(antes) === JSON.stringify(depois), JSON.stringify([antes, depois]));
+  const col = db.prepare('PRAGMA table_info(comm_envios)').all().find(c => c.name === 'pessoaId');
+  assert(col && col.notnull === 0, 'pessoaId continua obrigatório');
+});
+
+// ==================== campanha nova: por quais números sai ====================
+
+await t('campanha nova grava os numeros escolhidos e recusa numero que nao e da empresa', async () => {
+  const canaisMod = require('../whatsapp-canais');
+  canaisMod.migrarCanais(db);
+  db.exec('DELETE FROM whatsapp_canais');
+  db.prepare("INSERT INTO whatsapp_canais (id, nome, instance, padrao, config) VALUES (1, 'Comercial', 'le_demo', 1, '{}')").run();
+  db.prepare("INSERT INTO whatsapp_canais (id, nome, instance, padrao, config) VALUES (2, 'Suporte', 'le_demo_2', 0, '{}')").run();
+  const tpl = novoTemplate({ canal: 'whatsapp' });
+  const l = novaLista('Lista dos números');
+  const ruim = await call('post', '/api/comm/campanhas', { nome: 'x', templateId: tpl, listaId: l, canais: [99] });
+  assert(ruim.status === 400 && /não encontrado/.test(ruim.body.error || ''), JSON.stringify(ruim.body));
+  const bom = await call('post', '/api/comm/campanhas', { nome: 'x', templateId: tpl, listaId: l, canais: [2, 1, 2] });
+  assert(bom.body.success && bom.body.campanha.canais === '[2,1]', 'gravou ' + bom.body.campanha && bom.body.campanha.canais);
+  const ed = await call('put', '/api/comm/campanhas/:id', { canais: [] }, { id: bom.body.campanha.id });
+  assert(ed.body.success && ed.body.campanha.canais === null, 'lista vazia devia voltar ao padrão: ' + JSON.stringify(ed.body.campanha));
+  const dup = await call('put', '/api/comm/campanhas/:id', { canais: [2] }, { id: bom.body.campanha.id });
+  const copia = await call('post', '/api/comm/campanhas/:id/duplicar', {}, { id: dup.body.campanha.id });
+  assert(copia.body.campanha.canais === '[2]', 'a cópia perdeu os números: ' + copia.body.campanha.canais);
 });
 
 console.log(`\n${ok} OK, ${fail} falha(s)`);

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Modelos de mensagem · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<link rel="stylesheet" href="/css/comunicacao.css">
+<style>
+/* As imagens do modelo, a mesma grade da campanha legado (campanha.html). */
+.imgs { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 10px; }
+.imgs .item { position:relative; }
+.imgs img, .imgs video { width:88px; height:88px; object-fit:cover; border:1px solid var(--border);
+  border-radius:6px; background:#fff; display:block; }
+.imgs button { position:absolute; top:-6px; right:-6px; background:var(--danger); color:#fff;
+  border:0; border-radius:50%; width:20px; height:20px; cursor:pointer; font-size:12px; line-height:1; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Modelos de mensagem</h1></div>
+  </div>
+  <div id="alertGlobal"></div>
+
+      <div class="toolbar">
+        <button class="btn btn-primary" onclick="abrirModelo()">+ Novo modelo</button>
+        <span class="spacer"></span>
+        <span id="modResumo" style="font-size:0.85em;color:var(--text-2);"></span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Nome</th><th>Canal</th><th>Mensagem</th><th>Em uso</th><th></th></tr></thead>
+          <tbody id="tbModelos"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+      <small class="muted">O modelo é reaproveitado em quantas campanhas você quiser. Editar aqui não
+        altera campanha já enviada — o texto vai gravado no envio.</small>
+</main></div>
+<!-- modal modelo de mensagem -->
+<div class="modal-bg" id="modalModelo">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-header">
+      <div><h3 style="margin:0;" id="modeloTitulo">Modelo de mensagem</h3>
+        <small class="muted">Reaproveitável em quantas campanhas quiser.</small></div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalModelo')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label>Nome *</label>
+        <input type="text" id="mdNome" maxlength="80" placeholder="ex.: Aviso de boleto vencendo"></div>
+      <div class="form-group"><label>Canal *</label>
+        <select id="mdCanal" onchange="mudouCanalModelo()">
+          <option value="whatsapp">WhatsApp</option><option value="email">E-mail</option>
+        </select></div>
+    </div>
+    <div class="form-row" id="mdLinhaAssunto" style="display:none;">
+      <div class="form-group full-width"><label>Assunto (e-mail)</label>
+        <input type="text" id="mdAssunto" maxlength="150"></div>
+    </div>
+    <div class="form-row"><div class="form-group full-width">
+      <label>Mensagem *</label>
+      <textarea id="mdCorpo" rows="6" placeholder="Olá {{primeiroNome}}, seu boleto vence em..."></textarea>
+      <small class="muted">Variáveis: {{primeiroNome}} · {{nomeFantasia}} · {{razaoSocial}} · {{cpfCnpj}} · {{email}} ·
+        {{telefone}} · {{cidade}} · {{ramo}} · {{porte}}<br>
+        Variável escrita errada é barrada ao salvar.</small>
+    </div></div>
+    <div class="form-row" id="mdLinhaImagem"><div class="form-group full-width">
+      <label>Imagens e vídeos</label>
+      <div class="imgs" id="mdImagens"></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input type="file" id="mdArquivo" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4" multiple
+               style="max-width:250px;" onchange="escolheuImagens()">
+        <small class="muted" id="mdPendentes"></small>
+      </div>
+      <small class="muted">A cada envio o sistema sorteia um destes arquivos e manda a mensagem como legenda
+        dele. Sem nenhum, vai só o texto. Vídeo em MP4, até 64 MB.</small>
+    </div></div>
+    <div id="mdAviso"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalModelo')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarModelo()">Salvar modelo</button>
+    </div>
+  </div>
+</div>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('comunicacao-modelos');</script>
+<script src="/js/comunicacao-comum.js"></script>
+<script>
+let MODELOS = [];
+
+// ---------- modelos de mensagem ----------
+let EDIT_MODELO = null;
+
+async function carregarModelos(){
+  const d = await fetch('/api/comm/templates').then(r=>r.json()).catch(()=>null);
+  const tb = document.getElementById('tbModelos');
+  if (!d?.success) { tb.innerHTML = '<tr><td colspan="5" class="empty">Não foi possível carregar</td></tr>'; return; }
+  MODELOS = d.templates || [];
+  document.getElementById('modResumo').textContent = `${MODELOS.length} modelo(s)`;
+  tb.innerHTML = MODELOS.length ? MODELOS.map(t=>`<tr>
+    <td><strong>${esc(t.nome)}</strong>${t.assunto?`<br><small class="muted">${esc(t.assunto)}</small>`:''}</td>
+    <td><span class="badge ${t.canal==='whatsapp'?'ativo':'inativo'}">${esc(t.canal)}</span>${t.imagens?`<br><small class="muted">${numBR(t.imagens)} arquivo(s)</small>`:''}</td>
+    <td style="max-width:420px;"><small>${esc(String(t.corpo).slice(0,140))}${t.corpo.length>140?'…':''}</small></td>
+    <td>${t.emUso ? `${numBR(t.emUso)} campanha(s)` : '<small class="muted">nenhuma</small>'}</td>
+    <td><div class="acoes">
+      <button class="btn btn-primary btn-sm" onclick="abrirModelo(${t.id})">Editar</button>
+      <details class="menu"><summary title="Mais ações">⋯</summary><div class="itens">
+        <button class="perigo" onclick="fecharMenus(); removerModelo(${t.id})">Remover modelo</button>
+      </div></details>
+    </div></td></tr>`).join('')
+    : '<tr><td colspan="5" class="empty">Nenhum modelo — crie um para reaproveitar nas campanhas</td></tr>';
+}
+
+function mudouCanalModelo(){
+  const email = document.getElementById('mdCanal').value === 'email';
+  document.getElementById('mdLinhaAssunto').style.display = email ? '' : 'none';
+  // Imagem só sai no WhatsApp. No modelo novo ela sobe junto do salvar.
+  document.getElementById('mdLinhaImagem').style.display = email ? 'none' : '';
+}
+
+function abrirModelo(id){
+  EDIT_MODELO = id || null;
+  const t = id ? (MODELOS||[]).find(x=>x.id===id) : null;
+  document.getElementById('modeloTitulo').textContent = t ? 'Editar modelo' : 'Novo modelo';
+  document.getElementById('mdNome').value = t?.nome || '';
+  document.getElementById('mdCanal').value = t?.canal || 'whatsapp';
+  document.getElementById('mdAssunto').value = t?.assunto || '';
+  document.getElementById('mdCorpo').value = t?.corpo || '';
+  document.getElementById('mdAviso').innerHTML = '';
+  document.getElementById('mdArquivo').value = '';
+  document.getElementById('mdPendentes').textContent = '';
+  document.getElementById('mdImagens').innerHTML = '';
+  mudouCanalModelo();
+  if (id) carregarImagensModelo();
+  document.getElementById('modalModelo').classList.add('open');
+}
+
+async function salvarModelo(){
+  const body = {
+    nome: document.getElementById('mdNome').value.trim(),
+    canal: document.getElementById('mdCanal').value,
+    assunto: document.getElementById('mdAssunto').value.trim() || null,
+    corpo: document.getElementById('mdCorpo').value.trim(),
+  };
+  if (!body.nome || !body.corpo) return showAlert('Nome e mensagem são obrigatórios','error');
+  const url = EDIT_MODELO ? '/api/comm/templates/'+EDIT_MODELO : '/api/comm/templates';
+  const d = await fetch(url, { method: EDIT_MODELO ? 'PUT' : 'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(r=>r.json());
+  if (!d.success) {
+    document.getElementById('mdAviso').innerHTML = `<div class="alert error" style="display:block;">${esc(d.error)}</div>`;
+    return;
+  }
+  // Modelo novo: as imagens escolhidas esperavam o id, que chega agora. Uma
+  // recusa deixa o modal aberto, já no modo edição, dizendo qual foi.
+  if (!EDIT_MODELO && d.template?.id) EDIT_MODELO = d.template.id;
+  if (body.canal === 'whatsapp' && document.getElementById('mdArquivo').files.length) {
+    const r = await enviarImagensModelo();
+    // Envio em curso: o modal fica aberto, senão o Salvar pareceria ter perdido
+    // o arquivo que ainda está subindo.
+    if (r.emCurso) {
+      document.getElementById('mdAviso').innerHTML = '<div class="alert warn" style="display:block;">'
+        + 'Modelo salvo. O arquivo ainda está subindo, espere o fim.</div>';
+      return;
+    }
+    if (r.erro) {
+      document.getElementById('mdAviso').innerHTML = `<div class="alert error" style="display:block;">Modelo salvo, mas ${esc(r.erro)}</div>`;
+      carregarModelos();
+      return;
+    }
+  }
+  // A validação devolve avisos que não impedem salvar — mostrar é o que evita
+  // descobrir depois que o e-mail foi sem assunto.
+  if (d.avisos?.length) showAlert(d.avisos.map(a=>a.mensagem).join(' · '), 'warn');
+  else showAlert('Modelo salvo');
+  fechar('modalModelo');
+  carregarModelos();
+}
+
+async function removerModelo(id){
+  const t = (MODELOS||[]).find(x=>x.id===id);
+  const uso = t?.emUso
+    ? `\n\n${t.emUso} campanha(s) usam este modelo. O texto delas já foi gravado no envio e não muda.`
+    : '';
+  if (!confirm('Remover este modelo?\n\nCampanhas já enviadas não são afetadas.' + uso)) return;
+  const d = await fetch('/api/comm/templates/'+id, { method:'DELETE' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  carregarModelos();
+}
+
+// ---------- imagens e vídeos do modelo ----------
+// Um conjunto por modelo; cada envio sorteia um (comm-imagens.js). Só depois
+// de salvo: a pasta das imagens é a do modelo, e modelo novo ainda não tem id.
+async function carregarImagensModelo(){
+  const el = document.getElementById('mdImagens');
+  const d = await fetch(`/api/comm/templates/${EDIT_MODELO}/imagens`).then(r=>r.json()).catch(()=>null);
+  if (!d?.success) { el.innerHTML = `<small class="muted">${esc(d?.error || 'Não foi possível carregar as imagens')}</small>`; return; }
+  // Vídeo entra na mesma grade, com os controles para quem quiser conferir o
+  // que vai sair. `preload="metadata"` para a grade não baixar os arquivos todos.
+  el.innerHTML = d.imagens.length ? d.imagens.map(f => {
+    const url = `/api/comm/templates/${EDIT_MODELO}/imagens/${encodeURIComponent(f)}`;
+    const peca = /\.mp4$/i.test(f)
+      ? `<video src="${url}" controls muted preload="metadata"></video>`
+      : `<img src="${url}" alt="">`;
+    return `<div class="item">${peca}
+      <button title="Remover" data-arquivo="${esc(f)}" onclick="removerImagemModelo(this.dataset.arquivo)">×</button>
+    </div>`;
+  }).join('')
+    : '<small class="muted">Nenhum arquivo: as mensagens saem só com texto.</small>';
+}
+
+// Até 29/09 a imagem só subia por um botão "Adicionar imagem" ao lado do
+// campo. Quem escolhia a foto e clicava em "Salvar modelo" perdia a foto sem
+// aviso, e a campanha saía só com texto. Agora ela sobe ao ser escolhida, ou
+// junto do salvar quando o modelo ainda não existe.
+async function escolheuImagens(){
+  const n = document.getElementById('mdArquivo').files.length;
+  if (!EDIT_MODELO) {
+    document.getElementById('mdPendentes').textContent = n ? `${n} arquivo(s) entram ao salvar o modelo` : '';
+    return;
+  }
+  const r = await enviarImagensModelo();
+  if (r.erro) showAlert(r.erro, 'error');
+  else if (r.enviadas) showAlert(`${r.enviadas} arquivo(s) adicionado(s) ao modelo`);
+}
+
+// Um envio por vez. O vídeo leva tempo, e sem esta trava cada clique em
+// "Salvar modelo" durante o envio começava outro envio do MESMO arquivo: em
+// 30/09 foram quatro envios paralelos de um vídeo, todos abortados no meio
+// (499 no nginx), e nada entrou.
+let ENVIANDO = false;
+
+async function enviarImagensModelo(){
+  const campo = document.getElementById('mdArquivo');
+  const arquivos = [...campo.files];
+  const aviso = document.getElementById('mdPendentes');
+  if (ENVIANDO) return { enviadas: 0, erro: null, emCurso: true };
+  ENVIANDO = true;
+  let enviadas = 0, erro = null;
+  try {
+    for (const f of arquivos) {
+      const mb = (f.size / 1048576).toFixed(1);
+      // Sem isto a tela fica muda durante o envio, e um vídeo de dezenas de MB
+      // demora o bastante para parecer que o botão não fez nada.
+      aviso.textContent = `Enviando ${f.name} (${mb} MB)…`;
+      const fd = new FormData(); fd.append('imagem', f);
+      const d = await fetch(`/api/comm/templates/${EDIT_MODELO}/imagens`, { method:'POST', body: fd })
+        .then(r=>r.json()).catch(()=>({ success:false, error:'falha ao enviar' }));
+      // Para na primeira recusa e diz qual arquivo: seguir calado deixaria a
+      // pessoa achando que todas entraram.
+      if (!d.success) { erro = `${f.name} (${mb} MB) não entrou: ${d.error}`; break; }
+      enviadas++;
+    }
+  } finally { ENVIANDO = false; }
+  // O arquivo recusado FICA escolhido: limpar o campo obrigava a escolher de
+  // novo, e quem clicava em "Salvar modelo" depois da recusa salvava só o texto,
+  // porque já não havia arquivo nenhum para enviar.
+  if (!erro) { campo.value = ''; aviso.textContent = ''; }
+  else aviso.textContent = `${arquivos.length} arquivo(s) ainda escolhido(s): corrija e envie de novo`;
+  carregarImagensModelo();
+  carregarModelos();
+  return { enviadas, erro };
+}
+
+async function removerImagemModelo(arquivo){
+  const d = await fetch(`/api/comm/templates/${EDIT_MODELO}/imagens/${encodeURIComponent(arquivo)}`, { method:'DELETE' })
+    .then(r=>r.json()).catch(()=>null);
+  if (!d?.success) return showAlert(d?.error || 'Não foi possível remover','error');
+  carregarImagensModelo();
+  carregarModelos();
+}
+
+carregarModelos();
+</script>
+</body>
+</html>
