@@ -176,6 +176,7 @@ header.topo img.logo { width: 52px; height: 52px; border-radius: 50%; aspect-rat
 .chk-totais > div { display: flex; justify-content: space-between; }
 .chk-total { font-size: 1.05em; font-weight: 700; padding-top: 4px; }
 .chk-aviso { font-size: .84em; color: var(--ink-2); margin: 0; }
+/* A faixa do alto, usada pelo checkout e pela página do produto. */
 .chk-erro { background: #FDECEA; color: #8A1C13; border-radius: var(--raio);
   padding: 12px 14px; margin: 0; font-size: .92em; }
 [data-theme="escuro"] .chk-erro, .escuro .chk-erro { background: #3A1A16; color: #FFD9D4; }
@@ -196,6 +197,19 @@ header.topo img.logo { width: 52px; height: 52px; border-radius: 50%; aspect-rat
 .ok-tela .chk-totais { width: 100%; max-width: 340px; text-align: left; }
 .ok-linha { margin: 0; font-size: .95em; }
 .ok-tela .bt-principal, .ok-tela .btn-linha { max-width: 340px; }
+
+/* ---------- o que falta preencher (toda a loja) ----------
+   A borda é o sinal e a frase diz o quê: cor sozinha não informa quem não a
+   distingue. Vale para campo de texto, grupo de opções e fieldset de
+   personalização — o JS só põe a classe, o desenho é daqui. */
+.falta { border-color: #B3261E !important; }
+.falta:focus { border-color: #B3261E !important;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #B3261E 12%, transparent) !important; }
+/* Num grupo de opções quem tem borda são os botões, e não a caixa que os
+   agrupa: marcar a caixa desenharia um retângulo em volta de tudo. */
+.mt-ops.falta, .chk-opcoes.falta, .atend-ops.falta { border: 0 !important; }
+.mt-ops.falta .mt-op, .chk-opcoes.falta .chk-op, .atend-ops.falta .atend-op { border-color: #B3261E; }
+.diz-falta { color: #B3261E; font-size: 13px; font-weight: 600; margin: 6px 0 0; }
 
 /* ---------- busca e categorias ---------- */
 .busca-linha { padding: 14px 0 6px; }
@@ -316,7 +330,9 @@ header.topo img.logo { width: 52px; height: 52px; border-radius: 50%; aspect-rat
 .qtd button { width: 44px; height: 44px; border: 0; background: none; color: var(--ink);
   font-size: 20px; cursor: pointer; border-radius: 50%; font-family: inherit; }
 .qtd output { min-width: 32px; text-align: center; font-weight: 640; font-size: 16px; }
-.erro { color: #B3261E; font-size: 14px; margin: 0; }
+/* A `.erro` solta da página do produto saiu com as caixas de aviso: o que é
+   de campo é marcado no campo (`.falta`), e o que não é vai na faixa
+   `.chk-erro`, no alto. */
 
 /* Botão de adicionar: fixo no rodapé, acima da área de gestos do iPhone. */
 .barra-produto { position: sticky; bottom: 0; background: var(--ground);
@@ -710,14 +726,6 @@ footer.rodape { border-top: 1px solid var(--line); color: var(--ink-2); font-siz
    no próprio campo, logo abaixo. */
 .mt-erro { background: #FDECEA; color: #8A1C13; border-radius: calc(var(--raio) * .6);
   padding: 10px 12px; font-size: 13.5px; margin: 0 0 14px; }
-/* O que falta, marcado onde falta. A borda é o sinal, e a frase diz o quê:
-   cor sozinha não informa quem não a distingue. */
-.mt-falta { border-color: #B3261E !important; }
-.mt-falta:focus { box-shadow: 0 0 0 4px color-mix(in srgb, #B3261E 12%, transparent) !important;
-  border-color: #B3261E !important; }
-.mt-ops.mt-falta { border: 0 !important; }
-.mt-ops.mt-falta .mt-op { border-color: #B3261E; }
-.mt-diz-falta { color: #B3261E; font-size: 13px; font-weight: 600; margin: 6px 0 0; }
 .mt-barra { display: none; }
 @media (max-width: 900px) {
   .mt { grid-template-columns: 1fr; }

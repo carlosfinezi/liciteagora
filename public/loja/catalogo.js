@@ -225,6 +225,273 @@ function cardHtml(p) {
   </article>`;
 }
 
+/* ===================== o que falta preencher ===============================
+   Uma peça só para a loja inteira: montador, página do produto, sacola e
+   checkout. Quem valida diz O QUE falta e ONDE; daqui para a frente o
+   tratamento é sempre o mesmo — borda no campo ou no grupo de opções, uma
+   frase curta logo abaixo, a página rolando até o primeiro que falta, o foco
+   nele, e a marca saindo sozinha assim que a pessoa mexe naquilo.
+
+   O que NÃO passa por aqui é o erro que não pertence a campo nenhum (a loja
+   fechou, a rede caiu, a sacola esvaziou): esse continua numa faixa no alto
+   da tela, onde `faixaDeErro` o põe.
+   ========================================================================= */
+
+/** Tira a marca de um campo, junto da frase que veio com ela. */
+function limparFalta(el) {
+  if (!el || !el.classList || !el.classList.contains('falta')) return;
+  el.classList.remove('falta');
+  el.removeAttribute('aria-invalid');
+  const diz = el.nextElementSibling;
+  if (diz && diz.classList.contains('diz-falta')) diz.remove();
+}
+
+function limparFaltas(raiz) {
+  for (const el of (raiz || document).querySelectorAll('.falta')) limparFalta(el);
+}
+
+/**
+ * Marca o que falta e leva a pessoa até o primeiro.
+ *
+ * `levar: false` serve para quem repinta a tela e precisa só repor as marcas
+ * que já estavam lá — é o caso do montador, que redesenha os passos a cada
+ * escolha. Sem isso, a página pularia sozinha a cada clique.
+ *
+ * @param {Array<{el: Element, diz: string}>} faltas
+ * @returns {boolean} se havia alguma
+ */
+function marcarFalta(el, diz) {
+  if (!el || el.classList.contains('falta')) return;
+  el.classList.add('falta');
+  if (el.matches('input, select, textarea')) el.setAttribute('aria-invalid', 'true');
+  if (!diz) return;
+  const p = document.createElement('p');
+  p.className = 'diz-falta';
+  p.textContent = diz;
+  el.insertAdjacentElement('afterend', p);
+}
+
+function marcarFaltas(faltas, { levar = true } = {}) {
+  limparFaltas();
+  /* Ordenadas pela posição no DOM, e não pela ordem em que quem valida as
+     descobriu: a pessoa é levada ao primeiro que falta OLHANDO A TELA. */
+  const validas = (faltas || []).filter((f) => f && f.el).sort((a, b) =>
+    (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1);
+  for (const { el, diz } of validas) marcarFalta(el, diz);
+  if (!validas.length) return false;
+  if (levar) {
+    const primeiro = validas[0].el;
+    primeiro.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const foco = primeiro.matches('input, select, textarea') ? primeiro
+      : primeiro.querySelector('input, select, textarea, button');
+    if (foco) foco.focus({ preventScroll: true });
+  }
+  return true;
+}
+
+/** A faixa do alto: erro que não é de campo. Vazio esconde a faixa. */
+function faixaDeErro(id, texto) {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = texto || '';
+  el.hidden = !texto;
+  if (texto) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+/* A marca sai sozinha quando a pessoa mexe no que faltava. Em captura, para
+   valer mesmo quando o elemento é repintado por um handler que rode depois. */
+for (const evento of ['input', 'change']) {
+  document.addEventListener(evento, (e) => limparFalta(e.target), true);
+}
+document.addEventListener('click', (e) => {
+  // Grupo de opções: quem está marcado é a caixa, e quem recebe o clique é o
+  // botão de dentro.
+  const alvo = e.target.closest && e.target.closest('.falta');
+  if (alvo) limparFalta(alvo);
+}, true);
+
+/* ===================== campos que se formatam sozinhos =====================
+   A segunda metade da peça de cima: aqui o campo se arruma enquanto a pessoa
+   digita, e diz o que está errado do mesmo jeito que o que falta.
+
+   Quem liga isso é o ATRIBUTO no HTML (`data-formato="telefone"`), e não uma
+   lista de ids espalhada pelo código: campo novo em qualquer formulário da
+   loja nasce formatado só por declarar o formato.
+
+   O que sai daqui para o servidor são os DÍGITOS (`digitosDe`): a máscara é
+   de leitura, e o pedido não carrega ponto nem hífen.
+   ========================================================================= */
+
+const digitosDe = (v) => String(v || '').replace(/\D/g, '');
+
+/** (94) 99176-9924 e (94) 3322-1100 — celular e fixo, pelo tamanho. */
+function formatarTelefone(bruto) {
+  const d = digitosDe(bruto).slice(0, 11);
+  if (d.length <= 2) return d;
+  const ddd = `(${d.slice(0, 2)}) `;
+  const resto = d.slice(2);
+  if (resto.length <= 4) return ddd + resto;
+  // 9 dígitos = celular (5+4); 8 = fixo (4+4).
+  const corte = resto.length > 8 ? 5 : 4;
+  return ddd + resto.slice(0, corte) + '-' + resto.slice(corte);
+}
+
+/** 000.000.000-00 até 11 dígitos, 00.000.000/0000-00 daí em diante. */
+function formatarCpfCnpj(bruto) {
+  const d = digitosDe(bruto).slice(0, 14);
+  if (d.length <= 11) {
+    return d.replace(/^(\d{3})(\d)/, '$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3')
+            .replace(/\.(\d{3})(\d{1,2})$/, '.$1-$2');
+  }
+  return d.replace(/^(\d{2})(\d)/, '$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+          .replace(/\.(\d{3})(\d)/, '.$1/$2').replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+}
+
+const formatarCep = (bruto) => {
+  const d = digitosDe(bruto).slice(0, 8);
+  return d.length > 5 ? d.slice(0, 5) + '-' + d.slice(5) : d;
+};
+
+/** "1234" → "R$ 12,34": o dinheiro cresce da direita, como na maquininha. */
+function formatarDinheiro(bruto) {
+  const d = digitosDe(bruto).slice(0, 11);
+  if (!d) return '';
+  const n = Number(d) / 100;
+  return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+const FORMATOS = {
+  telefone: formatarTelefone, cpfcnpj: formatarCpfCnpj, cep: formatarCep, dinheiro: formatarDinheiro,
+};
+
+/** Os dígitos verificadores do CPF. Formato certo com DV errado é erro de digitação. */
+function cpfValido(d) {
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  for (const [ate, pos] of [[9, 10], [10, 11]]) {
+    let soma = 0;
+    for (let i = 0; i < ate; i++) soma += Number(d[i]) * (pos - i);
+    const dv = (soma * 10) % 11 % 10;
+    if (dv !== Number(d[ate])) return false;
+  }
+  return true;
+}
+
+function cnpjValido(d) {
+  if (d.length !== 14 || /^(\d)\1{13}$/.test(d)) return false;
+  const conta = (ate) => {
+    const pesos = ate === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+    let soma = 0;
+    for (let i = 0; i < ate; i++) soma += Number(d[i]) * pesos[i];
+    const r = soma % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+  return conta(12) === Number(d[12]) && conta(13) === Number(d[13]);
+}
+
+const cpfCnpjValido = (d) => (d.length > 11 ? cnpjValido(d) : cpfValido(d));
+const emailValido = (v) => /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(String(v || '').trim());
+
+/**
+ * O que há de errado NESTE campo, ou null.
+ *
+ * Campo vazio não é erro aqui: quem cobra o preenchimento é a validação de
+ * cada formulário, que sabe o que é obrigatório onde. Aqui só se olha o que
+ * já foi digitado.
+ */
+function erroDoCampo(el) {
+  if (!el || !el.dataset || !el.dataset.formato) return null;
+  const v = String(el.value || '').trim();
+  if (!v) return null;
+  const d = digitosDe(v);
+  switch (el.dataset.formato) {
+    case 'telefone': return d.length >= 10 ? null : 'Telefone com DDD, 10 ou 11 números';
+    case 'cpfcnpj':
+      if (d.length !== 11 && d.length !== 14) return 'CPF tem 11 números, CNPJ tem 14';
+      return cpfCnpjValido(d) ? null : (d.length === 11 ? 'CPF inválido. Confira os números' : 'CNPJ inválido. Confira os números');
+    case 'cep': return d.length === 8 ? null : 'CEP tem 8 números';
+    case 'email': return emailValido(v) ? null : 'E-mail inválido';
+    default: return null;
+  }
+}
+
+/** Todos os campos de um formulário que estão preenchidos e errados. */
+function faltasDeFormato(raiz) {
+  const fora = [];
+  for (const el of (raiz || document).querySelectorAll('[data-formato]')) {
+    if (el.offsetParent === null) continue;          // campo escondido não é cobrado
+    const diz = erroDoCampo(el);
+    if (diz) fora.push({ el, diz });
+  }
+  return fora;
+}
+
+/* A máscara é aplicada a cada tecla, e também ao COLAR — é o mesmo evento
+   `input`, e por isso um número colado com pontos entra formatado igual. */
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (!el || !el.dataset || !el.dataset.formato) return;
+  const fn = FORMATOS[el.dataset.formato];
+  if (!fn) return;
+  const antes = el.value;
+  const fimDaDireita = antes.length - el.selectionEnd;
+  const depois = fn(antes);
+  if (depois === antes) return;
+  el.value = depois;
+  /* O cursor é reposto contando da DIREITA: com a máscara crescendo à
+     esquerda (o dinheiro) ou ganhando separadores no meio (o telefone),
+     guardar a posição absoluta jogaria o cursor para trás a cada pontuação. */
+  if (el.selectionEnd != null) {
+    const pos = Math.max(0, depois.length - fimDaDireita);
+    try { el.setSelectionRange(pos, pos); } catch { /* type=email não aceita */ }
+  }
+});
+
+/**
+ * CEP completo busca rua, bairro e cidade.
+ *
+ * O mesmo ViaCEP que o cadastro de pessoas do ERP já usa
+ * (`public/comercial/pessoas.html`), chamado do navegador de quem compra. Só
+ * preenche campo VAZIO: quem já digitou a rua não a vê ser trocada, e tudo
+ * continua editável. Falhou a consulta, nada acontece — o endereço é
+ * digitável do mesmo jeito.
+ */
+let CEP_BUSCADO = null;
+async function buscarCep(el) {
+  const d = digitosDe(el.value);
+  if (d.length !== 8 || d === CEP_BUSCADO) return;
+  CEP_BUSCADO = d;
+  try {
+    const r = await fetch('https://viacep.com.br/ws/' + d + '/json/').then((x) => x.json());
+    if (!r || r.erro) return;
+    const por = { chkRua: r.logradouro, chkBairro: r.bairro, chkCidade: r.localidade, chkUf: r.uf };
+    for (const [id, valor] of Object.entries(por)) {
+      const campo = $(id);
+      if (campo && !campo.value.trim() && valor) {
+        campo.value = valor;
+        limparFalta(campo);
+        guardarCampoCheckout(campo);
+      }
+    }
+    const numero = $('chkNumero');
+    if (numero && !numero.value.trim()) numero.focus();
+  } catch { /* sem internet para o ViaCEP: o endereço continua à mão */ }
+}
+
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'chkCep') buscarCep(e.target);
+});
+
+/* Sair do campo é o momento de conferir: no meio da digitação todo telefone
+   está incompleto, e marcar a cada tecla seria acusar quem está escrevendo. */
+document.addEventListener('blur', (e) => {
+  const el = e.target;
+  if (!el || !el.dataset || !el.dataset.formato) return;
+  const diz = erroDoCampo(el);
+  // `marcarFalta`, e não `marcarFaltas`: sair de um campo não pode apagar a
+  // marca dos outros.
+  if (diz) marcarFalta(el, diz);
+}, true);
+
 /* ===================== HOME ================================================ */
 
 function pintarHome() {
@@ -311,7 +578,7 @@ function pintarProduto() {
   const foto = fotoDe(p);
   const grupos = (p.personalizacoes || []).map((g) => {
     if (g.tipo === 'texto') {
-      return `<fieldset class="grupo">
+      return `<fieldset class="grupo" id="pGrupo${g.id}">
         <legend>${esc(g.nome)} ${g.obrigatorio ? '<span class="obrig">obrigatório</span>' : ''}</legend>
         ${g.descricao ? `<p class="ajuda">${esc(g.descricao)}</p>` : ''}
         <textarea data-texto="${g.id}" rows="2" maxlength="300"
@@ -324,7 +591,7 @@ function pintarProduto() {
        OBRIGATÓRIO de escolha única continua rádio, que é onde não desmarcar é
        a regra certa. A exclusividade da escolha única é mantida no handler. */
     const multi = g.maxEscolhas > 1 || !g.obrigatorio;
-    return `<fieldset class="grupo">
+    return `<fieldset class="grupo" id="pGrupo${g.id}">
       <legend>${esc(g.nome)} ${g.obrigatorio ? '<span class="obrig">obrigatório</span>' : ''}</legend>
       ${g.descricao ? `<p class="ajuda">${esc(g.descricao)}</p>` : ''}
       ${g.opcoes.map((o) => `<label class="opcao">
@@ -340,6 +607,7 @@ function pintarProduto() {
   const longa = desc.length > 220;
 
   $('conteudo').innerHTML = `
+    <p class="chk-erro" id="erroProduto" hidden></p>
     <article class="produto">
       <div class="p-foto">${foto
         ? `<img src="${esc(foto)}" alt="${esc(p.descricao)}">`
@@ -365,13 +633,38 @@ function pintarProduto() {
             <button data-q="1" aria-label="Aumentar">+</button>
           </div>
         </div>
-        <p class="erro" id="erroProduto" hidden></p>
       </div>
     </article>
     <div class="barra-produto">
       <button class="principal" id="btAdicionar">Adicionar ${brl(totalPrevia())}</button>
     </div>`;
   ligarProduto();
+}
+
+/**
+ * O que falta na página do produto: grupo obrigatório sem escolha e texto
+ * obrigatório em branco. A conferência do servidor continua valendo depois —
+ * esta aqui existe para a pessoa ver onde falta, e não para substituí-la.
+ */
+function faltasDoProduto() {
+  const fora = [];
+  for (const g of (PRODUTO.personalizacoes || [])) {
+    const el = $('pGrupo' + g.id);
+    if (!el) continue;
+    if (g.tipo === 'texto') {
+      if (g.obrigatorio && !String(ESCOLHAS.textos[g.id] || '').trim()) {
+        fora.push({ el, diz: 'Falta preencher' });
+      }
+      continue;
+    }
+    const marcadas = g.opcoes.filter((o) => ESCOLHAS.opcoes.has(o.id)).length;
+    if (marcadas < g.minEscolhas) {
+      fora.push({ el, diz: g.minEscolhas > 1 ? `Escolha ${g.minEscolhas}` : 'Escolha uma opção' });
+    } else if (marcadas > g.maxEscolhas) {
+      fora.push({ el, diz: `Escolha no máximo ${g.maxEscolhas}` });
+    }
+  }
+  return fora;
 }
 
 /** Prévia local — o valor definitivo é o que o servidor devolve ao adicionar. */
@@ -430,8 +723,8 @@ function ligarProduto() {
   });
 
   $('btAdicionar').onclick = async () => {
-    const erro = $('erroProduto');
-    erro.hidden = true;
+    faixaDeErro('erroProduto', '');
+    if (marcarFaltas(faltasDoProduto())) return;
     const item = {
       produtoId: PRODUTO.id,
       quantidade: ESCOLHAS.quantidade,
@@ -447,8 +740,10 @@ function ligarProduto() {
       body: JSON.stringify({ itens: [item] }),
     }).then((x) => x.json()).catch(() => null);
     if (!r || !r.success) {
-      erro.textContent = (r && r.error) || 'Não foi possível adicionar.';
-      erro.hidden = false;
+      // Recusa de um grupo marca o grupo; o resto vai para a faixa do alto.
+      const grupo = r && r.grupoId && $('pGrupo' + r.grupoId);
+      if (grupo) marcarFaltas([{ el: grupo, diz: r.error }]);
+      else faixaDeErro('erroProduto', (r && r.error) || 'Não foi possível adicionar.');
       return;
     }
     await adicionar(item);
@@ -591,10 +886,13 @@ async function pintarCheckout() {
            num site aberto pelo WhatsApp. -->
       <button type="button" class="btn-linha chk-voltar" data-voltar-sacola="1">← Voltar à sacola</button>
       <h1>Finalizar pedido</h1>
+      <!-- Faixa do alto: só o erro que não é de campo (a loja fechou, a rede
+           caiu, a sacola esvaziou). O que é de campo é marcado no campo. -->
+      <p class="chk-erro" id="chkErro" hidden></p>
 
       <section class="chk-bloco">
         <h2>Como você quer receber?</h2>
-        <div class="chk-opcoes">
+        <div class="chk-opcoes" id="chkAtendOps">
           ${podeRetirada ? `<button type="button" class="chk-op" data-atend="retirada">
             <strong>Retirada</strong><span>Você busca na loja</span></button>` : ''}
           ${podeEntrega ? `<button type="button" class="chk-op" data-atend="entrega">
@@ -612,18 +910,19 @@ async function pintarCheckout() {
         <div class="chk-campo">
           <label for="chkTelefone">WhatsApp / telefone *</label>
           <input id="chkTelefone" type="tel" inputmode="numeric" autocomplete="tel"
-                 maxlength="20" placeholder="(00) 00000-0000">
+                 data-formato="telefone" maxlength="16" placeholder="(00) 00000-0000">
         </div>
         <div class="chk-campo">
           ${pixNoSite
             ? '<label for="chkDoc">CPF *</label>'
             : '<label for="chkDoc">CPF ou CNPJ <span class="chk-op-txt">(opcional)</span></label>'}
-          <input id="chkDoc" type="text" inputmode="numeric" maxlength="20"
+          <input id="chkDoc" type="text" inputmode="numeric" data-formato="cpfcnpj" maxlength="18"
                  placeholder="${pixNoSite ? 'O Pix precisa dele' : 'Só se quiser na nota'}">
         </div>
         <div class="chk-campo">
           <label for="chkEmail">E-mail <span class="chk-op-txt">(opcional)</span></label>
-          <input id="chkEmail" type="email" autocomplete="email" maxlength="120" placeholder="voce@email.com">
+          <input id="chkEmail" type="email" inputmode="email" autocomplete="email"
+                 data-formato="email" maxlength="120" placeholder="voce@email.com">
         </div>
         <label class="chk-check">
           <input type="checkbox" id="chkPromocoes"> Quero receber as promoções da loja
@@ -635,7 +934,8 @@ async function pintarCheckout() {
         <div class="chk-linha">
           <div class="chk-campo chk-cep">
             <label for="chkCep">CEP</label>
-            <input id="chkCep" type="text" inputmode="numeric" maxlength="9" placeholder="00000-000">
+            <input id="chkCep" type="text" inputmode="numeric" data-formato="cep"
+                   autocomplete="postal-code" maxlength="9" placeholder="00000-000">
           </div>
           <div class="chk-campo chk-num">
             <label for="chkNumero">Número *</label>
@@ -675,7 +975,7 @@ async function pintarCheckout() {
       <section class="chk-bloco">
         <h2>Pagamento</h2>
         <p class="chk-aviso" id="chkQuandoPaga"></p>
-        <div class="chk-opcoes">
+        <div class="chk-opcoes" id="chkPagOps">
           <button type="button" class="chk-op" data-pag="pix"><strong>PIX</strong></button>
           ${pixNoSite ? '' : `<button type="button" class="chk-op" data-pag="dinheiro"><strong>Dinheiro</strong></button>
           <button type="button" class="chk-op" data-pag="cartao"><strong>Cartão</strong><span>na entrega/retirada</span></button>`}
@@ -686,7 +986,8 @@ async function pintarCheckout() {
           </label>
           <div class="chk-campo" id="chkTrocoValor" hidden>
             <label for="chkTrocoPara">Troco para quanto?</label>
-            <input id="chkTrocoPara" type="text" inputmode="decimal" maxlength="12" placeholder="0,00">
+            <input id="chkTrocoPara" type="text" inputmode="numeric" data-formato="dinheiro"
+                   maxlength="16" placeholder="R$ 0,00">
           </div>
         </div>
       </section>
@@ -715,7 +1016,6 @@ async function pintarCheckout() {
         <p class="chk-aviso" id="chkAvisoFrete" hidden></p>
       </section>
 
-      <p class="chk-erro" id="chkErro" hidden></p>
       <button type="button" class="bt-principal" id="btFinalizar">Finalizar pedido</button>
       <button type="button" class="btn-linha" data-voltar-sacola="1">Voltar à sacola</button>
     </div>`;
@@ -795,9 +1095,13 @@ function atualizarTotal(frete) {
 /** Monta o corpo: referências e intenção, nunca preço. */
 function corpoDoPedido() {
   const v = (id) => { const el = $(id); return el ? el.value.trim() : ''; };
+  /* A máscara é de leitura: o que viaja são os dígitos. O servidor já limpava
+     o que chegasse, mas mandar "(94) 99176-9924" e deixar a limpeza para lá
+     faz o mesmo valor ter duas formas conforme quem olha. */
+  const so = (id) => digitosDe(v(id));
   const corpo = {
     idempotencyKey: chaveDaTentativa(),
-    cliente: { nome: v('chkNome'), telefone: v('chkTelefone'), cpfCnpj: v('chkDoc') || null,
+    cliente: { nome: v('chkNome'), telefone: so('chkTelefone'), cpfCnpj: so('chkDoc') || null,
                email: v('chkEmail') || null, aceitePromocoes: !!($('chkPromocoes') && $('chkPromocoes').checked) },
     atendimento: CHECKOUT.atendimento,
     pagamento: CHECKOUT.pagamento,
@@ -806,25 +1110,64 @@ function corpoDoPedido() {
   };
   if (CHECKOUT.atendimento === 'entrega') {
     corpo.endereco = {
-      cep: v('chkCep'), logradouro: v('chkRua'), numero: v('chkNumero'),
+      cep: so('chkCep'), logradouro: v('chkRua'), numero: v('chkNumero'),
       complemento: v('chkComplemento'), bairro: v('chkBairro'),
       cidade: v('chkCidade'), uf: v('chkUf'), referencia: v('chkReferencia'),
     };
   }
   if (CHECKOUT.pagamento === 'dinheiro' && $('chkPrecisaTroco') && $('chkPrecisaTroco').checked) {
     corpo.precisaTroco = true;
-    corpo.trocoPara = Number(String(v('chkTrocoPara')).replace(/\./g, '').replace(',', '.'));
+    // "R$ 1.234,56" → 1234.56: os centavos são os dois últimos dígitos.
+    corpo.trocoPara = Number(digitosDe(v('chkTrocoPara'))) / 100;
   }
   return corpo;
 }
 
-async function finalizarPedido() {
-  const erro = $('chkErro');
-  const mostrar = (msg) => { erro.hidden = false; erro.textContent = msg; erro.scrollIntoView({ block: 'center' }); };
-  erro.hidden = true;
+/* Do nome que o servidor devolve em `campo` para o campo na tela. É o mesmo
+   caminho para a validação daqui e para a de lá: o servidor NOMEIA o que
+   recusou, e a tela sabe onde isso mora. Casar pela frase do erro seria uma
+   segunda verdade, que se desfaz na primeira reescrita de mensagem. */
+const CAMPO_DO_CHECKOUT = {
+  nome: 'chkNome', telefone: 'chkTelefone', documento: 'chkDoc', email: 'chkEmail',
+  cep: 'chkCep', numero: 'chkNumero', rua: 'chkRua', bairro: 'chkBairro',
+  cidade: 'chkCidade', uf: 'chkUf', troco: 'chkTrocoPara',
+  atendimento: 'chkAtendOps', pagamento: 'chkPagOps',
+};
 
-  if (!CHECKOUT.atendimento) return mostrar('Escolha se quer retirar ou receber em casa.');
-  if (!CHECKOUT.pagamento) return mostrar('Escolha a forma de pagamento.');
+/** O que falta no checkout, na ordem da tela. */
+function faltasDoCheckout() {
+  const fora = [];
+  const v = (id) => ($(id) ? $(id).value.trim() : '');
+  const marcar = (id, diz) => { if ($(id)) fora.push({ el: $(id), diz }); };
+
+  if (!CHECKOUT.atendimento) marcar('chkAtendOps', 'Escolha retirada ou entrega');
+  if (v('chkNome').length < 2) marcar('chkNome', 'Falta preencher');
+  // Só o VAZIO é cobrado aqui: número incompleto, CPF com dígito errado e
+  // e-mail torto são da peça de formato, logo abaixo.
+  if (!v('chkTelefone')) marcar('chkTelefone', 'Falta preencher');
+  if (LOJA && LOJA.pixNoSite && !v('chkDoc')) marcar('chkDoc', 'O Pix precisa do CPF');
+  if (CHECKOUT.atendimento === 'entrega') {
+    for (const [id, diz] of [['chkRua', 'Falta preencher'], ['chkNumero', 'Falta preencher'],
+      ['chkBairro', 'Falta preencher'], ['chkCidade', 'Falta preencher'], ['chkUf', 'Falta preencher']]) {
+      if (!v(id)) marcar(id, diz);
+    }
+  }
+  if (!CHECKOUT.pagamento) marcar('chkPagOps', 'Escolha a forma de pagamento');
+  // O que está preenchido e errado entra junto do que está vazio: uma lista
+  // só, na ordem da tela.
+  for (const f of faltasDeFormato($('conteudo'))) {
+    if (!fora.some((x) => x.el === f.el)) fora.push(f);
+  }
+  const troco = $('chkPrecisaTroco');
+  if (troco && troco.checked && !(Number(digitosDe(v('chkTrocoPara'))) > 0)) {
+    marcar('chkTrocoPara', 'Para quanto precisa de troco?');
+  }
+  return fora;
+}
+
+async function finalizarPedido() {
+  faixaDeErro('chkErro', '');
+  if (marcarFaltas(faltasDoCheckout())) return;
 
   /* Trava de reentrada: o botão desabilitado já evita o clique repetido, e a
      chave de idempotência cobre o que passar daqui (retry, rede, F5). */
@@ -841,7 +1184,10 @@ async function finalizarPedido() {
     }).then((r) => r.json().catch(() => ({ success: false })));
 
     if (!d || !d.success) {
-      mostrar((d && d.error) || 'Não conseguimos concluir seu pedido agora. Tente de novo.');
+      // O servidor diz QUAL campo recusou; o que não é de campo vai para a faixa.
+      const alvo = d && d.campo && $(CAMPO_DO_CHECKOUT[d.campo]);
+      if (alvo) marcarFaltas([{ el: alvo, diz: d.error }]);
+      else faixaDeErro('chkErro', (d && d.error) || 'Não conseguimos concluir seu pedido agora. Tente de novo.');
       return;
     }
     ULTIMO_PEDIDO = d;
@@ -854,7 +1200,7 @@ async function finalizarPedido() {
       ? '#/pagar/' + encodeURIComponent(d.link)
       : '#/pedido/' + encodeURIComponent(d.numero);
   } catch {
-    mostrar('Não conseguimos falar com a loja. Verifique a conexão e tente de novo.');
+    faixaDeErro('chkErro', 'Não conseguimos falar com a loja. Verifique a conexão e tente de novo.');
   } finally {
     CHECKOUT.enviando = false;
     if (bt) { bt.disabled = false; bt.textContent = 'Finalizar pedido'; }
@@ -1141,32 +1487,27 @@ function pintarMontador() {
     blocos.push(passo('Adicionais', escolhas.map((g) => {
       const marcado = g.opcoes.some((o) => MT.opcoes.has(o.id));
       return `<div class="mt-grupo"><h3>${esc(g.nome)}</h3>
-        <div class="mt-ops">${g.opcoes.map((o) => `
+        <div class="mt-ops" id="mtGrupo${g.id}">${g.opcoes.map((o) => `
           <button type="button" class="mt-op ${MT.opcoes.has(o.id) ? 'on' : ''}" aria-pressed="${MT.opcoes.has(o.id)}" data-mt-op="${o.id}" data-mt-grupo="${g.id}">
             <strong>${esc(o.nome)}</strong>${o.precoAdicional > 0 ? `<small>+ ${brl(o.precoAdicional)}</small>` : ''}</button>`).join('')}</div>
         ${g.descricao ? `<p class="mt-aviso ${marcado ? 'forte' : ''}">${esc(g.descricao)}</p>` : ''}</div>`;
     }).join('')));
   }
   if (textos.length && mtTemCartao()) {
-    blocos.push(passo('Mensagem', textos.map((g) => {
-      const falta = MT.faltas.has('texto-' + g.id);
-      return `<div class="mt-campo"><label for="mtT${g.id}">${esc(g.nome)}</label>
+    blocos.push(passo('Mensagem', textos.map((g) => `
+      <div class="mt-campo"><label for="mtT${g.id}">${esc(g.nome)}</label>
         ${g.descricao ? `<p class="mt-aviso" style="margin:0">${esc(g.descricao)}</p>` : ''}
-        <textarea id="mtT${g.id}" data-mt-texto="${g.id}" rows="${textos[0] === g ? 3 : 1}" maxlength="300"
-          class="${falta ? 'mt-falta' : ''}" ${falta ? 'aria-invalid="true"' : ''}>${esc(MT.textos[g.id] || '')}</textarea>
-        ${falta ? '<p class="mt-diz-falta">Falta preencher</p>' : ''}</div>`;
-    }).join('')));
+        <textarea id="mtT${g.id}" data-mt-texto="${g.id}" rows="${textos[0] === g ? 3 : 1}"
+          maxlength="300">${esc(MT.textos[g.id] || '')}</textarea></div>`).join('')));
   }
-  const faltaAtend = MT.faltas.has('atend');
   blocos.push(passo('Quando e como?', `
     <div class="mt-campo" style="margin-top:0"><label for="mtData">Data desejada</label>
       <input type="date" id="mtData" min="${hojeIso()}" value="${esc(MT.data || '')}"></div>
-    ${servs.length ? `<div class="mt-ops ${faltaAtend ? 'mt-falta' : ''}" id="mtAtendOps" style="margin-top:12px">${servs.map((sv) => {
+    ${servs.length ? `<div class="mt-ops" id="mtAtendOps" style="margin-top:12px">${servs.map((sv) => {
       const v = sv.valor === 'delivery' ? 'entrega' : 'retirada';
       return `<button type="button" class="mt-op ${MT.atend === v ? 'on' : ''}" aria-pressed="${MT.atend === v}" data-mt-atend="${v}">
         <strong>${sv.icone} ${esc(sv.rotulo)}</strong><small>${v === 'entrega' ? 'Entregamos no endereço' : 'Você busca na loja'}</small></button>`;
     }).join('')}</div>` : ''}
-    ${faltaAtend ? '<p class="mt-diz-falta">Escolha retirada ou entrega</p>' : ''}
     <p class="mt-aviso" id="mtNotaAtend"></p>`));
 
   $('conteudo').innerHTML = `
@@ -1197,6 +1538,8 @@ function pintarMontador() {
   montarBuque();
   atualizarMontador();
   ajustarLadoMontador();
+  // O repinte não pode perder o que já estava marcado (nem pular a página).
+  if (MT.faltas.size) mtMarcarFaltas({ levar: false });
 }
 
 /* Folga entre a barra do topo e o que fica preso embaixo dela, e os limites
@@ -1429,14 +1772,18 @@ function mtFaltando(seguir) {
   return fora;
 }
 
-/** Leva à primeira falta e põe o foco nela. */
-function mtIrAteAFalta(chave) {
-  const el = chave === 'atend'
-    ? document.querySelector('[data-mt-atend]')
-    : $('mtT' + chave.slice(6));
-  if (!el) return;
-  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  el.focus({ preventScroll: true });
+/**
+ * As faltas do montador viram marcas na tela.
+ *
+ * Elas moram em `MT.faltas`, e não no DOM, porque cada escolha repinta os
+ * passos inteiros: guardadas só nas classes, sumiriam ao trocar a cor.
+ * `levar: false` é o repinte repondo o que já estava marcado.
+ */
+function mtMarcarFaltas({ levar = true } = {}) {
+  const lista = [...MT.faltas].map((chave) => (chave === 'atend'
+    ? { el: $('mtAtendOps'), diz: 'Escolha retirada ou entrega' }
+    : { el: $('mtT' + chave.slice(6)), diz: 'Falta preencher' }));
+  return marcarFaltas(lista, { levar });
 }
 
 let MT_ENVIANDO = false;
@@ -1444,12 +1791,12 @@ async function concluirMontagem(seguir) {
   const faltas = mtFaltando(seguir);
   MT.faltas = new Set(faltas);
   if (faltas.length) {
-    pintarMontadorMantendo();
-    mtIrAteAFalta(faltas[0]);
+    pintarMontadorMantendo();      // repinta e repõe as marcas
+    mtMarcarFaltas();              // agora leva até a primeira
     return;
   }
+  faixaDeErro('mtErro', '');
   const erro = $('mtErro');
-  if (erro) erro.hidden = true;
   // Dois toques rápidos punham dois buquês na sacola: a montagem nunca se funde.
   if (MT_ENVIANDO) return;
   MT_ENVIANDO = true;
@@ -1467,11 +1814,11 @@ async function concluirMontagemAgora(seguir, erro) {
     body: JSON.stringify({ itens: [item] }),
   }).then((x) => x.json()).catch(() => null);
   if (!r || !r.success) {
-    if (erro) {
-      erro.textContent = (r && r.error) || 'Não foi possível adicionar agora.';
-      erro.hidden = false;
-      erro.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }
+    // Recusa de um grupo (obrigatório, mínimo, máximo) marca o grupo; o resto
+    // é faixa no alto.
+    const campo = r && r.grupoId && $('mtGrupo' + r.grupoId);
+    if (campo) marcarFaltas([{ el: campo, diz: r.error }]);
+    else faixaDeErro('mtErro', (r && r.error) || 'Não foi possível adicionar agora.');
     return;
   }
   // Editando um buquê da sacola, ele é TROCADO: somar outro igual seria o
@@ -1561,14 +1908,9 @@ document.addEventListener('input', (e) => {
   if (t) {
     const g = Number(t.dataset.mtTexto);
     MT.textos[g] = t.value;
-    // A marca some ao preencher, sem esperar outro clique em Continuar. Só a
-    // classe sai: repintar aqui tiraria o cursor do campo a cada tecla.
-    if (MT.faltas.delete('texto-' + g)) {
-      t.classList.remove('mt-falta');
-      t.removeAttribute('aria-invalid');
-      const diz = t.parentElement && t.parentElement.querySelector('.mt-diz-falta');
-      if (diz) diz.remove();
-    }
+    // A classe já saiu no listener da peça; aqui sai o estado, para o repinte
+    // não trazer a marca de volta.
+    MT.faltas.delete('texto-' + g);
     atualizarMontador();
     return;
   }
@@ -1908,7 +2250,7 @@ function pintarBarraAtendimento() {
   if (!SERVICO) {
     dentro.innerHTML = `
       <p class="atend-titulo">Como você quer receber?</p>
-      <div class="atend-ops">${ops.map((o) => `
+      <div class="atend-ops" id="atendOps">${ops.map((o) => `
         <button type="button" class="atend-op" data-servico="${o.valor}">
           <span class="ic" aria-hidden="true">${o.icone}</span>${o.rotulo}
         </button>`).join('')}</div>`;
@@ -2188,7 +2530,13 @@ document.addEventListener('click', async (e) => {
        é um checkout que pergunta de novo o que a sacola devia ter resolvido.
        A validação do próprio checkout (`enviarPedido`) continua intacta como
        segunda camada. */
-    if (!SERVICO) return;
+    /* Sem escolha não avança, e a sacola diz onde falta — o Continuar só é
+       desenhado depois da escolha, então chegar aqui exigiria um clique
+       forjado, mas a guarda fica e agora ela se explica. */
+    if (!SERVICO) {
+      marcarFaltas([{ el: $('atendOps'), diz: 'Escolha retirada ou entrega' }]);
+      return;
+    }
     /* O serviço escolhido na sacola entra no checkout já marcado — perguntar
        duas vezes a mesma coisa é o jeito mais rápido de a pessoa desistir. */
     CHECKOUT.atendimento = SERVICO === 'delivery' ? 'entrega' : 'retirada';

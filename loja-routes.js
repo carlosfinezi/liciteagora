@@ -824,16 +824,16 @@ function validarEscolhas(grupos, idsEscolhidos, textos) {
   for (const g of grupos) {
     if (g.tipo === 'texto') {
       const t = String(textos[g.id] ?? textos[String(g.id)] ?? '').trim().slice(0, 300);
-      if (g.obrigatorio && !t) return { erro: `"${g.nome}" é obrigatório` };
+      if (g.obrigatorio && !t) return { erro: `"${g.nome}" é obrigatório`, grupoId: g.id };
       if (t) textosOk[g.id] = t;
       continue;
     }
     const doGrupo = g.opcoes.filter((o) => escolhidas.includes(o.id));
     if (doGrupo.length < g.minEscolhas) {
-      return { erro: `"${g.nome}" exige ao menos ${g.minEscolhas} opção(ões)` };
+      return { erro: `"${g.nome}" exige ao menos ${g.minEscolhas} opção(ões)`, grupoId: g.id };
     }
     if (doGrupo.length > g.maxEscolhas) {
-      return { erro: `"${g.nome}" aceita no máximo ${g.maxEscolhas} opção(ões)` };
+      return { erro: `"${g.nome}" aceita no máximo ${g.maxEscolhas} opção(ões)`, grupoId: g.id };
     }
     for (const o of doGrupo) {
       // `grupoNome` junto: na sacola, "Modelo 4" sozinho não diz de que é.
@@ -1430,7 +1430,9 @@ function registrarRotasLojaPublica(app, db) {
 
       const validado = validarEscolhas(grupos, escolhidas, textos);
       if (validado.erro) {
-        return { erro: validado.erro, status: 422, item: i, produtoId };
+        // `grupoId` sobe junto: é ele que faz a tela marcar o grupo recusado,
+        // em vez de uma caixa de aviso solta.
+        return { erro: validado.erro, status: 422, item: i, produtoId, grupoId: validado.grupoId };
       }
 
       /* Montável: o preço é o da linha da tabela e a quantidade é sempre 1,
@@ -1481,7 +1483,7 @@ function registrarRotasLojaPublica(app, db) {
       const r = montarItensDoCarrinho(c, bruto, pessoaLogada(req));
       if (r.erro) {
         return res.status(r.status).json({ success: false, error: r.erro,
-                                           item: r.item, produtoId: r.produtoId });
+                                           item: r.item, produtoId: r.produtoId, grupoId: r.grupoId });
       }
       const itens = r.itens;
 
@@ -1606,9 +1608,9 @@ function registrarRotasLojaPublica(app, db) {
 
       // ── quem está comprando ───────────────────────────────────────────
       const nome = txtPub(b.cliente && b.cliente.nome, 80);
-      if (!nome || nome.length < 2) return recusa(422, 'Informe seu nome.');
+      if (!nome || nome.length < 2) return recusa(422, 'Informe seu nome.', { campo: 'nome' });
       const telefone = soDigitos(b.cliente && b.cliente.telefone, 15);
-      if (telefone.length < 10) return recusa(422, 'Informe um telefone com DDD.');
+      if (telefone.length < 10) return recusa(422, 'Informe um telefone com DDD.', { campo: 'telefone' });
 
       /* Documento é opcional. Informado, precisa ser válido: documento
          inválido no cadastro só aparece na SEFAZ, com a venda feita. */
@@ -1616,21 +1618,21 @@ function registrarRotasLojaPublica(app, db) {
       const docBruto = b.cliente && b.cliente.cpfCnpj;
       if (docBruto != null && String(docBruto).trim() !== '') {
         documento = documentoValido(docBruto);
-        if (!documento) return recusa(422, pixNoSite ? 'CPF/CNPJ inválido. Confira os números.' : 'CPF/CNPJ inválido. Confira ou deixe em branco.');
+        if (!documento) return recusa(422, pixNoSite ? 'CPF/CNPJ inválido. Confira os números.' : 'CPF/CNPJ inválido. Confira ou deixe em branco.', { campo: 'documento' });
       }
-      if (pixNoSite && !documento) return recusa(422, 'Informe seu CPF. O pagamento por Pix precisa dele.');
+      if (pixNoSite && !documento) return recusa(422, 'Informe seu CPF. O pagamento por Pix precisa dele.', { campo: 'documento' });
 
       // E-mail é opcional; informado, precisa ser um e-mail. O aceite de
       // promoções vai para o cadastro (contato-marketing.js).
       const { lerEmail, aplicarContato } = require('./contato-marketing');
       const email = lerEmail(b.cliente && b.cliente.email);
-      if (email === false) return recusa(422, 'E-mail inválido. Confira ou deixe em branco.');
+      if (email === false) return recusa(422, 'E-mail inválido. Confira ou deixe em branco.', { campo: 'email' });
       const aceitePromocoes = !!(b.cliente && b.cliente.aceitePromocoes);
 
       // ── como recebe ───────────────────────────────────────────────────
       const atendimento = String(b.atendimento || '');
       if (!['retirada', 'entrega'].includes(atendimento)) {
-        return recusa(422, 'Escolha se quer retirar ou receber em casa.');
+        return recusa(422, 'Escolha se quer retirar ou receber em casa.', { campo: 'atendimento' });
       }
       if (atendimento === 'retirada' && !c.servicoRetirada) {
         return recusa(422, 'No momento esta loja não está aceitando retirada.');
@@ -1642,7 +1644,7 @@ function registrarRotasLojaPublica(app, db) {
       // ── pagamento: INTENÇÃO, nesta fase ───────────────────────────────
       const pagamento = String(b.pagamento || '');
       if (!PAGAMENTOS_CHECKOUT[pagamento]) {
-        return recusa(422, 'Escolha uma forma de pagamento.');
+        return recusa(422, 'Escolha uma forma de pagamento.', { campo: 'pagamento' });
       }
       if (pixNoSite && pagamento !== 'pix') {
         return recusa(422, 'Esta loja recebe pelo Pix.');
@@ -1652,7 +1654,7 @@ function registrarRotasLojaPublica(app, db) {
       const bruto = Array.isArray(b.itens) ? b.itens : [];
       if (!bruto.length) return recusa(422, 'Sua sacola está vazia.');
       const montado = montarItensDoCarrinho(c, bruto, null);
-      if (montado.erro) return recusa(montado.status, montado.erro);
+      if (montado.erro) return recusa(montado.status, montado.erro, { grupoId: montado.grupoId });
       const itens = montado.itens;
       if (!itens.length) {
         return recusa(409, 'Os produtos da sua sacola não estão mais disponíveis.');
@@ -1679,7 +1681,7 @@ function registrarRotasLojaPublica(app, db) {
           referencia: txtPub(e.referencia, 120),
         };
         if (!end.logradouro || !end.numero || !end.bairro || !end.cidade || !end.uf) {
-          return recusa(422, 'Complete o endereço de entrega: rua, número, bairro, cidade e estado.');
+          return recusa(422, 'Complete o endereço de entrega: rua, número, bairro, cidade e estado.', { campo: 'rua' });
         }
 
         const modo = MODOS_FRETE.includes(c.freteModo) ? c.freteModo : 'gratis';
@@ -1711,9 +1713,9 @@ function registrarRotasLojaPublica(app, db) {
       let linhaTroco = null;
       if (pagamento === 'dinheiro' && b.precisaTroco) {
         const trocoPara = r2c(Number(b.trocoPara));
-        if (!(trocoPara > 0)) return recusa(422, 'Informe para quanto precisa de troco.');
+        if (!(trocoPara > 0)) return recusa(422, 'Informe para quanto precisa de troco.', { campo: 'troco' });
         if (trocoPara < total) {
-          return recusa(422, `O troco precisa ser a partir de ${total.toFixed(2).replace('.', ',')}.`);
+          return recusa(422, `O troco precisa ser a partir de ${total.toFixed(2).replace('.', ',')}.`, { campo: 'troco' });
         }
         linhaTroco = `Troco para: R$ ${trocoPara.toFixed(2).replace('.', ',')}`;
       }

@@ -4,6 +4,56 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-30, o que falta preencher vira peça única da loja, e os campos se formatam sozinhos
+
+Duas peças novas em `public/loja/catalogo.js`, usadas por toda a vitrine —
+montador, página do produto, sacola e checkout — e ligadas por atributo, para
+que formulário novo nasça com elas.
+
+**A peça de marcação** (`marcarFaltas`, `marcarFalta`, `limparFalta`,
+`limparFaltas`, `faixaDeErro`): borda no campo ou no grupo de opções, frase
+curta logo abaixo, a página rolando até o primeiro que falta, o foco nele e a
+marca saindo sozinha quando a pessoa mexe naquilo. A ordem é a do DOM, e não a
+ordem em que quem valida descobriu: a pessoa é levada ao primeiro que falta
+OLHANDO A TELA. As caixas de aviso que faziam esse papel saíram das quatro
+telas; a faixa vermelha ficou só para o erro que não é de campo (a loja
+fechou, a rede caiu) e subiu para o alto da página nas duas telas onde existia.
+
+**O servidor passou a NOMEAR o que recusou** (`loja-routes.js`): `campo` nas
+dez recusas do checkout (nome, telefone, documento, e-mail, atendimento,
+pagamento, endereço, troco) e `grupoId` nas três de personalização. A tela
+marca o campo que veio nomeado. Casar pela frase do erro seria uma segunda
+verdade, que se desfaz na primeira reescrita de mensagem.
+
+**A peça de formatação**, ligada por `data-formato` no HTML:
+
+- **telefone** — `(94) 99176-9924` para celular e `(94) 3322-1100` para fixo,
+  pelo número de dígitos; incompleto é marcado ao sair do campo.
+- **CPF/CNPJ** — `000.000.000-00` ou `00.000.000/0000-00` conforme o tamanho,
+  com os dígitos verificadores conferidos.
+- **CEP** — `00000-000` e, completo, busca rua, bairro e cidade no ViaCEP (o
+  mesmo que `public/comercial/pessoas.html` já usa), **sem sobrescrever o que
+  a pessoa já escreveu**.
+- **e-mail** conferido no formato, **dinheiro** crescendo da direita.
+- O cursor é reposto contando da DIREITA, então digitar no meio, colar com
+  pontuação e apagar não jogam o cursor para trás.
+- Teclado certo no celular: numérico em telefone, CPF, CEP e troco; de e-mail
+  no e-mail.
+- **Ao servidor vão só os dígitos**: a máscara é de leitura, e `corpoDoPedido`
+  limpa telefone, documento e CEP antes de enviar.
+
+A conferência de campo vazio continua de cada formulário, que sabe o que é
+obrigatório onde; a de formato é da peça. Um campo não é cobrado duas vezes.
+
+**Os três pedidos que uma prova de tela criou por engano no `cantinhoverde`
+foram apagados**, a pedido: `PED-2026-00001` a `00003`, três itens, doze
+linhas de opção, seis reservas de estoque, três registros de pagamento e a
+cliente "Ana Maria". O pedido 4, do Jonatã, e as catorze reservas dele ficaram
+intactos. Causa do engano: entre dois blocos, a prova navegava com `goto` para
+outro hash da MESMA página, o que não recria o documento — o estado do
+checkout sobrevivia, o formulário passava na validação e o botão fazia o que
+faz. A prova agora intercepta `/loja/api/pedido/finalizar` em toda carga.
+
 ## 2026-09-29, sete ajustes no montador, na sacola e no checkout
 
 - **A prévia encolhe antes de o bloco passar sob a barra**
