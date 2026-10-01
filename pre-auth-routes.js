@@ -49,10 +49,14 @@ function registerPreAuthRoutes(app, db, { apiKey }) {
   // lugar do script — e o checkout da loja, que depende da peça desde
   // 30/09/2026, quebraria por inteiro.
   //
-  // São só estes dois arquivos, nomeados um a um: `public/js` inteiro traria o
+  // `os-rotulos.js` entrou pelo mesmo motivo: o portal do cliente mostra o
+  // status da OS dele ("Aguardando peça", e não "aguardando-peca") e é tela
+  // pública.
+  //
+  // São só estes arquivos, nomeados um a um: `public/js` inteiro traria o
   // `menu-config.js` e o `sidebar.js`, que descrevem o menu do ERP e não têm
   // por que sair para fora do login.
-  for (const peca of ['campo-formato.js', 'aviso-sistema.js']) {
+  for (const peca of ['campo-formato.js', 'aviso-sistema.js', 'os-rotulos.js']) {
     app.get(`/js/${peca}`, (_req, res) => {
       res.sendFile(path.join(__dirname, 'public', 'js', peca), {
         maxAge: '1h', headers: { 'Content-Type': 'application/javascript; charset=utf-8' },

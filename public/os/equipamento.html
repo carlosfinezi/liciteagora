@@ -6,13 +6,14 @@
 <script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<script src="/js/os-rotulos.js"></script>
 <style>
   .evt-item { padding:10px; border-left:3px solid var(--accent); background:var(--bg-1); margin-bottom:8px; border-radius:var(--r-md); }
   .evt-item.troca_dono { border-left-color:var(--warn); }
   .evt-item.cadastro { border-left-color:var(--success); }
-  .evt-meta { color:var(--text-3); font-size:11px; margin-top:4px; }
+  .evt-meta { color:var(--text-3); font-size:var(--text-xs); margin-top:4px; }
   .num { text-align:right; white-space:nowrap; }
-  .sub { display:block; color:var(--text-3); font-size:.78em; }
+  .sub { display:block; color:var(--text-3); font-size:var(--text-xs); }
   .grid2 { display:grid; grid-template-columns:1fr 340px; gap:18px; align-items:start; }
   @media (max-width:900px){ .grid2 { grid-template-columns:1fr; } }
 </style>
@@ -169,7 +170,7 @@ async function carregar(){
     <td><a href="/os/ordem-servico.html?id=${o.id}"><strong>${esc(o.numero)}</strong></a>
       ${o.emGarantia?'<span class="badge entrada">garantia</span>':''}</td>
     <td>${(o.dataAbertura||'').slice(0,10)}</td>
-    <td><span class="badge ${o.status==='faturada'?'entrada':o.status==='cancelada'?'cancelado':'pendente'}">${esc(o.status)}</span></td>
+    <td><span class="badge badge-os ${o.status==='faturada'?'entrada':o.status==='cancelada'?'cancelado':'pendente'}">${esc(OsRotulos.status(o.status))}</span></td>
     <td>${esc(o.tecnicoNome||'—')}</td>
     <td>${esc(o.defeitoRelatado||o.titulo||'—')}${o.solucao?`<span class="sub">${esc(o.solucao)}</span>`:''}</td>
     <td class="num">${o.status==='faturada'?fmtBRL(o.valorTotal):'—'}</td>

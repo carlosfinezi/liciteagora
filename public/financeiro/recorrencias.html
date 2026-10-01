@@ -9,8 +9,8 @@
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
         .valor-display { font-size: 1.1em; font-weight: 700; color: var(--accent); }
-        .erro-rec { color: var(--danger); font-size: 0.85em; margin-top: 4px; max-width: 280px; }
-        .emissao-andamento { color: var(--muted); font-size: 0.85em; margin-top: 4px; }
+        .erro-rec { color: var(--danger); font-size: var(--text-xs); margin-top: 4px; max-width: 280px; }
+        .emissao-andamento { color: var(--muted); font-size: var(--text-xs); margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -165,7 +165,7 @@ async function carregarRecorrencias() {
             <tr>
                 <td>
                     <div style="font-weight:600;">${esc(r.pessoaNome)}</div>
-                    <div style="color:#888;font-size:0.85em;">${formatDoc(r.pessoaCpfCnpj)}</div>
+                    <div style="color:#888;font-size:var(--text-xs);">${formatDoc(r.pessoaCpfCnpj)}</div>
                 </td>
                 <td>${esc(r.descricao.substring(0, 50))}${r.descricao.length > 50 ? '...' : ''}</td>
                 <td class="valor-display">${formatMoney(r.valorServico)}</td>

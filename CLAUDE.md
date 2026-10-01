@@ -119,6 +119,11 @@ São **dois**, iguais no cuidado e trocáveis entre si:
 | `sandbox` | `sandbox.liciteagora.app` | `sudo bash scripts/encerrar-demo.sh sandbox --sim` |
 | `demo2` | `demo2.liciteagora.app` | `sudo bash scripts/encerrar-demo.sh demo2 --sim` |
 
+Os dois estão no plano **Vitalício/Interno** (`plano_id = 4`), e isso não é
+detalhe: o `sandbox` estava no Mensal, que vencia em **11/10/2026** e o
+suspenderia sozinho — no meio de uma gravação, sem aviso. Tenant de
+demonstração não vence (trocado em 01/10/2026 pelo `setPlanoTenant`).
+
 Os dois nascem vazios, sem certificado, sem SMTP, sem WhatsApp, sem provedor
 de boleto e sem integração nenhuma, e **é assim que ficam**: quem monta um
 retrato semeia o banco direto, nunca por rota de emissão. O banco de
@@ -1087,6 +1092,30 @@ Prova: bloco novo na etapa 127b (`test-interesse-anexos-api`), que grava um
 bearer com validade e substitui o `axios.post` para ver o multipart. Com a
 validação antiga de volta, reprova em 4 das 23. Verify rápido de 12:52: 7
 suítes, 89,6 s, zero falhas.
+
+**Em vigor desde o boot de 2026-10-01 12:38:04** (limpo, `NRestarts=0`, HTTP
+302): **as correções do módulo de OS**. Duas valem para todo tenant e eram
+defeito silencioso:
+
+- o relatório **SLA — cumprimento de prazos** passou a calcular o status pelo
+  `calcSlaStatus`, o mesmo da lista. Lendo a coluna `slaStatus`, ele mostrava 0
+  cumpridos e 0 estourados em QUALQUER tenant, para sempre: nada no sistema
+  grava esses dois valores ali;
+- `os_itens_pecas` ganhou `custoUnitario`, `desconto` e `situacao` pelo
+  `db-schema.js`, na recriação e por ALTER idempotente. **Conferido nos 22
+  tenants depois do boot: 20 com as três colunas**; `crsolucoes` e
+  `pccontabilidade` não têm a tabela e por isso ficam de fora. Sem elas, abrir
+  uma OS e o relatório de margem respondiam erro de SQL.
+
+Mais: os KPIs "Faturadas sem nota" e "Rejeitadas SEFAZ" passaram a olhar as
+notas (a NFS-e conta, e o de rejeitadas só aparece para quem emitiu), os
+relatórios mostram o nome do técnico e não o login, a régua de cobrança ganhou
+nome por etapa (`nomeDaEtapa`, exportada do `cobrancas-routes.js`) e o
+`pre-auth-routes.js` passou a liberar `/js/os-rotulos.js`, que o portal do
+cliente precisa por ser tela pública. **Nada pendente deste serviço.**
+
+O boot levou junto, com a sintaxe conferida antes, o `ssl-certificados-routes.js`
+de outra frente (salvo às 12:31, posterior ao boot das 12:15 daquela sessão).
 
 **`consulta-licitacoes.service`** (o `server.js`) — boot atual: **2026-09-30
 11:29:24**, a pedido, depois do backup `backups/db/2026-09-30-1057`: **o motor

@@ -13,7 +13,7 @@
      compacta — mesma informação, ~40% da altura. */
   .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); gap: 8px; margin-bottom: 12px; }
   .kpi { padding: 7px 10px; }
-  .kpi .label { font-size: 0.62em; letter-spacing: 0.04em; }
+  .kpi .label { font-size: var(--text-xs); letter-spacing: 0.04em; }
   .kpi .value { font-size: 1.02em; margin-top: 1px; }
   /* Menu do seletor de colunas */
   #ddColunas { position: relative; }
@@ -27,13 +27,20 @@
   /* O grid.js dimensiona a coluna pela largura do CABEÇALHO e respeita o
      min-width que a página declarar no <th>. Sem estes pisos, "Número" media
      94px e cortava OS-2026-0075 em "OS-202…", e Total cortava o valor. */
-  th.c-numero  { min-width: 132px; }
-  th.c-cliente { min-width: 190px; }
-  th.c-titulo  { min-width: 168px; }
-  th.c-tecnico { min-width: 142px; }
-  th.c-status  { min-width: 150px; }
-  th.c-sla     { min-width: 150px; }
-  th.c-total   { min-width: 104px; }
+  /* O orçamento é a largura do wrapper em 1440px (1128px, descontados o menu e
+     os respiros). A soma dos pisos tem de caber nele: estourar joga a última
+     coluna (Total) para fora da vista, atrás de uma rolagem horizontal que
+     ninguém percebe que existe. Lápis 40 + 132 + 150 + 140 + 110 + 134 + 146
+     + 148 + 108 = 1126, com folga para o encaixe final do grid.js. A coluna
+     do lápis mede 60px, e não 40 — é ela que faz a conta fechar no limite. */
+  th.c-numero  { min-width: 132px; }   /* OS-2026-0075 inteiro */
+  th.c-cliente { min-width: 138px; }   /* quebra linha, então o piso é menor */
+  th.c-titulo  { min-width: 128px; }   /* idem */
+  th.c-tipo    { min-width: 110px; }
+  th.c-tecnico { min-width: 134px; }   /* "Marcos Ferreira" */
+  th.c-status  { min-width: 146px; }   /* "Aguardando peça" */
+  th.c-sla     { min-width: 148px; }   /* "✖ Fora do prazo" */
+  th.c-total   { min-width: 108px; }   /* R$ 37.506,00 */
   /* Nome de cliente e título são longos e variáveis: em vez de cortar, quebram
      linha. O .grid-on do grid.js põe nowrap em toda td — daqui para baixo
      vence por especificidade. */
@@ -93,9 +100,9 @@
       <input type="hidden" id="fClienteIdFiltro">
       <div id="acCliFiltroList" class="ac-list"></div>
     </div>
-    <label style="display:flex;align-items:center;gap:6px;font-size:0.85em;color:var(--text-2);">Aberta de
+    <label style="display:flex;align-items:center;gap:6px;font-size:var(--text-xs);color:var(--text-2);">Aberta de
       <input type="date" id="fDataIni" onchange="carregar()"></label>
-    <label style="display:flex;align-items:center;gap:6px;font-size:0.85em;color:var(--text-2);">até
+    <label style="display:flex;align-items:center;gap:6px;font-size:var(--text-xs);color:var(--text-2);">até
       <input type="date" id="fDataFim" onchange="carregar()"></label>
     <button class="btn btn-ghost btn-sm" onclick="limparFiltros()">Limpar</button>
     <button class="btn btn-secondary btn-sm" onclick="exportarCSV()"><svg class="ic-sm"><use href="#i-download"/></svg> Exportar CSV</button>
@@ -108,7 +115,7 @@
     </table>
   </div>
 
-  <div id="paginacao" style="display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:10px;font-size:0.85em;color:var(--text-2);"></div>
+  <div id="paginacao" style="display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:10px;font-size:var(--text-xs);color:var(--text-2);"></div>
 </main></div>
 
 <script src="/js/menu-config.js"></script>
@@ -221,12 +228,12 @@ const COLUNAS = [
   { key:'numero',      label:'Número',      default:true,  ord:'numero',  cls:'c-numero',  cel: o=>`<td class="mono"><strong>${o.numero}</strong></td>` },
   { key:'cliente',     label:'Cliente',     default:true,  ord:'cliente', cls:'c-cliente', cel: o=>`<td class="q-quebra">${o.clienteNome}</td>` },
   { key:'titulo',      label:'Título',      default:true,  ord:'titulo',  cls:'c-titulo',  cel: o=>`<td class="q-quebra">${o.titulo}</td>` },
-  { key:'tipo',        label:'Tipo de OS',  default:true,  ord:'tipo',    cel: o=>o.tipoNome
+  { key:'tipo',        label:'Tipo de OS',  default:true,  ord:'tipo', cls:'c-tipo', cel: o=>o.tipoNome
       ? `<td><span class="badge" style="background:${o.tipoCor||'#4dabf7'}22;color:${o.tipoCor||'#4dabf7'};border:1px solid ${o.tipoCor||'#4dabf7'}55;">${o.tipoNome}</span></td>`
       : '<td><small class="muted">—</small></td>' },
   { key:'equipamento', label:'Equipamento', default:false, cel: o=>`<td><small>${o.equipamento||''} ${o.marca||''} ${o.modelo||''}</small></td>` },
   { key:'tecnico',     label:'Técnico',     default:true,  ord:'tecnico', cls:'c-tecnico', cel: o=>`<td>${o.tecnicoNomeExibicao||o.tecnicoNome||'<small class="muted">—</small>'}</td>` },
-  { key:'status',      label:'Status',      default:true,  ord:'status',  cls:'c-status', cel: o=>`<td><span class="badge badge-os ${badgeClass(o.status)}">${OsRotulos.status(o.status)}</span>${o.statusFiscal?`<br><small class="muted" style="font-size:10px;">${OsRotulos.fiscal(o.statusFiscal)}</small>`:''}</td>` },
+  { key:'status',      label:'Status',      default:true,  ord:'status',  cls:'c-status', cel: o=>`<td><span class="badge badge-os ${badgeClass(o.status)}">${OsRotulos.status(o.status)}</span>${o.statusFiscal?`<br><small class="muted" style="font-size:var(--text-xs);">${OsRotulos.fiscal(o.statusFiscal)}</small>`:''}</td>` },
   { key:'sla',         label:'SLA',         default:true,  cls:'c-sla', cel: o=>`<td>${slaBadge(o.slaStatus)}</td>` },
   { key:'prazo',       label:'Prazo',       default:false, ord:'prazo',   cel: o=>`<td>${o.dataPromessa ? `<small>${fmtData(o.dataPromessa)}</small>` : '<small class="muted">—</small>'}</td>` },
   { key:'aberta',      label:'Aberta',      default:false, ord:'aberta',  cel: o=>`<td>${fmtData(o.dataAbertura)}</td>` },
@@ -306,7 +313,7 @@ function slaBadge(s){
     'estourado': { cls: 'cancelado',   txt: '✖ Fora do prazo' },
   };
   const c = map[s] || { cls: '', txt: OsRotulos.sla(s) };
-  return `<span class="badge badge-os ${c.cls}" style="font-size:11px;">${c.txt}</span>`;
+  return `<span class="badge badge-os ${c.cls}" style="font-size:var(--text-xs);">${c.txt}</span>`;
 }
 
 let tiposOS = [];

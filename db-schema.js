@@ -2098,6 +2098,14 @@ alterSafe(db, 'CREATE INDEX IF NOT EXISTS idx_cp_os ON contas_a_pagar(osId)');
         dataVencimentoTerceiro TEXT,
         contasPagarId INTEGER,
         movEntradaTerceiroId INTEGER,
+        -- As três abaixo nasciam de ALTER no migrarDB do os-routes.js, que é
+        -- no-op em multi-tenant (BOOT_STUB). Esta recriação as deixava de fora
+        -- e o tenant ficava sem elas: abrir uma OS e o relatório de margem
+        -- quebravam no SQL, porque as duas consultas citam situacao e
+        -- custoUnitario. Declaradas aqui, a tabela já nasce completa.
+        custoUnitario REAL,
+        desconto REAL DEFAULT 0,
+        situacao TEXT DEFAULT 'confirmado',
         FOREIGN KEY (osId) REFERENCES os_ordens(id) ON DELETE CASCADE,
         FOREIGN KEY (produtoId) REFERENCES produtos(id),
         FOREIGN KEY (loteId) REFERENCES lotes(id)
@@ -2146,6 +2154,16 @@ alterSafe(db, 'CREATE INDEX IF NOT EXISTS idx_reservas_equip ON reservas_estoque
 for (const tab of ['os_itens_pecas', 'os_itens_servicos']) {
   alterSafe(db, `ALTER TABLE ${tab} ADD COLUMN agregaEquipamento INTEGER DEFAULT 0`);
 }
+
+// Custo, desconto e situação da peça da OS, para o tenant que já passou pela
+// recriação acima sem elas. Idempotente: o alterSafe engole "duplicate column".
+// Sem isso, abrir uma OS (o resumo conta itens 'orcado') e o relatório de
+// margem (lê ip.custoUnitario) respondem erro de SQL. O UPDATE existe porque
+// linha gravada antes da coluna fica com NULL, e não com o default.
+alterSafe(db, 'ALTER TABLE os_itens_pecas ADD COLUMN custoUnitario REAL');
+alterSafe(db, 'ALTER TABLE os_itens_pecas ADD COLUMN desconto REAL DEFAULT 0');
+alterSafe(db, "ALTER TABLE os_itens_pecas ADD COLUMN situacao TEXT DEFAULT 'confirmado'");
+alterSafe(db, "UPDATE os_itens_pecas SET situacao = 'confirmado' WHERE situacao IS NULL");
 
 // 5) Composição do equipamento. Remoção é data, não DELETE: componente
 //    retirado é história da máquina, não erro de digitação.

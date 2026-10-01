@@ -778,7 +778,7 @@ function coletarPendenciasOS(db, os, tipo) {
     : [];
 
   out.encerraApontamentoAberto = db.prepare(`
-    SELECT a.id, a.dataInicio, u.username AS tecnico
+    SELECT a.id, a.dataInicio, COALESCE(u.nome, u.username) AS tecnico
       FROM os_apontamentos a
       LEFT JOIN users u ON u.id = a.tecnicoId
      WHERE a.osId = ? AND a.dataFim IS NULL
@@ -1014,7 +1014,7 @@ function registrarRotasOS(app, db) {
 
     const ordens = db.prepare(`SELECT o.id, o.numero, o.status, o.titulo, o.defeitoRelatado, o.solucao,
              o.dataAbertura, o.dataConclusao, o.dataFaturamento, o.garantiaDias, o.valorTotal,
-             o.emGarantia, t.username AS tecnicoNome
+             o.emGarantia, COALESCE(t.nome, t.username) AS tecnicoNome
       FROM os_ordens o LEFT JOIN users t ON t.id = o.tecnicoId
       WHERE o.equipamentoId = ? ORDER BY o.dataAbertura DESC`).all(equipamentoId);
 
@@ -1415,11 +1415,37 @@ function registrarRotasOS(app, db) {
           SUM(CASE WHEN status='aguardando-peca' THEN 1 ELSE 0 END) AS aguardandoPeca,
           SUM(CASE WHEN status='concluida' THEN 1 ELSE 0 END) AS concluidas,
           SUM(CASE WHEN status IN ('concluida','faturada') THEN valorTotal ELSE 0 END) AS receita,
-          SUM(CASE WHEN status='faturada' AND (statusFiscal IS NULL OR statusFiscal='pendente') THEN 1 ELSE 0 END) AS faturadasSemNota,
-          SUM(CASE WHEN status='faturada' AND statusFiscal='mista_parcial' THEN 1 ELSE 0 END) AS mistaParcial,
-          SUM(CASE WHEN status='faturada' AND statusFiscal='rejeitada' THEN 1 ELSE 0 END) AS rejeitadas
+          SUM(CASE WHEN status='faturada' AND statusFiscal='mista_parcial' THEN 1 ELSE 0 END) AS mistaParcial
         FROM os_ordens
       `).get();
+
+      // "Sem nota" e "rejeitadas" saem das NOTAS, e não da coluna `statusFiscal`.
+      // Ela é desnormalizada e só é escrita pelo recalcStatusFiscal: OS faturada
+      // antes dele ficava com NULL e entrava em "sem nota" mesmo com a NFS-e
+      // autorizada ao lado. A NFS-e conta como nota tanto quanto a NF-e — para
+      // quem só vende serviço, ela é a única que existe.
+      const notaOk = `
+        EXISTS (SELECT 1 FROM nfse n WHERE n.osId = o.id AND n.status IN ('autorizada','nao_fiscal'))
+        OR EXISTS (SELECT 1 FROM faturas fa WHERE fa.osId = o.id AND fa.statusSefaz IN ('autorizada','nao_fiscal'))`;
+      kpis.faturadasSemNota = db.prepare(`
+        SELECT COUNT(*) AS n FROM os_ordens o
+        WHERE o.status = 'faturada' AND COALESCE(o.naoEmitirNFe, 0) = 0 AND NOT (${notaOk})
+      `).get().n;
+      kpis.rejeitadas = db.prepare(`
+        SELECT COUNT(*) AS n FROM os_ordens o
+        WHERE EXISTS (SELECT 1 FROM nfse n WHERE n.osId = o.id AND n.status = 'rejeitada')
+           OR EXISTS (SELECT 1 FROM faturas fa WHERE fa.osId = o.id AND fa.statusSefaz = 'rejeitada')
+      `).get().n;
+      // O KPI de rejeitada só faz sentido para quem emite. Num tenant que nunca
+      // emitiu nota, "Rejeitadas SEFAZ: 0" é uma pergunta que ninguém fez — e
+      // SEFAZ, para quem só emite NFS-e, nem é o órgão certo.
+      // "Emite" é ter mandado nota, e não ter rascunho gravado: fatura sem
+      // statusSefaz nunca saiu daqui, e contá-la faria o KPI aparecer para quem
+      // só vende serviço e emite NFS-e.
+      kpis.emiteNota = db.prepare(`
+        SELECT (SELECT COUNT(*) FROM nfse WHERE COALESCE(status,'') <> '')
+             + (SELECT COUNT(*) FROM faturas WHERE COALESCE(statusSefaz,'') <> '') AS n
+      `).get().n > 0;
 
       // KPIs SLA — calculados sobre dataset leve (id, status, dataPromessa, dataConclusao)
       const paraSla = db.prepare(`
@@ -1579,7 +1605,7 @@ function registrarRotasOS(app, db) {
         WHERE i.osId = ? ORDER BY i.id
       `).all(os.id);
       const apontamentos = db.prepare(`
-        SELECT a.*, u.username AS tecnicoNome
+        SELECT a.*, COALESCE(u.nome, u.username) AS tecnicoNome
         FROM os_apontamentos a
         LEFT JOIN users u ON u.id = a.tecnicoId
         WHERE a.osId = ? ORDER BY a.dataInicio DESC
@@ -3411,7 +3437,7 @@ function registrarRotasOS(app, db) {
   function _dadosOSparaPDF(osId) {
     const os = db.prepare(`
       SELECT o.*, p.razaoSocial AS clienteNome, p.cpfCnpj AS clienteCpfCnpj,
-             p.telefone AS clienteTelefone, u.username AS tecnicoNome,
+             p.telefone AS clienteTelefone, COALESCE(u.nome, u.username) AS tecnicoNome,
              u.nome AS tecnicoNomeExibicao
       FROM os_ordens o
       JOIN pessoas p ON p.id = o.clienteId
@@ -3757,7 +3783,7 @@ function registrarRotasOS(app, db) {
     try {
       const f = filtroPeriodo(req);
       const rows = db.prepare(`
-        SELECT u.id AS tecnicoId, u.username AS tecnicoNome,
+        SELECT u.id AS tecnicoId, COALESCE(u.nome, u.username) AS tecnicoNome,
                u.comissaoPercentual AS comissaoPercentual,
                COUNT(o.id) AS totalOS,
                SUM(CASE WHEN o.status = 'faturada' THEN 1 ELSE 0 END) AS faturadas,
@@ -3780,7 +3806,7 @@ function registrarRotasOS(app, db) {
         FROM os_ordens o
         LEFT JOIN users u ON u.id = o.tecnicoId
         WHERE 1=1 ${f.where}
-        GROUP BY u.id, u.username, u.comissaoPercentual, u.valorHora
+        GROUP BY u.id, u.nome, u.username, u.comissaoPercentual, u.valorHora
         ORDER BY valorTotal DESC
       `).all(...f.params);
 
@@ -4032,33 +4058,55 @@ function registrarRotasOS(app, db) {
   });
 
   // SLA: resumo de cumprimento no período
+  //
+  // O status sai do calcSlaStatus, o MESMO da lista de OS, e não da coluna
+  // `slaStatus` gravada. A coluna só recebe 'atrasado' e 'risco', do sweep do
+  // scheduler — ninguém em lugar nenhum grava 'cumprido' nem 'estourado'. Lendo
+  // dela, este relatório mostrava 0 cumpridos e 0 estourados para sempre, e a
+  // taxa de cumprimento saía "sobre 0 concluída(s)" mesmo com centenas de OS
+  // concluídas. Pior: OS marcada 'atrasado' pelo sweep e concluída depois ficava
+  // contada como atrasada para sempre, porque nada reescreve a coluna ao fechar.
+  //
+  // Uma fonte só, então: o conjunto é pequeno (id, status, duas datas) e o
+  // cálculo é aritmética de data.
   app.get('/api/os/relatorios/sla', (req, res) => {
     try {
       const f = filtroPeriodo(req);
-      const resumo = db.prepare(`
-        SELECT
-          COUNT(*) AS total,
-          SUM(CASE WHEN slaStatus = 'cumprido' THEN 1 ELSE 0 END) AS cumpridos,
-          SUM(CASE WHEN slaStatus = 'estourado' THEN 1 ELSE 0 END) AS estourados,
-          SUM(CASE WHEN slaStatus = 'atrasado' THEN 1 ELSE 0 END) AS atrasados,
-          SUM(CASE WHEN slaStatus = 'risco' THEN 1 ELSE 0 END) AS emRisco,
-          SUM(CASE WHEN slaStatus = 'no-prazo' THEN 1 ELSE 0 END) AS noPrazo,
-          SUM(CASE WHEN slaStatus IS NULL THEN 1 ELSE 0 END) AS semSla
-        FROM os_ordens o
-        WHERE 1=1 ${f.where}
-      `).get(...f.params);
-      const porTecnico = db.prepare(`
-        SELECT u.username AS tecnicoNome,
-               COUNT(*) AS total,
-               SUM(CASE WHEN o.slaStatus = 'cumprido' THEN 1 ELSE 0 END) AS cumpridos,
-               SUM(CASE WHEN o.slaStatus = 'estourado' THEN 1 ELSE 0 END) AS estourados,
-               SUM(CASE WHEN o.slaStatus = 'atrasado' THEN 1 ELSE 0 END) AS atrasados
+      const linhas = db.prepare(`
+        SELECT o.id, o.status, o.dataPromessa, o.dataConclusao, o.tecnicoId,
+               COALESCE(u.nome, u.username) AS tecnicoNome
         FROM os_ordens o
         LEFT JOIN users u ON u.id = o.tecnicoId
-        WHERE o.slaStatus IS NOT NULL ${f.where}
-        GROUP BY u.id, u.username
-        ORDER BY total DESC
+        WHERE 1=1 ${f.where}
       `).all(...f.params);
+
+      const zero = () => ({ total: 0, cumpridos: 0, estourados: 0, atrasados: 0, emRisco: 0, noPrazo: 0, semSla: 0 });
+      const resumo = zero();
+      const porChave = new Map();
+      const CONTA = { cumprido: 'cumpridos', estourado: 'estourados', atrasado: 'atrasados', risco: 'emRisco', 'no-prazo': 'noPrazo' };
+
+      for (const l of linhas) {
+        const s = calcSlaStatus(l);
+        resumo.total++;
+        resumo[CONTA[s] || 'semSla']++;
+        const chave = l.tecnicoId || 0;
+        if (!porChave.has(chave)) porChave.set(chave, { tecnicoNome: l.tecnicoNome || '— sem técnico —', ...zero() });
+        const t = porChave.get(chave);
+        t.total++;
+        t[CONTA[s] || 'semSla']++;
+      }
+      // Concluída fora do prazo é o estourado; a taxa é sobre as que fecharam.
+      const fechadas = resumo.cumpridos + resumo.estourados;
+      resumo.fechadas = fechadas;
+      resumo.taxaCumprimento = fechadas > 0 ? Number((resumo.cumpridos / fechadas * 100).toFixed(1)) : null;
+
+      const porTecnico = [...porChave.values()]
+        .map((t) => {
+          const f2 = t.cumpridos + t.estourados;
+          return { ...t, fechadas: f2, taxaCumprimento: f2 > 0 ? Number((t.cumpridos / f2 * 100).toFixed(1)) : null };
+        })
+        .sort((a, b) => b.total - a.total);
+
       res.json({ success: true, resumo, porTecnico });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -4069,7 +4117,7 @@ function registrarRotasOS(app, db) {
       const f = filtroPeriodo(req);
       const rows = db.prepare(`
         SELECT o.id AS osId, o.numero, o.dataFaturamento,
-               u.id AS tecnicoId, u.username AS tecnicoNome,
+               u.id AS tecnicoId, COALESCE(u.nome, u.username) AS tecnicoNome,
                u.comissaoPercentual,
                o.valorServicos,
                (o.valorServicos * IFNULL(u.comissaoPercentual, 0) / 100.0) AS comissao

@@ -13,7 +13,7 @@
 .evt-item.renovacao, .evt-item.reativacao { border-left-color:var(--success); }
 /* Correção não é reajuste: conserto de cadastro, cor neutra. */
 .evt-item.correcao { border-left-color:var(--text-3); }
-.evt-meta { color:var(--text-3); font-size:11px; margin-top:4px; }
+.evt-meta { color:var(--text-3); font-size:var(--text-xs); margin-top:4px; }
 </style>
 </head>
 <body>
@@ -772,7 +772,7 @@ function renderFaturamento(rec) {
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       ${ativoBadge}
-      <strong style="color: var(--success);">${fmtBRL(rec.valorServico)} <small style="color: var(--text-2);font-size:11px;">/mês</small></strong>
+      <strong style="color: var(--success);">${fmtBRL(rec.valorServico)} <small style="color: var(--text-2);font-size:var(--text-xs);">/mês</small></strong>
     </div>
     <table style="width:100%;font-size:13px;">
       <tr><td class="muted">Recorrência #</td><td>${rec.id}</td></tr>
@@ -852,7 +852,7 @@ function renderOsAutomatica(oa){
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <span class="badge entrada">LIGADA</span>
       <strong style="color: var(--success);">a cada ${oa.periodicidadeDias} dia${oa.periodicidadeDias>1?'s':''}
-        <small style="color: var(--text-2);font-size:11px;">${cadenciaTexto(oa.periodicidadeDias)}</small></strong>
+        <small style="color: var(--text-2);font-size:var(--text-xs);">${cadenciaTexto(oa.periodicidadeDias)}</small></strong>
     </div>
     <table style="width:100%;font-size:13px;">
       <tr><td class="muted">Tipo de OS</td><td>${escapeHtml(oa.tipoNome||'—')}</td></tr>
@@ -1166,7 +1166,7 @@ function renderResumo(){
   document.getElementById('resumo').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <span class="badge ${contrato.status==='ativo'?'entrada':contrato.status==='suspenso'?'pendente':'inativo'}">${contrato.status}</span>
-      <strong style="color: var(--success);font-size:18px;">${fmtBRL(contrato.valorMensal)} <small style="color: var(--text-2);font-size:11px;">${contrato.periodicidade==='anual'?'/ano':'/mês'}</small></strong>
+      <strong style="color: var(--success);font-size:18px;">${fmtBRL(contrato.valorMensal)} <small style="color: var(--text-2);font-size:var(--text-xs);">${contrato.periodicidade==='anual'?'/ano':'/mês'}</small></strong>
     </div>
     <table style="width:100%;font-size:13px;">
       <tr><td class="muted">Cliente</td><td>${contrato.clienteNome}</td></tr>
@@ -1176,7 +1176,7 @@ function renderResumo(){
       <tr><td class="muted">Vencimento</td><td>dia ${contrato.diaVencimento}</td></tr>
       <tr><td class="muted">Renovação automática</td><td>${contrato.renovacaoAutomatica?'Sim — '+contrato.prazoRenovacaoMeses+' meses':'Não'}</td></tr>
       <tr><td class="muted">Índice de reajuste</td><td>${contrato.indiceReajuste||'—'} ${contrato.percentualReajuste!=null?'('+contrato.percentualReajuste+'%)':''}</td></tr>
-      <tr><td class="muted">Próximo reajuste</td><td>${contrato.dataProximoReajuste||'—'}</td></tr>
+      <tr><td class="muted">Próximo reajuste</td><td>${fmtData(contrato.dataProximoReajuste)}</td></tr>
     </table>
     ${contrato.observacoes ? `<div style="margin-top:12px;padding:8px;background: var(--bg-1);border-radius:6px;font-size:13px;">${escapeHtml(contrato.observacoes)}</div>` : ''}
   `;

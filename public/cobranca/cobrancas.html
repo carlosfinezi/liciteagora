@@ -7,6 +7,13 @@
     <script src="/js/theme-boot.js"></script>
     <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* Quatro botões COM RÓTULO não cabem numa linha em 1440px: sem a quebra, o
+     último (Pausar) saía pela direita da tabela. A linha já é alta por causa
+     do nome do cliente, então a segunda fila de botões não custa altura. */
+  .cel-acoes { text-align: right; white-space: normal; min-width: 236px; }
+  .cel-acoes .btn { margin: 2px 0 2px 4px; }
+</style>
 </head>
 <body>
     <div class="layout">
@@ -155,11 +162,15 @@
                         <td>${formatarData(c.dataVencimento)}</td>
                         <td><strong style="color:${c.diasAtraso >= 15 ? 'var(--danger)' : c.diasAtraso >= 7 ? 'var(--warn)' : 'var(--accent)'};">${c.diasAtraso}d</strong></td>
                         <td><span class="badge badge-os ${etapaClass}" title="${c.ultimaEtapa ? 'Etapa ' + c.ultimaEtapa + ' da régua' : 'A régua ainda não disparou para este título'}">${escHtml(etapaLabel)}</span></td>
-                        <td style="text-align:right;white-space:nowrap;">
-                            <button class="btn btn-ghost btn-sm" onclick="cobrarUm(${c.id}, 'email')" title="E-mail">✉️</button>
-                            <button class="btn btn-ghost btn-sm" onclick="cobrarUm(${c.id}, 'whatsapp')" title="WhatsApp">📱</button>
-                            <button class="btn btn-ghost btn-sm" onclick="abrirHistorico(${c.id})" title="Histórico">📋</button>
-                            <button class="btn btn-ghost btn-sm" onclick="togglePausa(${c.pessoaId}, ${c.cobrancaAtiva})" title="Pausar/retomar">${c.cobrancaAtiva ? '⏸️' : '▶️'}</button>
+                        <td class="cel-acoes">
+                            <button class="btn btn-ghost btn-sm" onclick="cobrarUm(${c.id}, 'email')"
+                                title="Manda agora a cobrança desta fatura por e-mail">✉️ E-mail</button>
+                            <button class="btn btn-ghost btn-sm" onclick="cobrarUm(${c.id}, 'whatsapp')"
+                                title="Manda agora a cobrança desta fatura por WhatsApp">📱 WhatsApp</button>
+                            <button class="btn btn-ghost btn-sm" onclick="abrirHistorico(${c.id})"
+                                title="Mostra tudo que já foi enviado sobre esta fatura">📋 Histórico</button>
+                            <button class="btn btn-ghost btn-sm" onclick="togglePausa(${c.pessoaId}, ${c.cobrancaAtiva})"
+                                title="${c.cobrancaAtiva ? 'Para de cobrar este cliente, em todas as faturas dele' : 'Volta a cobrar este cliente'}">${c.cobrancaAtiva ? '⏸️ Pausar' : '▶️ Retomar'}</button>
                         </td>
                     </tr>
                 `;

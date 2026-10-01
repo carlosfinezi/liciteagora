@@ -14,31 +14,31 @@ const { enviarWhatsApp } = require('./whatsapp-adapter');
 
 const DEFAULT_REGUA = [
   {
-    etapa: 1, diasApos: 1, canais: ['email'],
+    etapa: 1, nome: 'Lembrete', diasApos: 1, canais: ['email'],
     assunto: 'Lembrete: fatura {{descricao}} venceu ontem',
     emailTexto: 'Olá {{nome}},\n\nPassando para lembrar que a fatura abaixo venceu ontem:\n\n{{descricao}}\nValor: {{valor}}\nVencimento: {{vencimento}}\n\nSe o pagamento já foi realizado, desconsidere este e-mail.\n\nAtenciosamente.',
     whatsappTexto: 'Oi {{nome}}, tudo bem? Passando para lembrar que a fatura "{{descricao}}" no valor de {{valor}} venceu em {{vencimento}}. Se já pagou, desconsidere!',
   },
   {
-    etapa: 2, diasApos: 3, canais: ['email', 'whatsapp'],
+    etapa: 2, nome: 'Cobrança amigável', diasApos: 3, canais: ['email', 'whatsapp'],
     assunto: 'Fatura em atraso: {{descricao}} ({{diasAtraso}} dias)',
     emailTexto: 'Olá {{nome}},\n\nIdentificamos que a fatura abaixo está em atraso há {{diasAtraso}} dias:\n\n{{descricao}}\nValor: {{valor}}\nVencimento: {{vencimento}}\n\nPara regularizar, utilize os dados abaixo:\nLinha digitável: {{linhaDigitavel}}\nBoleto: {{linkBoleto}}\n\nCaso já tenha efetuado o pagamento, desconsidere.',
     whatsappTexto: 'Olá {{nome}}, a fatura "{{descricao}}" no valor de {{valor}} está em atraso há {{diasAtraso}} dias. Pague pelo link: {{linkBoleto}}',
   },
   {
-    etapa: 3, diasApos: 7, canais: ['email', 'whatsapp'],
+    etapa: 3, nome: 'Cobrança firme', diasApos: 7, canais: ['email', 'whatsapp'],
     assunto: 'URGENTE — Fatura em atraso há {{diasAtraso}} dias',
     emailTexto: 'Prezado(a) {{nome}},\n\nA fatura "{{descricao}}" no valor de {{valor}} está em atraso há {{diasAtraso}} dias (vencimento {{vencimento}}).\n\nPedimos o pagamento com urgência para evitar medidas adicionais.\n\nLinha digitável: {{linhaDigitavel}}\nBoleto: {{linkBoleto}}\n\nEm caso de dúvidas ou negociação, entre em contato.',
     whatsappTexto: '{{nome}}, a fatura "{{descricao}}" ({{valor}}) está vencida há {{diasAtraso}} dias. Pedimos pagamento urgente: {{linkBoleto}}',
   },
   {
-    etapa: 4, diasApos: 15, canais: ['email', 'whatsapp'],
+    etapa: 4, nome: 'Aviso de negativação', diasApos: 15, canais: ['email', 'whatsapp'],
     assunto: 'Último aviso antes de negativação — {{descricao}}',
     emailTexto: 'Prezado(a) {{nome}},\n\nEste é um último aviso referente à fatura "{{descricao}}" ({{valor}}), vencida em {{vencimento}} — {{diasAtraso}} dias de atraso.\n\nCaso o pagamento não seja realizado, o débito poderá ser encaminhado para negativação junto aos órgãos de proteção ao crédito.\n\nLinha digitável: {{linhaDigitavel}}\nBoleto: {{linkBoleto}}\n\nEvite transtornos. Em caso de dificuldade, entre em contato para negociação.',
     whatsappTexto: '{{nome}}, último aviso antes de negativação: fatura "{{descricao}}" ({{valor}}), {{diasAtraso}} dias de atraso. Regularize: {{linkBoleto}}',
   },
   {
-    etapa: 5, diasApos: 30, canais: [],
+    etapa: 5, nome: 'Parar de cobrar', diasApos: 30, canais: [],
     assunto: '', emailTexto: '', whatsappTexto: '',
   },
 ];
@@ -117,6 +117,19 @@ function migrarDB(db) {
   }
 
   console.log('[Cobrancas] Schema verificado');
+}
+
+// O nome da etapa, para a tela. A régua é editável e pode vir sem `nome`
+// (toda régua gravada antes deste campo existir vem). Nesse caso vale o nome da
+// etapa de mesmo número na régua padrão, e só em último caso o número cru — que
+// era o que a lista de inadimplentes mostrava: "ETAPA 4", sem dizer se já saiu
+// o aviso de negativação ou se foi só o lembrete.
+function nomeDaEtapa(cfg, numero) {
+  if (!numero) return null;
+  const daConfig = (cfg && Array.isArray(cfg.regua) ? cfg.regua : []).find((e) => Number(e.etapa) === Number(numero));
+  if (daConfig && daConfig.nome) return daConfig.nome;
+  const padrao = DEFAULT_REGUA.find((e) => Number(e.etapa) === Number(numero));
+  return (padrao && padrao.nome) || `Etapa ${numero}`;
 }
 
 function getConfig(db) {
@@ -365,9 +378,11 @@ function registrarRotasCobrancas(app, db) {
       sql += ' ORDER BY cr.dataVencimento ASC';
 
       const rows = db.prepare(sql).all(...params);
+      const cfg = getConfig(db);
       const contas = rows.map(r => ({
         ...r,
         diasAtraso: diffDiasVencimento(r.dataVencimento),
+        ultimaEtapaNome: nomeDaEtapa(cfg, r.ultimaEtapa),
       })).filter(r => {
         if (minDias !== undefined && r.diasAtraso < Number(minDias)) return false;
         if (maxDias !== undefined && r.diasAtraso > Number(maxDias)) return false;
@@ -489,4 +504,4 @@ function registrarRotasCobrancas(app, db) {
   console.log('[Cobrancas] Rotas registradas');
 }
 
-module.exports = { registrarRotasCobrancas, executarRegua, enviarEtapa, getConfig, migrarDB, isDiaUtil, dataBrasilia };
+module.exports = { registrarRotasCobrancas, executarRegua, enviarEtapa, getConfig, nomeDaEtapa, migrarDB, isDiaUtil, dataBrasilia };

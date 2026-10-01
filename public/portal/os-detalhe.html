@@ -16,18 +16,19 @@
   .kv dt { color:#6b7280; }
   .timeline li { list-style:none;padding:8px 0;border-bottom:1px solid #f3f4f6;font-size:13px; }
   .timeline li:last-child { border-bottom:0; }
-  .timeline .t { color:#6b7280;font-size:11px; }
+  .timeline .t { color:#6b7280;font-size:12px; }
   canvas { border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:crosshair;width:100%;max-width:360px;height:130px; }
   .btn-sign { background:#2563eb;color:white;border:0;padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer; }
   .btn-clear { background:transparent;color:#6b7280;border:1px solid #cbd5e1;padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer; }
-  .badge { display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600; }
+  .badge { display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600; }
   .st-aberta,.st-em-andamento,.st-aguardando-peca { background:#fef3c7;color:#92400e; }
   .st-concluida { background:#dcfce7;color:#166534; }
   .st-faturada { background:#dbeafe;color:#1e40af; }
   .anexos-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px; }
-  .anexo { border:1px solid #e5e7eb;border-radius:6px;padding:6px;font-size:11px;text-align:center; }
+  .anexo { border:1px solid #e5e7eb;border-radius:6px;padding:6px;font-size:12px;text-align:center; }
   .anexo img { width:100%;height:80px;object-fit:cover;border-radius:4px;margin-bottom:4px; }
 </style>
+<script src="/js/os-rotulos.js"></script>
 </head>
 <body>
 <header><h1>Portal do Cliente</h1><div class="user"><span id="razao">…</span><button onclick="logout()">Sair</button></div></header>
@@ -118,7 +119,7 @@ async function carregar(){
 
 function render(d){
   const o = d.os;
-  document.getElementById('titulo').innerHTML = `${escapeHtml(o.numero)} — ${escapeHtml(o.titulo||'')} <span class="badge st-${o.status}">${o.status}</span>`;
+  document.getElementById('titulo').innerHTML = `${escapeHtml(o.numero)} — ${escapeHtml(o.titulo||'')} <span class="badge badge-os st-${o.status}">${OsRotulos.status(o.status)}</span>`;
   document.getElementById('pdfLink').href = '/portal/api/os/'+o.id+'/pdf';
   document.getElementById('content').style.display = '';
 

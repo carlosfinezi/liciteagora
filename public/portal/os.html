@@ -5,7 +5,7 @@
 <title>Minhas Ordens de Serviço</title>
 <link rel="stylesheet" href="/portal/portal-style.css">
 <style>
-  .badge { display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600; }
+  .badge { display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600; }
   .st-aberta,.st-em-andamento,.st-aguardando-peca { background:#fef3c7;color:#92400e; }
   .st-concluida { background:#dcfce7;color:#166534; }
   .st-faturada { background:#dbeafe;color:#1e40af; }
@@ -16,6 +16,7 @@
   .sla-cumprido,.sla-no-prazo { background:#dcfce7;color:#166534; }
   .sla-estourado { background:#fee2e2;color:#991b1b; }
 </style>
+<script src="/js/os-rotulos.js"></script>
 </head>
 <body>
 <header><h1>Portal do Cliente</h1><div class="user"><span id="razao">…</span><button onclick="logout()">Sair</button></div></header>
@@ -51,7 +52,7 @@ async function carregar(){
       <td>${escapeHtml(o.tipoNome||'—')}</td>
       <td>${escapeHtml(o.titulo||'—')}</td>
       <td>${escapeHtml([o.equipamento,o.marca,o.modelo].filter(Boolean).join(' ')||'—')}</td>
-      <td><span class="badge st-${o.status}">${o.status}</span></td>
+      <td><span class="badge badge-os st-${o.status}">${OsRotulos.status(o.status)}</span></td>
       <td>${o.slaStatus ? `<span class="badge sla-${o.slaStatus}">${o.slaStatus}</span>` : '—'}</td>
       <td>${o.dataPromessa || '—'}</td>
       <td class="num">${fmtBRL(o.valorTotal)}</td>

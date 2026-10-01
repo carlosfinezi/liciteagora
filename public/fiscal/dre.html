@@ -93,7 +93,10 @@ async function carregar(){
   const params = new URLSearchParams({ dataIni: ini, dataFim: fim, regime: document.getElementById('fRegime').value });
   const centro = document.getElementById('fCentro').value;
   if (centro) params.set('centroCustoId', centro);
-  document.getElementById('periodoLbl').textContent = `Período: ${ini} a ${fim}`;
+  // O cabeçalho mostrava a data como o banco guarda (2026-04-01), enquanto os
+  // campos de filtro logo acima já estavam em dd/mm/aaaa.
+  const dBR = (v) => { const d = String(v||'').split('-'); return d.length===3 ? `${d[2]}/${d[1]}/${d[0]}` : String(v||''); };
+  document.getElementById('periodoLbl').textContent = `Período: ${dBR(ini)} a ${dBR(fim)}`;
   document.getElementById('dreContainer').innerHTML = 'Carregando…';
   const r = await fetch('/api/dre?'+params);
   const d = await r.json();

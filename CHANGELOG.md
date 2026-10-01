@@ -118,6 +118,57 @@ preenchido. A suíte 161 passou a cobrar COERÊNCIA em vez da extração, e repr
 se alguém voltar a misturar as duas. Os três passos para reaplicar estão no
 CLAUDE.md.
 
+**O módulo de OS, lido por quem vende serviço, e não por quem escreveu o
+schema.** Dezessete pontos levantados sobre um retrato de empresa de manutenção
+predial. Dois valem para todo tenant:
+
+- **O relatório "SLA — cumprimento de prazos" mostrava zero desde sempre.** Ele
+  lia a coluna `os_ordens.slaStatus`, e NINGUÉM no sistema inteiro grava
+  `'cumprido'` ou `'estourado'` ali: o sweep do scheduler só escreve
+  `'atrasado'` e `'risco'`. A taxa saía "sobre 0 concluída(s)" com centenas de
+  OS fechadas, e OS marcada atrasada e concluída depois ficava atrasada para
+  sempre, porque nada reescreve a coluna ao fechar. Agora o relatório usa o
+  `calcSlaStatus`, o MESMO da lista — uma fonte só. No retrato: 81% sobre 62
+  concluídas, 50 cumpridas, 12 fora do prazo.
+- **`os_itens_pecas` perdia `custoUnitario`, `desconto` e `situacao`.** O
+  `db-schema.js` RECRIA a tabela (para relaxar o NOT NULL de `produtoId`) sem as
+  colunas que o `migrarDB` do `os-routes.js` acrescenta por ALTER — e esse
+  migrarDB é no-op em multi-tenant. Num tenant nesse estado, abrir uma OS e o
+  relatório de margem respondiam erro de SQL, porque as duas consultas citam
+  `situacao` e `custoUnitario`. A recriação passou a declará-las e há migração
+  idempotente para quem já passou por ela. Conferido nos 22 tenants: 20 com as
+  três, e os 2 restantes não têm a tabela.
+
+Na tela de OS: a lista deixou de cortar número, cliente, técnico e valor em
+1440px (piso de largura no `<th>`, que é o gancho que o `grid.js` respeita, e
+quebra de linha no nome do cliente); o status virou texto de gente
+("Aguardando peça", e não "AGUARDANDO-PECA") nas cinco telas que o mostram,
+pela peça `public/js/os-rotulos.js`; a capa passou a mostrar o prazo e o SLA,
+que só existiam na lista; equipamento, nº de série e garantia só aparecem
+quando há; o jargão fiscal (`vDesc`, `vDescIncond`, `cTribNac`, `cNBS`) saiu da
+tela de trabalho; e "Total (alternativo)" virou "Valor fechado (R$)". Os KPIs
+"Faturadas sem nota" e "Rejeitadas SEFAZ" passaram a olhar as NOTAS em vez da
+coluna desnormalizada: NFS-e conta como nota, e o de rejeitadas só aparece para
+quem de fato emitiu.
+
+Fora da OS: datas em dd/mm/aaaa e competência em mm/aaaa (Contratos,
+Recorrências, relatórios e DRE); o "R$" não quebra mais para a linha de cima nas
+colunas de valor; "Serviço" e "Última emissão" ganharam acento; os botões só de
+ícone ganharam rótulo, e o ▶ que emite nota e boleto diz "Emitir agora"; a lista
+de inadimplentes mostra o NOME da etapa da régua ("Aviso de negativação") no
+lugar de "ETAPA 4", com o nome editável na configuração; o relatório virou
+"Resultado das OS por cliente", porque ele não conta a mensalidade do contrato,
+e a coluna de equipamento some para quem não usa equipamento; e o número do
+contrato parou de cortar.
+
+Prova: etapa **168** do verify (`test-os-sla-e-rotulos`, 49 checagens). Quatro
+sabotagens reprovaram: o relatório voltando a ler a coluna (5 checagens), as
+colunas fora do `db-schema` (2), o KPI lendo `statusFiscal` (1) e os pisos de
+largura somando mais que a tela (1). Esta última nasceu de um erro cometido no
+caminho: os pisos estouraram os 1128px do wrapper e empurraram a coluna Total
+para fora da vista, atrás de uma rolagem no `.tabela-rolagem` — que não é o
+`.tbl-wrap`, e por isso o primeiro medidor não viu.
+
 **O encerramento dos tenants de demonstração virou script, e entrou no git.**
 `scripts/encerrar-demo.sh` restaura o banco, devolve o nome de repouso e põe o
 tenant em SUSPENDED, com o slug como argumento — uma lógica só para todos, e

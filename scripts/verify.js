@@ -819,6 +819,16 @@ const suites = [
   // Sabotadas (figurinha de volta, `data.key.id` ignorado, webhook sem
   // guardar), reprovou em 6 checagens.
   ['165. midia guardada e mensagem apagada (test-wa-midia-apagada)', 'test-wa-midia-apagada.js'],
+  // O modulo de OS como o dono de uma empresa de servicos le (01/10): o
+  // relatorio de SLA mostrava 0 cumpridos e 0 estourados para sempre, porque
+  // lia a coluna `slaStatus` e NINGUEM no sistema grava esses dois valores —
+  // agora ele calcula pela mesma regra da lista. Mais: as colunas
+  // custoUnitario/desconto/situacao que o db-schema derrubava ao recriar
+  // os_itens_pecas (sem elas, abrir uma OS e o relatorio de margem quebram no
+  // SQL), o KPI fiscal que ignorava a NFS-e, o nome do tecnico no lugar do
+  // login, o nome da etapa da regua de cobranca e os rotulos de status em
+  // portugues. Quatro sabotagens reprovaram.
+  ['168. OS: SLA, colunas de peca e rotulos (test-os-sla-e-rotulos)', 'test-os-sla-e-rotulos.js'],
 ];
 // ==================== modo rápido: quais suítes ====================
 /**

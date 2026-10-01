@@ -10,11 +10,14 @@
   /* O grid.js dimensiona a coluna pela largura do CABEÇALHO e respeita o
      min-width declarado no <th>. Sem estes pisos, "Número" media o tamanho da
      palavra e cortava CT-2026-004 em "CT-2026-…", com espaço sobrando à
-     direita da tabela. */
+     direita da tabela. A soma dos pisos tem de caber no wrapper (1128px em
+     1440): estourar empurra a última coluna para fora da vista, atrás de uma
+     rolagem horizontal que ninguém percebe. Cliente e descrição quebram linha,
+     então o piso delas pode ser menor. */
   th.c-numero   { min-width: 128px; }
-  th.c-cliente  { min-width: 190px; }
-  th.c-desc     { min-width: 200px; }
-  th.c-vigencia { min-width: 186px; }
+  th.c-cliente  { min-width: 158px; }
+  th.c-desc     { min-width: 178px; }
+  th.c-vigencia { min-width: 218px; }
   /* Cliente e descrição quebram linha em vez de serem cortados — o .grid-on
      põe nowrap em toda td, e daqui para baixo vence por especificidade. */
   .tbl-wrap table.grid-on td.q-quebra {
@@ -231,8 +234,8 @@ async function carregar(){
   tb.innerHTML = d.contratos.length ? d.contratos.map(c=>`<tr>
     <td class="col-editar"><a class="btn btn-ghost btn-sm btn-icon-only" title="Abrir contrato" href="/comercial/contrato.html?id=${c.id}"><svg class="ic-sm"><use href="#i-edit"/></svg></a></td>
     <td class="mono"><strong>${c.numero}</strong></td>
-    <td>${c.clienteNome}</td>
-    <td>${c.descricao}</td>
+    <td class="q-quebra">${c.clienteNome}</td>
+    <td class="q-quebra">${c.descricao}</td>
     <td class="num">${fmtBRL(c.valorMensal)}${c.periodicidade==='anual'?'<br><small class="muted">anual</small>':''}</td>
     <td>${fmtData(c.dataInicio)} → ${c.dataFim ? fmtData(c.dataFim) : '—'}</td>
     <td><span class="badge ${c.status==='ativo'?'ativo':c.status==='suspenso'?'pendente':'inativo'}">${c.status}</span></td>
