@@ -118,6 +118,17 @@ preenchido. A suíte 161 passou a cobrar COERÊNCIA em vez da extração, e repr
 se alguém voltar a misturar as duas. Os três passos para reaplicar estão no
 CLAUDE.md.
 
+**O encerramento dos tenants de demonstração virou script, e entrou no git.**
+`scripts/encerrar-demo.sh` restaura o banco, devolve o nome de repouso e põe o
+tenant em SUSPENDED, com o slug como argumento — uma lógica só para todos, e
+não um script por tenant, que era o caminho em que a árvore estava indo (havia
+um `encerrar-sandbox-<ramo>.sh` por retrato, em `backups/`, cada um com a mesma
+lógica copiada). O que muda de um tenant para outro mora em `backups/<slug>/`:
+o banco de referência e o `nome-base.txt`. Sem `--sim` ele não escreve nada:
+lista o que o banco vivo tem hoje e para, porque **tenant ACTIVE é de quem o
+ativou** e a lista é o que prova que o retrato ali dentro é seu. A seção do
+CLAUDE.md que descreve isso tinha sido commitada em ac43fcc sem o script.
+
 ## 2026-09-30, o inventário que não abria, a unidade como o balcão fala, e a busca que trazia "fornecimento"
 
 Treze correções saídas do retrato de loja de material de construção, onde cada
