@@ -307,14 +307,27 @@ acabou de editar, e o teste de runtime do caminho tocado continua manual.
 
 A saída termina em `FALHOU: N problema(s) em Ns`, com cada falha nomeada.
 
-Linha de base **2026-09-25: uma falha conhecida, a etapa 21**
-(`test-catalogo-online-ux`). Em 21/09 o menu ⚙️ Configurações do Catálogo
-Online ganhou a sétima opção, "Regras fiscais", e a suíte continua esperando 6
-(`test-catalogo-online-ux.js:634`). O menu está certo e a suíte é que ficou
-para trás. Ela está em `FALHAS_CONHECIDAS`, no `verify.js`: reprova igual, mas
-sai marcada como conhecida, e o fim da saída separa as conhecidas das novas.
-Qualquer outra falha é regressão nova. Quando a suíte for atualizada, tire a
-entrada de lá.
+Linha de base **2026-10-01, 168 etapas em 1.911s (31,8 min) com 4
+trabalhadores: 11 falhas, 4 conhecidas e 7 da frente da loja.**
+
+As **4 conhecidas** são a etapa 21 (`test-catalogo-online-ux`), nas quatro
+larguras que ela mede. O menu ⚙️ Configurações do Catálogo Online ganhou a
+sétima opção em 21/09 ("Regras fiscais") e a oitava depois dela, e a suíte
+continua esperando 6 (`test-catalogo-online-ux.js:634`). O menu está certo e a
+suíte é que ficou para trás. Ela está em `FALHAS_CONHECIDAS`, no `verify.js`:
+reprova igual, mas sai marcada como conhecida, e o fim da saída separa as
+conhecidas das novas. Quando a suíte for atualizada, tire a entrada de lá.
+
+As **7 da frente da loja** saem como NOVAS e não estão em `FALHAS_CONHECIDAS`,
+de propósito: elas são da vitrine em obra, e marcá-las esconderia regressão de
+verdade. São a sacola sem caminho para o checkout e a recusa sem motivo
+(`test-catalogo-publico-49` e `test-catalogo-fase50`) e os ícones do cabeçalho
+que não aparecem em 768 px (`test-catalogo-fase51`, nas três combinações de
+rede social). **São idênticas, item por item, às da rodada de 30/09 às 17:36** —
+é assim que se prova que uma frente nova não as causou. Quem fechar a vitrine
+acerta as três e esta linha cai.
+
+Fora dessas 11, qualquer falha é regressão nova.
 
 `npm run verify:legado` continua existindo e é o `node --check` antigo, em
 torno de 40 segundos. Serve para conferir sintaxe depressa, e não substitui o
@@ -952,6 +965,23 @@ Os quatro arquivos são anteriores a esse boot (o mais recente, o
 | `pessoa-sem-documento.js` | `cpfValido`, `cnpjValido` e `erroDeDocumento` |
 | `financeiro-routes.js` | `POST /api/pessoas` recusa documento com dígito errado; `cep` entra só com dígitos |
 | `loja-routes.js` | `documentoValido` usa a conferência do `pessoa-sem-documento` |
+
+**O boot seguinte, de 2026-10-01 às 12:15:33, também foi de outra sessão**, e
+nada desta frente dependia dele. Quem for conferir o que está no ar: compare o
+`mtime` do arquivo com o `ExecMainStartTimestamp` da unit, e não com o que
+estiver escrito aqui.
+
+**Pendente depois desse boot, e NÃO é desta frente:** às 12:31:48 a frente de OS
+acrescentou `os-rotulos.js` à liberação do `pre-auth-routes.js` (o portal do
+cliente mostra "Aguardando peça" em vez de `aguardando-peca`, e é tela pública).
+A estrutura da liberação é a mesma, e o que esta frente pôs lá continua no ar; o
+que espera restart é o terceiro arquivo.
+
+**O `loja-routes.js` ficou de fora do commit 9afb2bb**, pelo fecho de requires
+do HEAD: a árvore já tinha nele `require('./loja-metodos-pagamento')`, da frente
+das formas de pagamento da loja, cujo módulo não está no git. Commitá-lo
+deixaria o HEAD sem bootar. A mudança desta obra ali são duas linhas, estão em
+produção e vão junto daquela frente.
 
 **Por que a liberação em `pre-auth-routes.js` existe, para quem for mexer nela:**
 o static de `public/` vive atrás do `requireAuth`
