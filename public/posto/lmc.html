@@ -90,6 +90,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('posto-lmc');</script>
 <script>
@@ -131,16 +132,16 @@ function hojeStr() {
 function situacao(l) {
   // Saldo entrando no livro pela primeira vez não é perda nem sobra — dizer
   // "FORA" aqui assustaria todo posto no dia em que ele estreia o módulo.
-  if (l.inventarioInicial) return '<span style="color:#2980b9;font-weight:600;">inventário inicial</span>';
+  if (l.inventarioInicial) return '<span style="color: var(--accent);font-weight:600;">inventário inicial</span>';
   if (l.semMovimento && l.estoqueFisicoL == null) return '<span class="muted">sem movimento</span>';
   if (l.estoqueFisicoL == null) {
     // Faltando UM tanque do produto, o físico do produto não existe. Dizer
     // qual tanque falta é a diferença entre o operador resolver e ficar preso.
     const quais = (l.tanquesSemMedicao || []).length ? ` (${l.tanquesSemMedicao.join(', ')})` : '';
-    return `<span style="color:#e67e22;font-weight:600;">sem medição${esc(quais)}</span>`;
+    return `<span style="color: var(--warn);font-weight:600;">sem medição${esc(quais)}</span>`;
   }
-  if (l.dentroTolerancia === 1 || l.dentroTolerancia === true) return '<span style="color:#27ae60;font-weight:600;">dentro</span>';
-  return '<span style="color:#c0392b;font-weight:600;">FORA</span>';
+  if (l.dentroTolerancia === 1 || l.dentroTolerancia === true) return '<span style="color: var(--success);font-weight:600;">dentro</span>';
+  return '<span style="color: var(--danger);font-weight:600;">FORA</span>';
 }
 
 // ===== Dia =====
@@ -158,8 +159,8 @@ async function carregarDia() {
       <td style="text-align:right;" class="muted">${nL(l.afericoesL)}</td>
       <td style="text-align:right;">${nL(l.estoqueContabilL)}</td>
       <td style="text-align:right;">${nL(l.estoqueFisicoL)}</td>
-      <td style="text-align:right;font-weight:600;${l.dentroTolerancia === 0 ? 'color:#c0392b;' : ''}">${nL(l.perdaGanhoL)}</td>
-      <td style="text-align:right;${l.dentroTolerancia === 0 ? 'color:#c0392b;font-weight:600;' : ''}">${l.perdaGanhoPct != null ? nL(l.perdaGanhoPct, 3) + '%' : '—'}</td>
+      <td style="text-align:right;font-weight:600;${l.dentroTolerancia === 0 ? 'color: var(--danger);' : ''}">${nL(l.perdaGanhoL)}</td>
+      <td style="text-align:right;${l.dentroTolerancia === 0 ? 'color: var(--danger);font-weight:600;' : ''}">${l.perdaGanhoPct != null ? nL(l.perdaGanhoPct, 3) + '%' : '—'}</td>
       <td>${situacao(l)} <span class="muted">${l.status === 'fechado' ? '· fechado' : ''}</span></td>
     </tr>`).join('') : '<tr><td colspan="11" class="empty">Nenhum combustível com tanque cadastrado</td></tr>';
 
@@ -167,7 +168,7 @@ async function carregarDia() {
     document.getElementById('rodapeDia').innerHTML =
       `Tolerância de ${d.toleranciaPct}%. O percentual é medido sobre a movimentação de saída do dia (base em litros informada por produto).` +
       (comLacuna.length
-        ? `<br><span style="color:#c0392b;font-weight:600;">Atenção: a abertura de ${comLacuna.map(l => l.lacunaAbertura.join(', ')).join(', ')} veio de uma medição antiga e há movimento entre ela e este dia — feche os dias anteriores antes, ou a perda apurada aqui será a de vários dias somados.</span>`
+        ? `<br><span style="color: var(--danger);font-weight:600;">Atenção: a abertura de ${comLacuna.map(l => l.lacunaAbertura.join(', ')).join(', ')} veio de uma medição antiga e há movimento entre ela e este dia — feche os dias anteriores antes, ou a perda apurada aqui será a de vários dias somados.</span>`
         : '');
 
     document.getElementById('detalheTanques').innerHTML = d.linhas.filter(l => l.tanques.length).map(l => `
@@ -185,7 +186,7 @@ async function carregarDia() {
           <td style="text-align:right;">${nL(t.entradasL)}</td>
           <td style="text-align:right;">${nL(t.saidasL)}</td>
           <td style="text-align:right;">${nL(t.estoqueContabilL)}</td>
-          <td style="text-align:right;">${t.temMedicao ? nL(t.estoqueFisicoL) : '<span style="color:#e67e22;">sem medição</span>'}</td>
+          <td style="text-align:right;">${t.temMedicao ? nL(t.estoqueFisicoL) : '<span style="color: var(--warn);">sem medição</span>'}</td>
           <td style="text-align:right;font-weight:600;">${nL(t.perdaGanhoL)}</td>
         </tr>`).join('')}</tbody>
       </table></div>`).join('');
@@ -207,13 +208,13 @@ async function fecharDia(forcar) {
     // Fechar sem medição é decisão do usuário, não do sistema: pergunta em vez
     // de recusar em silêncio — mas o livro guarda que faltou medição.
     if (e.corpo && e.corpo.combustiveisSemMedicao) {
-      if (confirm(`${e.message}\n\nFechar assim mesmo? O livro vai registrar o dia sem estoque físico, e sem ele não há como apurar perda.`)) {
+      if (await Aviso.confirmar(`${e.message}\n\nFechar assim mesmo? O livro vai registrar o dia sem estoque físico, e sem ele não há como apurar perda.`)) {
         return fecharDia(true);
       }
       return;
     }
     if (e.corpo && e.corpo.sugestao === 'reabrir') {
-      if (confirm(`${e.message}\n\nRecalcular e sobrescrever o fechamento?`)) return fecharDia(true);
+      if (await Aviso.confirmar(`${e.message}\n\nRecalcular e sobrescrever o fechamento?`)) return fecharDia(true);
       return;
     }
     showAlert(e.message, 'error');
@@ -223,7 +224,7 @@ async function fecharDia(forcar) {
 async function reabrirDia() {
   const data = document.getElementById('dData').value;
   if (!data) return showAlert('Escolha a data', 'error');
-  if (!confirm(`Reabrir o dia ${data}? O congelamento do livro será desfeito.`)) return;
+  if (!await Aviso.confirmar(`Reabrir o dia ${data}? O congelamento do livro será desfeito.`)) return;
   try {
     const d = await post('/api/posto/lmc/reabrir', { data });
     showAlert(`${d.reabertos} linha(s) reaberta(s)`);
@@ -254,7 +255,7 @@ async function carregarLivro() {
       <td style="text-align:right;">${nL(l.vendasL)}</td>
       <td style="text-align:right;">${nL(l.estoqueContabilL)}</td>
       <td style="text-align:right;">${nL(l.estoqueFisicoL)}</td>
-      <td style="text-align:right;font-weight:600;${l.dentroTolerancia === 0 ? 'color:#c0392b;' : ''}">${nL(l.perdaGanhoL)}</td>
+      <td style="text-align:right;font-weight:600;${l.dentroTolerancia === 0 ? 'color: var(--danger);' : ''}">${nL(l.perdaGanhoL)}</td>
       <td style="text-align:right;">${l.perdaGanhoPct != null ? nL(l.perdaGanhoPct, 3) + '%' : '—'}</td>
       <td>${situacao(l)}</td>
     </tr>`).join('') : '<tr><td colspan="10" class="empty">Nenhum dia escriturado no período</td></tr>';
@@ -263,8 +264,8 @@ async function carregarLivro() {
       <span>Entradas: <strong>${nL(d.totais.entradasL)} L</strong></span>
       <span>Vendas: <strong>${nL(d.totais.vendasL)} L</strong></span>
       <span>Perda/sobra acumulada: <strong>${nL(d.totais.perdaGanhoL)} L</strong></span>
-      <span${d.totais.diasForaTolerancia ? ' style="color:#c0392b;font-weight:600;"' : ''}>Dias fora da tolerância: <strong>${d.totais.diasForaTolerancia}</strong></span>
-      <span${d.totais.diasSemMedicao ? ' style="color:#e67e22;font-weight:600;"' : ''}>Dias sem medição: <strong>${d.totais.diasSemMedicao}</strong></span>
+      <span${d.totais.diasForaTolerancia ? ' style="color: var(--danger);font-weight:600;"' : ''}>Dias fora da tolerância: <strong>${d.totais.diasForaTolerancia}</strong></span>
+      <span${d.totais.diasSemMedicao ? ' style="color: var(--warn);font-weight:600;"' : ''}>Dias sem medição: <strong>${d.totais.diasSemMedicao}</strong></span>
     </div>`;
   } catch (e) { showAlert(e.message, 'error'); }
 }
@@ -293,7 +294,7 @@ async function carregarPendencias() {
       ? `<div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Produto</th><th style="text-align:right;">Perda/Sobra</th><th style="text-align:right;">%</th></tr></thead><tbody>` +
         d.foraTolerancia.map(f => `<tr>
           <td>${esc(f.data)}</td><td>${esc(f.combustivelNome)}</td>
-          <td style="text-align:right;color:#c0392b;font-weight:600;">${nL(f.perdaGanhoL)} L</td>
+          <td style="text-align:right;color: var(--danger);font-weight:600;">${nL(f.perdaGanhoL)} L</td>
           <td style="text-align:right;">${nL(f.perdaGanhoPct, 3)}%</td>
         </tr>`).join('') + '</tbody></table></div>' +
         '<small class="muted">A ANP manda o próprio revendedor apurar a diferença acima de 0,6%. O sistema aponta o dia e o tanque; a investigação é do posto.</small>'
@@ -302,7 +303,7 @@ async function carregarPendencias() {
       ? `<div class="tbl-wrap"><table><thead><tr><th>Tanque</th><th style="text-align:right;">Última medição</th><th style="text-align:right;">Mínimo</th></tr></thead><tbody>` +
         d.tanquesAbaixoDoMinimo.map(t => `<tr>
           <td><strong>${esc(t.codigo)}</strong></td>
-          <td style="text-align:right;color:#c0392b;font-weight:600;">${nL(t.ultimoL)} L</td>
+          <td style="text-align:right;color: var(--danger);font-weight:600;">${nL(t.ultimoL)} L</td>
           <td style="text-align:right;">${nL(t.estoqueMinimoLitros)} L</td>
         </tr>`).join('') + '</tbody></table></div>'
       : '<p class="empty">Nenhum tanque abaixo do mínimo</p>'));

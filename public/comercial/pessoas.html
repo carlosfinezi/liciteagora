@@ -152,6 +152,9 @@
             border-top: 1px solid var(--border);
         }
         .col-chooser .col-chooser-footer button { font-size: 0.78em; padding: 4px 10px; }
+        .seg-linha { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+        .seg-qtd { min-width: 56px; text-align: right; font-size: 0.85em; color: var(--text-3); font-variant-numeric: tabular-nums; }
+        .seg-remover { min-width: 78px; }
     </style>
 </head>
 <body>
@@ -161,7 +164,7 @@
     <div class="page-header">
       <div>
         <h1>Clientes &amp; Fornecedores</h1>
-        <small>Cadastro único de pessoas — a categoria separa cliente de fornecedor</small>
+        <small>Cadastro único de pessoas. A categoria separa cliente de fornecedor</small>
       </div>
       <div class="actions">
         <button class="btn btn-primary btn-sm" onclick="switchTab('form'); limparForm();">+ Novo cadastro</button>
@@ -184,8 +187,11 @@
                 <option value="0">Inativos</option>
                 <option value="">Todos</option>
             </select>
-            <select id="filtCategoria" onchange="renderTabela()" style="width:auto;" title="O cadastro é único: a categoria é o que separa cliente de fornecedor">
+            <select id="filtCategoria" onchange="mudouCategoria()" style="width:auto;" title="O cadastro é único: a categoria é o que separa cliente de fornecedor">
                 <option value="">Todas as categorias</option>
+            </select>
+            <select id="filtSegmento" onchange="carregarPessoas()" style="width:auto;">
+                <option value="">Todos os segmentos</option>
             </select>
             <div class="col-chooser-wrap">
                 <button class="btn btn-ghost btn-sm" id="btnColunas" onclick="toggleColChooser(event)"><svg class="ic-sm"><use href="#i-settings"/></svg> Colunas</button>
@@ -278,7 +284,7 @@
                     <div class="form-group">
                         <label>CPF/CNPJ *</label>
                         <div style="display:flex;gap:8px;">
-                            <input type="text" id="cpfCnpj" placeholder="00.000.000/0000-00" oninput="autoDetectTipo()" style="flex:1;">
+                            <input type="text" id="cpfCnpj" data-formato="cpfcnpj" placeholder="00.000.000/0000-00" oninput="autoDetectTipo()" style="flex:1;">
                             <button class="btn btn-secondary btn-sm" id="btnConsultaCnpj" onclick="consultarCnpj()" title="Consultar dados públicos" style="white-space:nowrap;"><svg class="ic-sm"><use href="#i-search"/></svg> Buscar</button>
                         </div>
                         <small id="cnpjStatus" style="color:var(--text-3);"></small>
@@ -306,11 +312,11 @@
                     </div>
                     <div class="form-group">
                         <label>Inscrição Estadual</label>
-                        <input type="text" id="inscricaoEstadual" placeholder="Deixe em branco se isento">
+                        <input type="text" id="inscricaoEstadual" data-formato="inscricao" placeholder="Deixe em branco se isento">
                     </div>
                     <div class="form-group">
                         <label>Inscrição Municipal</label>
-                        <input type="text" id="inscricaoMunicipal">
+                        <input type="text" id="inscricaoMunicipal" data-formato="inscricao">
                     </div>
                 </div>
 
@@ -469,7 +475,7 @@
                     <div class="form-group" style="flex:1;">
                         <label>CEP</label>
                         <div style="display:flex; gap:6px;">
-                            <input type="text" id="cep" placeholder="00000-000" maxlength="9" oninput="onCepInput()">
+                            <input type="text" id="cep" data-formato="cep" placeholder="00000-000" oninput="onCepInput()">
                             <button type="button" class="btn btn-secondary btn-sm" id="btnBuscaCep" onclick="buscarCep()" title="Buscar endereço pelo CEP" style="white-space:nowrap;"><svg class="ic-sm"><use href="#i-search"/></svg> Buscar</button>
                         </div>
                         <small id="cepStatus" style="color:var(--text-3);"></small>
@@ -510,11 +516,12 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label>Telefone</label>
-                        <input type="text" id="telefone" placeholder="(00) 00000-0000" oninput="onTelefoneInput()">
+                        <input type="tel" id="telefone" data-formato="telefone" placeholder="(00) 00000-0000">
+                        <small class="muted" id="semWhatsapp" style="display:none;"></small>
                     </div>
                     <div class="form-group">
                         <label>E-mail</label>
-                        <input type="email" id="email">
+                        <input type="email" id="email" data-formato="email">
                     </div>
                     <div class="form-group" style="flex:2;">
                         <label>E-mails adicionais (CC)</label>
@@ -524,11 +531,11 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label>Celular</label>
-                        <input type="text" id="celular" placeholder="(00) 00000-0000">
+                        <input type="tel" id="celular" data-formato="telefone" placeholder="(00) 00000-0000">
                     </div>
                     <div class="form-group">
                         <label>E-mail do financeiro</label>
-                        <input type="email" id="emailFinanceiro" title="Para onde vão boleto e nota — quando é diferente do e-mail geral">
+                        <input type="email" id="emailFinanceiro" data-formato="email" title="Para onde vão boleto e nota — quando é diferente do e-mail geral">
                     </div>
                     <div class="form-group">
                         <label>Site</label>
@@ -537,7 +544,7 @@
                 </div>
 
                 <h4 style="margin-top:22px; color:var(--text-2); font-size:0.95em;">Endereços adicionais (entrega / cobrança)</h4>
-                <div id="enderecosAdicionaisVazio" style="color:var(--text-3); font-size:0.85em;">Nenhum endereço adicional — clique em "+ Adicionar" para cadastrar.</div>
+                <div id="enderecosAdicionaisVazio" style="color:var(--text-3); font-size:0.85em;">Nenhum endereço adicional. Clique em "+ Adicionar" para cadastrar.</div>
                 <div id="enderecosAdicionaisLista"></div>
                 <button type="button" class="btn btn-secondary btn-sm" id="btnAddEndereco" onclick="abrirModalEndereco()" style="margin-top:10px;">+ Adicionar endereço</button>
             </div>
@@ -569,10 +576,18 @@
                             <label><input type="checkbox" class="cat" value="transportadora"><span>Transportadora</span></label>
                             <label><input type="checkbox" class="cat" value="prestador"><span>Prestador de serviços</span></label>
                             <label><input type="checkbox" class="cat" value="funcionario"><span>Funcionário</span></label>
+                            <label><input type="checkbox" class="cat" value="lead"><span>Lead</span></label>
                         </div>
                     </div>
                 </div>
                 <div class="form-row">
+                    <div class="form-group">
+                        <label>Segmento</label>
+                        <div style="display:flex; gap:6px;">
+                            <select id="segmentoId" style="flex:1;"><option value="">—</option></select>
+                            <button type="button" class="btn btn-ghost btn-sm" onclick="abrirSegmentos()">Segmentos…</button>
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label>Origem</label>
                         <select id="origem">
@@ -697,7 +712,7 @@
                     </div>
                 </div>
                 <p style="color:var(--text-3); font-size:0.85em; margin-top:-6px;">
-                    A condição de pagamento fica na aba Financeiro — vale para os dois lados.
+                    A condição de pagamento fica na aba Financeiro, e vale para os dois lados.
                 </p>
 
                 <h4 style="margin-top:22px; color:var(--text-2); font-size:0.95em;">Homologação</h4>
@@ -723,8 +738,8 @@
 
                 <h4 style="margin-top:22px; color:var(--text-2); font-size:0.95em;">Certidões e documentos</h4>
                 <p style="color:var(--text-3); font-size:0.85em;">
-                    Documentos com validade — vencer sem aviso trava uma compra ou derruba uma habilitação.
-                    Arquivo em si vai na aba Anexos.
+                    Documentos com validade. Vencer sem aviso trava uma compra ou derruba uma
+                    habilitação, e o arquivo em si vai na aba Anexos.
                 </p>
                 <div id="documentosVazio" style="color:var(--text-3); font-size:0.85em; margin-top:10px;">Nenhum documento.</div>
                 <div id="documentosLista"></div>
@@ -787,7 +802,7 @@
 
             <!-- SUB-ABA: LGPD -->
             <div class="subtab-content" data-subtab-pane="lgpd" style="display:none;">
-                <p style="color:var(--text-3); font-size:0.85em; margin-bottom:14px;">Lei Geral de Proteção de Dados — registre consentimento e permissões de marketing.</p>
+                <p style="color:var(--text-3); font-size:0.85em; margin-bottom:14px;">Lei Geral de Proteção de Dados. Registre o consentimento e as permissões de marketing.</p>
                 <div class="form-row">
                     <div class="form-group" style="display:flex; align-items:flex-end;">
                         <label style="display:flex; align-items:center; gap:6px; margin-bottom:10px;">
@@ -830,9 +845,24 @@
 
 <div id="toasts"></div>
 
+<div class="modal-bg" id="modalSegmentos" onclick="if(event.target===this)fecharSegmentos()">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header"><h3>Segmentos</h3></div>
+    <div id="listaSegmentos"></div>
+    <div class="seg-linha" style="margin-top:12px;">
+      <input type="text" id="novoSegmento" maxlength="60" placeholder="Novo segmento" style="flex:1;"
+             onkeydown="if(event.key==='Enter')criarSegmento()">
+      <button type="button" class="btn btn-primary btn-sm" onclick="criarSegmento()">Adicionar</button>
+    </div>
+    <div class="modal-actions"><button type="button" class="btn btn-ghost" onclick="fecharSegmentos()">Fechar</button></div>
+  </div>
+</div>
+
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
     <script src="/js/icons.js"></script>
+    <script src="/js/campo-formato.js"></script>
     <script>initSidebar('pessoas');</script>
 
     <script>
@@ -920,6 +950,9 @@
               catch { return '—'; }
           },
           sortKey: p => p.categorias || '' },
+        { key: 'segmentoId',       label: 'Segmento',     width: 140, visivel: true,
+          render: p => esc(nomeSegmento(p.segmentoId)),
+          sortKey: p => nomeSegmento(p.segmentoId) },
         { key: 'origem',           label: 'Origem',       width: 120, visivel: false,
           render: p => esc(p.origem || '—'),
           sortKey: p => p.origem || '' },
@@ -1083,12 +1116,20 @@
             const params = new URLSearchParams();
             if (q) params.set('q', q);
             if (ativo !== '') params.set('ativo', ativo);
+            const segmento = document.getElementById('filtSegmento').value;
+            if (segmento) params.set('segmento', segmento);
+            // Os leads não vêm na listagem comum (são dezenas de milhares):
+            // escolher a categoria Lead pede só eles ao servidor.
+            const soLeads = (categoriaInicial || document.getElementById('filtCategoria').value) === 'lead';
+            if (soLeads) params.set('leads', '1');
 
             const resp = await fetch('/api/pessoas?' + params.toString());
             const data = await resp.json();
             if (!data.success) throw new Error(data.error);
 
             pessoasCache = data.pessoas;
+            totalLeads = soLeads ? data.total : (data.totalLeads || 0);
+            leadsCortados = soLeads && data.total > data.pessoas.length ? data.total : 0;
             popularFiltroCategoria();
             renderTabela();
         } catch (err) {
@@ -1143,15 +1184,15 @@
             body.fonte = fonte.trim();
         }
         const rotulo = document.getElementById('massaAcao').selectedOptions[0].textContent;
-        if (!confirm(`${rotulo}\n\nAplicar a ${SEL_PESSOAS.size} pessoa(s)?`)) return;
+        if (!await Aviso.confirmar(`${rotulo}\n\nAplicar a ${SEL_PESSOAS.size} pessoa(s)?`)) return;
 
         const d = await fetch('/api/pessoas/acao-massa', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         }).then(r => r.json());
-        if (!d.success) return alert(d.error);
+        if (!d.success) return Aviso.erro(Aviso.mensagemDeErro(d));
         SEL_PESSOAS.clear();
         await carregarPessoas();
-        alert(`${d.alterados} de ${d.total} atualizado(s).`);
+        Aviso.ok(`${d.alterados} de ${d.total} atualizado(s).`);
     }
 
     // Filtro por categoria: o cadastro é único, então é ele que responde
@@ -1165,6 +1206,16 @@
     // saber que existem.
     const CATEGORIAS_CANONICAS = ['cliente', 'fornecedor', 'transportadora', 'prestador', 'funcionario'];
     let categoriaInicial = null;   // vem de ?categoria= na URL, aplicada na 1ª carga
+    let totalLeads = 0;            // o servidor conta; a listagem comum não os traz
+    let leadsCortados = 0;         // total de leads quando a resposta veio com teto
+    let modoLeads = false;         // a lista em tela é a de leads
+
+    // Entrar ou sair da categoria Lead troca o que o servidor manda; as
+    // outras categorias filtram o que já está em tela.
+    function mudouCategoria() {
+        const lead = document.getElementById('filtCategoria').value === 'lead';
+        if (lead || modoLeads) carregarPessoas(); else renderTabela();
+    }
 
     function catsDe(p) {
         try {
@@ -1183,8 +1234,9 @@
         for (const p of pessoasCache) {
             const cats = catsDe(p);
             if (!cats.length) { semCategoria++; continue; }
-            for (const c of cats) contagem.set(c, (contagem.get(c) || 0) + 1);
+            for (const c of cats) if (c !== 'lead') contagem.set(c, (contagem.get(c) || 0) + 1);
         }
+        contagem.set('lead', totalLeads);
         const opcoes = [...contagem.entries()]
             .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
             .map(([c, n]) => `<option value="${esc(c)}">${esc(c.charAt(0).toUpperCase() + c.slice(1))} (${n})</option>`);
@@ -1196,6 +1248,7 @@
         categoriaInicial = null;
         sel.value = alvo;
         if (sel.value !== alvo) sel.value = '';   // categoria não existe na base
+        modoLeads = sel.value === 'lead';
     }
 
     function pessoasFiltradas() {
@@ -1218,7 +1271,9 @@
             return;
         }
         empty.style.display = 'none';
-        if (total) total.textContent = `${linhas.length} registro${linhas.length !== 1 ? 's' : ''}`;
+        if (total) total.textContent = leadsCortados
+            ? `${linhas.length} de ${leadsCortados.toLocaleString('pt-BR')} leads. Busque pelo nome ou telefone para achar os outros.`
+            : `${linhas.length} registro${linhas.length !== 1 ? 's' : ''}`;
 
         // Ordenação client-side
         const colSort = COLUNAS.find(c => c.key === sortState.key);
@@ -1253,26 +1308,18 @@
         return doc;
     }
 
-    // ==================== MÁSCARA DE TELEFONE ====================
-    // (94) 91234-5678 — descarta o prefixo 55 do país quando presente.
-    function soDigitosTel(v) {
-        let d = String(v || '').replace(/\D/g, '');
-        if (d.length > 11 && d.startsWith('55')) d = d.slice(2);
-        return d.slice(0, 11);
-    }
+    // ==================== TELEFONE, PARA EXIBIR ====================
+    // A máscara de DIGITAÇÃO saiu daqui: quem a faz agora é o
+    // `data-formato="telefone"` dos campos, em `public/js/campo-formato.js`,
+    // que levou junto o descarte do 55 do país. O que ficou é a formatação de
+    // LEITURA, usada na coluna da lista e no que vem da Receita.
     function fmtTel(v) {
-        const d = soDigitosTel(v);
-        if (d.length === 11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
-        if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
-        return String(v || '');
-    }
-    function onTelefoneInput() {
-        const el = document.getElementById('telefone');
-        const d = soDigitosTel(el.value);
-        if (d.length <= 2) { el.value = d; return; }
-        if (d.length <= 6) { el.value = `(${d.slice(0,2)}) ${d.slice(2)}`; return; }
-        const corte = d.length > 10 ? 7 : 6;
-        el.value = `(${d.slice(0,2)}) ${d.slice(2,corte)}-${d.slice(corte)}`;
+        const d = String(v || '').replace(/\D/g, '');
+        // Telefone que não tem 10 nem 11 dígitos sai como está gravado: a lista
+        // não é lugar de consertar dado antigo pela metade.
+        const util = d.length > 11 && d.startsWith('55') ? d.slice(2) : d;
+        if (util.length !== 10 && util.length !== 11) return String(v || '');
+        return CampoFormato.formatar('telefone', util);
     }
 
     let cnpjConsultado = '';
@@ -1328,7 +1375,7 @@
         'rg','rgOrgaoEmissor','rgDataExpedicao','dataNascimento',
         'sexo','estadoCivil','profissao','nomeMae','nomePai','nacionalidade',
         // Comercial / financeiro
-        'origem','vendedorId','tabelaPrecoId','limiteCredito','politicaPrazoId',
+        'origem','vendedorId','tabelaPrecoId','limiteCredito','politicaPrazoId','segmentoId',
         // Contato (vieram do cadastro de fornecedor na unificação de 2026-08-20)
         'celular','emailFinanceiro','site',
         // Fornecedor
@@ -1519,7 +1566,7 @@
 
     async function removerIntegracao(id) {
         const pessoaId = pessoaAtualId();
-        if (!pessoaId || !confirm('Remover esta integração?')) return;
+        if (!pessoaId || !await Aviso.confirmar('Remover esta integração?')) return;
         const r = await fetch(`/api/fornecedor-integracoes/${pessoaId}/${id}`, { method: 'DELETE' });
         const d = await r.json();
         if (!d.success) return showAlert(d.error, 'error');
@@ -1654,10 +1701,11 @@
     // ==================== CONSULTA CEP (ViaCEP) ====================
     let cepConsultado = '';
     function onCepInput() {
-        const el = document.getElementById('cep');
-        const raw = (el.value || '').replace(/\D/g, '').slice(0, 8);
-        el.value = raw.length > 5 ? raw.slice(0, 5) + '-' + raw.slice(5) : raw;
-        // auto-busca ao completar 8 dígitos (e mudar do último consultado)
+        // A máscara saiu daqui: o `data-formato="cep"` do campo já a aplica.
+        // Esta função ficou com a busca, que nesta tela mostra status ao lado e
+        // tem botão próprio — por isso ela não usa a busca do campo-formato.js,
+        // que é silenciosa e serve a quem não tem esses dois.
+        const raw = (document.getElementById('cep').value || '').replace(/\D/g, '').slice(0, 8);
         if (raw.length === 8 && raw !== cepConsultado) buscarCep();
     }
     async function buscarCep() {
@@ -1711,6 +1759,7 @@
     // ==================== LIMPAR / EDITAR / SALVAR ====================
     function limparForm() {
         document.getElementById('pessoaId').value = '';
+        mostrarSemWhatsapp(null);
         document.getElementById('formTitle').textContent = 'Novo cadastro';
         [...CAMPOS_FORM, 'cpfCnpj','tagsInput'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         CAMPOS_BOOL_FORM.forEach(id => { const el = document.getElementById(id); if (el) el.checked = (id === 'cobrancaAtiva'); });
@@ -1747,6 +1796,25 @@
         carregarTabelasPreco();
     }
 
+    // A marca "sem WhatsApp" é do número (wa-numeros.js): as campanhas o pulam.
+    // Desfazer faz as campanhas voltarem a tentar.
+    function mostrarSemWhatsapp(marca) {
+        const el = document.getElementById('semWhatsapp');
+        if (!marca) { el.style.display = 'none'; el.innerHTML = ''; return; }
+        const quando = marca.verificadoEm ? new Date(marca.verificadoEm).toLocaleDateString('pt-BR') : '';
+        el.innerHTML = `Este número não tem WhatsApp (verificado em ${esc(quando)}), e as campanhas o pulam.
+            <a href="#" onclick="desfazerSemWhatsapp(event)">Desfazer</a>`;
+        el.style.display = 'block';
+    }
+    async function desfazerSemWhatsapp(ev) {
+        ev.preventDefault();
+        const id = document.getElementById('pessoaId').value;
+        const d = await fetch('/api/pessoas/' + id + '/sem-whatsapp', { method: 'DELETE' }).then(r => r.json()).catch(() => null);
+        if (!d?.success) return showAlert(d?.error || 'Não foi possível desfazer', 'error');
+        mostrarSemWhatsapp(null);
+        showAlert('As campanhas voltam a tentar este número');
+    }
+
     async function editarPessoa(id) {
         try {
             const resp = await fetch('/api/pessoas/' + id);
@@ -1760,6 +1828,7 @@
             document.getElementById('cpfCnpj').setAttribute('readonly', true);
             document.getElementById('tipo').value = p.tipo || 'PJ';
             setCamposForm(p);
+            mostrarSemWhatsapp(data.semWhatsapp);
             document.getElementById('ativo').value = p.ativo ? '1' : '0';
             document.getElementById('motivoInativacao').value = p.motivoInativacao || '';
             onStatusChange();
@@ -1982,14 +2051,14 @@
             renderContatos(pendentes.contatos);
         }
     }
-    function removerContato(contatoId) {
+    async function removerContato(contatoId) {
         if (isTempId(contatoId)) {
             pendentes.contatos = pendentes.contatos.filter(c => c.id !== contatoId);
             renderContatos(pendentes.contatos);
             return;
         }
         const pessoaId = document.getElementById('pessoaId').value;
-        if (!confirm('Remover este contato?')) return;
+        if (!await Aviso.confirmar('Remover este contato?')) return;
         fetch(`/api/pessoas/${pessoaId}/contatos/${contatoId}`, { method: 'DELETE' })
             .then(() => carregarContatos(pessoaId));
     }
@@ -2098,14 +2167,14 @@
         }
     }
 
-    function removerDocumento(docId) {
+    async function removerDocumento(docId) {
         if (isTempId(docId)) {
             pendentes.documentos = pendentes.documentos.filter(d => d.id !== docId);
             renderDocumentos(pendentes.documentos);
             return;
         }
         const pessoaId = document.getElementById('pessoaId').value;
-        if (!confirm('Remover este documento?')) return;
+        if (!await Aviso.confirmar('Remover este documento?')) return;
         fetch(`/api/pessoas/${pessoaId}/documentos/${docId}`, { method: 'DELETE' })
             .then(() => carregarDocumentos(pessoaId));
     }
@@ -2182,14 +2251,14 @@
             renderEnderecos(pendentes.enderecos);
         }
     }
-    function removerEndereco(enderecoId) {
+    async function removerEndereco(enderecoId) {
         if (isTempId(enderecoId)) {
             pendentes.enderecos = pendentes.enderecos.filter(e => e.id !== enderecoId);
             renderEnderecos(pendentes.enderecos);
             return;
         }
         const pessoaId = document.getElementById('pessoaId').value;
-        if (!confirm('Remover este endereço?')) return;
+        if (!await Aviso.confirmar('Remover este endereço?')) return;
         fetch(`/api/pessoas/${pessoaId}/enderecos/${enderecoId}`, { method: 'DELETE' })
             .then(() => carregarEnderecos(pessoaId));
     }
@@ -2245,14 +2314,14 @@
             renderBancarios(pendentes.bancarios);
         }
     }
-    function removerBancario(contaId) {
+    async function removerBancario(contaId) {
         if (isTempId(contaId)) {
             pendentes.bancarios = pendentes.bancarios.filter(c => c.id !== contaId);
             renderBancarios(pendentes.bancarios);
             return;
         }
         const pessoaId = document.getElementById('pessoaId').value;
-        if (!confirm('Remover esta conta?')) return;
+        if (!await Aviso.confirmar('Remover esta conta?')) return;
         fetch(`/api/pessoas/${pessoaId}/dados-bancarios/${contaId}`, { method: 'DELETE' })
             .then(() => carregarBancarios(pessoaId));
     }
@@ -2391,14 +2460,14 @@
             showAlert('Arquivo em fila — será enviado ao salvar a pessoa');
         }
     }
-    function removerAnexo(anexoId) {
+    async function removerAnexo(anexoId) {
         if (isTempId(anexoId)) {
             pendentes.anexos = pendentes.anexos.filter(a => a.id !== anexoId);
             renderAnexos(pendentes.anexos);
             return;
         }
         const pessoaId = document.getElementById('pessoaId').value;
-        if (!confirm('Remover este anexo?')) return;
+        if (!await Aviso.confirmar('Remover este anexo?')) return;
         fetch(`/api/pessoas/${pessoaId}/anexos/${anexoId}`, { method: 'DELETE' })
             .then(() => carregarAnexos(pessoaId));
     }
@@ -2472,7 +2541,7 @@
             return showAlert('Cadastro com movimentação vinculada não pode ser excluído:\n' + resumo, 'error');
         }
         const nome = document.getElementById('razaoSocial').value || 'este cadastro';
-        if (!confirm(`Excluir DEFINITIVAMENTE "${nome}"?\n\nSomem também contatos, endereços, dados bancários e anexos. Não há como desfazer.\n\nPara apenas tirar de uso, cancele e marque o status como Inativo.`)) return;
+        if (!await Aviso.confirmar(`Excluir DEFINITIVAMENTE "${nome}"?\n\nSomem também contatos, endereços, dados bancários e anexos. Não há como desfazer.\n\nPara apenas tirar de uso, cancele e marque o status como Inativo.`)) return;
         try {
             const resp = await fetch('/api/pessoas/' + id, { method: 'DELETE' });
             const data = await resp.json();
@@ -2486,6 +2555,86 @@
         }
     }
 
+    // ==================== SEGMENTOS ====================
+    // Cadastro próprio (/api/pessoas/segmentos): alimenta o campo da ficha, o
+    // filtro e a coluna. Remover um segmento passa as pessoas dele ao Genérico.
+    let segmentosCache = [];
+    function nomeSegmento(id) {
+        const s = segmentosCache.find(x => x.id === Number(id));
+        return s ? s.nome : '—';
+    }
+    async function carregarSegmentos() {
+        try {
+            const d = await (await fetch('/api/pessoas/segmentos')).json();
+            if (!d.success) throw new Error(d.error);
+            segmentosCache = d.segmentos || [];
+        } catch (err) { showAlert('Erro ao carregar segmentos: ' + err.message, 'error'); return; }
+        const opcoes = segmentosCache.map(s => `<option value="${s.id}">${esc(s.nome)}</option>`).join('');
+        const filt = document.getElementById('filtSegmento');
+        const vFilt = filt.value;
+        filt.innerHTML = '<option value="">Todos os segmentos</option>' + opcoes;
+        filt.value = vFilt;
+        if (filt.value !== vFilt) filt.value = '';
+        const campo = document.getElementById('segmentoId');
+        const vCampo = campo.value;
+        campo.innerHTML = '<option value="">—</option>' + opcoes;
+        campo.value = vCampo;
+        renderListaSegmentos();
+    }
+    function renderListaSegmentos() {
+        const el = document.getElementById('listaSegmentos');
+        if (!el) return;
+        el.innerHTML = segmentosCache.map(s => {
+            const generico = s.chave === 'generico';
+            return `<div class="seg-linha" data-id="${s.id}">
+                <input type="text" value="${esc(s.nome)}" maxlength="60" style="flex:1;">
+                <span class="seg-qtd">${Number(s.pessoas || 0).toLocaleString('pt-BR')}</span>
+                <button type="button" class="btn btn-ghost btn-sm" onclick="renomearSegmento(${s.id}, this)">Salvar</button>
+                ${generico ? '<span class="seg-remover"></span>'
+                    : `<button type="button" class="btn btn-ghost btn-sm seg-remover" onclick="removerSegmento(${s.id})">Remover</button>`}
+            </div>`;
+        }).join('');
+    }
+    function abrirSegmentos() {
+        renderListaSegmentos();
+        document.getElementById('modalSegmentos').classList.add('open');
+    }
+    function fecharSegmentos() { document.getElementById('modalSegmentos').classList.remove('open'); }
+    async function chamarSegmentos(url, metodo, corpo) {
+        const d = await (await fetch(url, { method: metodo, headers: { 'Content-Type': 'application/json' },
+            body: corpo ? JSON.stringify(corpo) : undefined })).json();
+        if (!d.success) throw new Error(d.error);
+        return d;
+    }
+    async function criarSegmento() {
+        const campo = document.getElementById('novoSegmento');
+        try {
+            await chamarSegmentos('/api/pessoas/segmentos', 'POST', { nome: campo.value });
+            campo.value = '';
+            await carregarSegmentos();
+        } catch (err) { showAlert(err.message, 'error'); }
+    }
+    async function renomearSegmento(id, botao) {
+        const nome = botao.closest('.seg-linha').querySelector('input').value;
+        try {
+            await chamarSegmentos('/api/pessoas/segmentos/' + id, 'PUT', { nome });
+            await carregarSegmentos();
+            renderTabela();
+            showAlert('Segmento renomeado');
+        } catch (err) { showAlert(err.message, 'error'); }
+    }
+    async function removerSegmento(id) {
+        const s = segmentosCache.find(x => x.id === id);
+        if (!s) return;
+        const n = Number(s.pessoas || 0);
+        if (!await Aviso.confirmar(n ? `Remover "${s.nome}"? ${n.toLocaleString('pt-BR')} pessoa(s) passam para o Genérico.` : `Remover "${s.nome}"?`)) return;
+        try {
+            await chamarSegmentos('/api/pessoas/segmentos/' + id, 'DELETE');
+            await carregarSegmentos();
+            carregarPessoas();
+        } catch (err) { showAlert(err.message, 'error'); }
+    }
+
     // ==================== INIT ====================
     const _params = new URLSearchParams(location.search);
     // ?categoria=fornecedor — é assim que Compras > Fornecedores chega aqui
@@ -2496,12 +2645,15 @@
     loadPrefs();
     renderHeader();
     // Antes de carregarPessoas: a coluna "Política" da grade lê do cache.
-    carregarPoliticas().then(carregarPessoas);
+    // O deep-link abaixo espera os segmentos: sem as <option>, o campo da
+    // ficha perderia o valor da pessoa.
+    const _segmentosProntos = carregarSegmentos();
+    Promise.all([carregarPoliticas(), _segmentosProntos]).then(carregarPessoas);
     carregarCanaisIntegracao();
     // Deep-link: /comercial/pessoas.html?id=123 abre direto o cadastro do cliente
     // (usado pelo botão "👤 Cliente" da página da oportunidade).
     const _pessoaIdUrl = _params.get('id');
-    if (_pessoaIdUrl) editarPessoa(_pessoaIdUrl);
+    if (_pessoaIdUrl) _segmentosProntos.then(() => editarPessoa(_pessoaIdUrl));
     </script>
 </body>
 </html>

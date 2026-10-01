@@ -200,6 +200,24 @@
 
     aplicar();
 
+    // Linha de recado ("Carregando…", "Nenhum registro") não é conteúdo: é uma
+    // célula só, esticada por colspan. Medir por ela dava à coluna a largura do
+    // CABEÇALHO, e o dado que chegasse depois saía cortado para sempre — era o
+    // que acontecia na lista de inventários, onde "INV-2026-0001" virava
+    // "INV-202…" e o valor da divergência, "R$ 4.5…".
+    function temLinhasReais() {
+      var tb = table.tBodies[0];
+      if (!tb) return false;
+      for (var i = 0; i < tb.rows.length; i++) {
+        var r = tb.rows[i];
+        if (r.classList.contains('empty')) continue;
+        var c = r.cells[0];
+        if (c && (c.classList.contains('empty') || (r.cells.length === 1 && c.hasAttribute('colspan')))) continue;
+        return true;
+      }
+      return false;
+    }
+
     // A página monta o corpo (e às vezes o próprio header) depois, por fetch.
     // Enquanto a tabela está vazia a medida natural não vale nada, então a
     // primeira remontagem com linhas remede — uma vez só, e nunca por cima de
@@ -208,8 +226,7 @@
       // O próprio aplicar() mexe no thead (injeta o handle) e reentraria aqui:
       // desliga, descarta a fila que ele acabou de gerar e religa.
       obs.disconnect();
-      var temLinhas = table.tBodies[0] && table.tBodies[0].rows.length;
-      if (!medido && temLinhas && visivel()) {
+      if (!medido && temLinhasReais() && visivel()) {
         medido = true;
         // Zera o que foi medido com a tabela vazia — larguras de cabeçalho sem
         // conteúdo embaixo não representam nada.
@@ -233,7 +250,7 @@
     if (window.ResizeObserver) {
       var ro = new ResizeObserver(function () {
         if (medido || !visivel()) return;
-        if (!(table.tBodies[0] && table.tBodies[0].rows.length)) return;
+        if (!temLinhasReais()) return;
         medido = true;
         medidas = {};
         table.classList.remove('grid-on');

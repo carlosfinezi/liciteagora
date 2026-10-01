@@ -6,6 +6,7 @@
 <script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<script src="/js/os-rotulos.js"></script>
 <style>
   /* page-local: são 9 KPIs. No tamanho global eles ocupavam duas faixas e
      empurravam a tabela para fora da primeira dobra. Aqui viram uma faixa
@@ -23,6 +24,25 @@
     box-shadow: 0 8px 20px rgba(0,0,0,0.4);
   }
   #ddColunas.open #colunasMenu { display: block; }
+  /* O grid.js dimensiona a coluna pela largura do CABEÇALHO e respeita o
+     min-width que a página declarar no <th>. Sem estes pisos, "Número" media
+     94px e cortava OS-2026-0075 em "OS-202…", e Total cortava o valor. */
+  th.c-numero  { min-width: 132px; }
+  th.c-cliente { min-width: 190px; }
+  th.c-titulo  { min-width: 168px; }
+  th.c-tecnico { min-width: 142px; }
+  th.c-status  { min-width: 150px; }
+  th.c-sla     { min-width: 150px; }
+  th.c-total   { min-width: 104px; }
+  /* Nome de cliente e título são longos e variáveis: em vez de cortar, quebram
+     linha. O .grid-on do grid.js põe nowrap em toda td — daqui para baixo
+     vence por especificidade. */
+  .tbl-wrap table.grid-on td.q-quebra {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.3;
+  }
 </style>
 </head>
 <body>
@@ -93,6 +113,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('ordens-servico');</script>
@@ -100,6 +121,12 @@
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
 let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
 function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+// Data sempre dd/mm/aaaa: o banco guarda ISO, o usuário lê o formato daqui.
+function fmtData(v){
+  if (!v) return '';
+  const d = String(v).slice(0,10).split('-');
+  return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : String(v);
+}
 
 async function carregarTecnicos(){
   const r = await fetch('/api/usuarios').catch(()=>null);
@@ -162,8 +189,8 @@ async function carregar(manterPagina){
     <div class="kpi warn"><div class="label">Em risco (SLA)</div><div class="value">${d.kpis.risco||0}</div></div>
     <div class="kpi success"><div class="label">No prazo</div><div class="value">${d.kpis.noPrazo||0}</div></div>
     <div class="kpi success"><div class="label">Receita</div><div class="value">${fmtBRL(d.kpis.receita)}</div></div>
-    <div class="kpi warn"><div class="label">Faturadas sem nota</div><div class="value">${d.kpis.faturadasSemNota||0}</div></div>
-    <div class="kpi danger"><div class="label">Rejeitadas SEFAZ</div><div class="value">${d.kpis.rejeitadas||0}</div></div>
+    ${d.kpis.faturadasSemNota ? `<div class="kpi warn"><div class="label">Faturadas sem nota</div><div class="value">${d.kpis.faturadasSemNota}</div></div>` : ''}
+    ${d.kpis.emiteNota ? `<div class="kpi danger"><div class="label">Notas rejeitadas</div><div class="value">${d.kpis.rejeitadas||0}</div></div>` : ''}
   `;
   ordensCache = d.ordens;
   render();
@@ -191,19 +218,19 @@ function renderPaginacao(d){
 // `ord` = chave aceita pelo backend (whitelist em os-routes). Coluna sem `ord`
 // não é ordenável — SLA e Equipamento são derivados, não têm coluna no banco.
 const COLUNAS = [
-  { key:'numero',      label:'Número',      default:true,  ord:'numero',  cel: o=>`<td class="mono"><strong>${o.numero}</strong></td>` },
-  { key:'cliente',     label:'Cliente',     default:true,  ord:'cliente', cel: o=>`<td>${o.clienteNome}</td>` },
-  { key:'titulo',      label:'Título',      default:true,  ord:'titulo',  cel: o=>`<td>${o.titulo}</td>` },
+  { key:'numero',      label:'Número',      default:true,  ord:'numero',  cls:'c-numero',  cel: o=>`<td class="mono"><strong>${o.numero}</strong></td>` },
+  { key:'cliente',     label:'Cliente',     default:true,  ord:'cliente', cls:'c-cliente', cel: o=>`<td class="q-quebra">${o.clienteNome}</td>` },
+  { key:'titulo',      label:'Título',      default:true,  ord:'titulo',  cls:'c-titulo',  cel: o=>`<td class="q-quebra">${o.titulo}</td>` },
   { key:'tipo',        label:'Tipo de OS',  default:true,  ord:'tipo',    cel: o=>o.tipoNome
       ? `<td><span class="badge" style="background:${o.tipoCor||'#4dabf7'}22;color:${o.tipoCor||'#4dabf7'};border:1px solid ${o.tipoCor||'#4dabf7'}55;">${o.tipoNome}</span></td>`
       : '<td><small class="muted">—</small></td>' },
   { key:'equipamento', label:'Equipamento', default:false, cel: o=>`<td><small>${o.equipamento||''} ${o.marca||''} ${o.modelo||''}</small></td>` },
-  { key:'tecnico',     label:'Técnico',     default:true,  ord:'tecnico', cel: o=>`<td>${o.tecnicoNomeExibicao||o.tecnicoNome||'<small class="muted">—</small>'}</td>` },
-  { key:'status',      label:'Status',      default:true,  ord:'status',  cel: o=>`<td><span class="badge ${badgeClass(o.status)}">${o.status}</span>${o.statusFiscal?`<br><small class="muted" style="font-size:10px;">${o.statusFiscal}</small>`:''}</td>` },
-  { key:'sla',         label:'SLA',         default:true,  cel: o=>`<td>${slaBadge(o.slaStatus)}</td>` },
-  { key:'prazo',       label:'Prazo',       default:false, ord:'prazo',   cel: o=>`<td>${o.dataPromessa ? `<small>${o.dataPromessa}</small>` : '<small class="muted">—</small>'}</td>` },
-  { key:'aberta',      label:'Aberta',      default:false, ord:'aberta',  cel: o=>`<td>${(o.dataAbertura||'').slice(0,10)}</td>` },
-  { key:'total',       label:'Total',       default:true,  num:true, ord:'total', cel: o=>`<td class="num">${fmtBRL(o.valorTotal)}</td>` },
+  { key:'tecnico',     label:'Técnico',     default:true,  ord:'tecnico', cls:'c-tecnico', cel: o=>`<td>${o.tecnicoNomeExibicao||o.tecnicoNome||'<small class="muted">—</small>'}</td>` },
+  { key:'status',      label:'Status',      default:true,  ord:'status',  cls:'c-status', cel: o=>`<td><span class="badge badge-os ${badgeClass(o.status)}">${OsRotulos.status(o.status)}</span>${o.statusFiscal?`<br><small class="muted" style="font-size:10px;">${OsRotulos.fiscal(o.statusFiscal)}</small>`:''}</td>` },
+  { key:'sla',         label:'SLA',         default:true,  cls:'c-sla', cel: o=>`<td>${slaBadge(o.slaStatus)}</td>` },
+  { key:'prazo',       label:'Prazo',       default:false, ord:'prazo',   cel: o=>`<td>${o.dataPromessa ? `<small>${fmtData(o.dataPromessa)}</small>` : '<small class="muted">—</small>'}</td>` },
+  { key:'aberta',      label:'Aberta',      default:false, ord:'aberta',  cel: o=>`<td>${fmtData(o.dataAbertura)}</td>` },
+  { key:'total',       label:'Total',       default:true,  num:true, ord:'total', cls:'c-total', cel: o=>`<td class="num">${fmtBRL(o.valorTotal)}</td>` },
 ];
 
 let ordensCache = [];
@@ -241,10 +268,12 @@ function render(){
   const cols = COLUNAS.filter(c => colunasVisiveis.includes(c.key));
   document.getElementById('th').innerHTML = '<th class="col-editar"></th>'
     + cols.map(c => {
-        if (!c.ord) return `<th${c.num?' class="num"':''}>${c.label}</th>`;
+        const klass = [c.num ? 'num' : '', c.cls || ''].filter(Boolean).join(' ');
+        const attrClass = klass ? ` class="${klass}"` : '';
+        if (!c.ord) return `<th${attrClass}>${c.label}</th>`;
         const ativa = ordemAtual === c.ord;
         const seta = ativa ? (dirAtual === 'asc' ? ' ▲' : ' ▼') : '';
-        return `<th${c.num?' class="num"':''} style="cursor:pointer;user-select:none;${ativa?'color:var(--accent);':''}"
+        return `<th${attrClass} style="cursor:pointer;user-select:none;${ativa?'color:var(--accent);':''}"
                  onclick="ordenarPor('${c.ord}')" title="Ordenar por ${c.label}">${c.label}${seta}</th>`;
       }).join('');
   const tb = document.getElementById('tb');
@@ -270,14 +299,14 @@ function badgeClass(s){
 function slaBadge(s){
   if (!s) return '<small class="muted">—</small>';
   const map = {
-    'atrasado':  { cls: 'cancelado',   txt: '🚨 atrasado' },
-    'risco':     { cls: 'pendente',    txt: '⚠ risco' },
-    'no-prazo':  { cls: 'entregue',    txt: '✓ no prazo' },
-    'cumprido':  { cls: 'faturado',    txt: '✓ cumprido' },
-    'estourado': { cls: 'cancelado',   txt: '✖ estourado' },
+    'atrasado':  { cls: 'cancelado',   txt: '🚨 Atrasado' },
+    'risco':     { cls: 'pendente',    txt: '⚠ Em risco' },
+    'no-prazo':  { cls: 'entregue',    txt: '✓ No prazo' },
+    'cumprido':  { cls: 'faturado',    txt: '✓ Cumprido' },
+    'estourado': { cls: 'cancelado',   txt: '✖ Fora do prazo' },
   };
-  const c = map[s] || { cls: '', txt: s };
-  return `<span class="badge ${c.cls}" style="font-size:11px;">${c.txt}</span>`;
+  const c = map[s] || { cls: '', txt: OsRotulos.sla(s) };
+  return `<span class="badge badge-os ${c.cls}" style="font-size:11px;">${c.txt}</span>`;
 }
 
 let tiposOS = [];

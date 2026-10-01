@@ -249,19 +249,39 @@ passo('3. <script> inline das telas do ERP');
     }
   })(path.join(RAIZ, 'public'));
 
-  let blocos = 0, comErro = 0;
+  let blocos = 0, comErro = 0, foraDoErp = 0;
   for (const f of telas) {
     const html = fs.readFileSync(f, 'utf8');
-    // Só as telas do ERP: as públicas (landing, portal, loja) têm outro dono e
-    // outro ciclo, e reprovar o verify por causa delas pararia o fechamento.
-    if (!html.includes('/js/sidebar.js')) continue;
+    /* TODAS as telas, e não só as do ERP.
+     *
+     * Até 30/09/2026 havia aqui um `if (!html.includes('/js/sidebar.js')) continue`,
+     * com a intenção de poupar o fechamento das telas públicas, que têm outro
+     * dono e outro ciclo. O efeito foi deixar 30 telas sem nenhuma checagem de
+     * sintaxe — e uma delas, `comercial/proposta-template.html`, estava
+     * QUEBRADA desde maio: um `</script>` literal dentro de um comentário
+     * fechava o bloco, e as 285 linhas seguintes deixavam de ser script. A
+     * tela não desenhava nada, o código-fonte aparecia como texto na página, e
+     * a função de sanitização anti-XSS era justamente a cortada no meio.
+     * Ninguém viu porque o verify não olhava.
+     *
+     * Sintaxe não é assunto de dono: um `<script>` que não parseia é defeito em
+     * qualquer tela, e este passo custa segundos. Quem é de fora do ERP sai
+     * CONTADO à parte, para a origem da falha ficar óbvia na saída.
+     */
+    const doErp = html.includes('/js/sidebar.js');
+    if (!doErp) foraDoErp++;
     for (const [i, m] of [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].entries()) {
       blocos++;
       const e = parsear(`${f}#${i + 1}`, m[1], 'script');
-      if (e) { console.log(''); falhar(`${path.relative(RAIZ, f)} bloco ${i + 1}: ${e}`); comErro++; }
+      if (e) {
+        console.log('');
+        const onde = doErp ? '' : ' (tela de fora do ERP)';
+        falhar(`${path.relative(RAIZ, f)} bloco ${i + 1}${onde}: ${e}`);
+        comErro++;
+      }
     }
   }
-  console.log(`${blocos - comErro}/${blocos} OK`);
+  console.log(`${blocos - comErro}/${blocos} OK (${telas.length} telas, ${foraDoErp} de fora do ERP)`);
 }
 
 // ==================== 4. O shell inicializa ====================
@@ -498,6 +518,10 @@ const suites = [
   // faturamento que não é dele.
   ['107. contrato-nfse-avulsa (25s)', 'test-contrato-nfse-avulsa.js'],
   ['108. contrato-nfse-ui (22s)', 'test-contrato-nfse-ui.js'],
+  // Escala tipográfica consumida (Fase 3.5). Sobe Chrome porque `em` multiplica
+  // em cascata e só o navegador calcula o tamanho final: é assim que um botão
+  // pequeno dentro de um botão chega a 9,86px sem esse número existir no fonte.
+  ['109. fase35-escala (4s)', 'test-fase35-escala.js'],
   // Dono da conversa. O modo de falha é silencioso e caro: "Minhas" trazendo o
   // que é de outro faz dois atendentes responderem o mesmo cliente, e nada na
   // tela denuncia isso.
@@ -557,6 +581,32 @@ const suites = [
   // O registro de visita em campo, medido em viewport de celular: alvo de toque
   // pequeno faz o vendedor errar a resposta na frente do cliente.
   ['122. visita em campo (test-visita-campo)', 'test-visita-campo.js'],
+  // A tela de Consulta depois que os filtros deixaram de ocupar a tela inteira,
+  // e as seções que substituíram a faixa de metadados do card. Sobem Chrome
+  // porque o que está sob teste é altura e dobra: contar elemento no DOM não
+  // distingue um card compacto de um card que empurra o resultado para baixo.
+  ['123. consulta compacta (test-consulta-compacta)', 'test-consulta-compacta.js'],
+  ['124. secoes do card (test-consulta-secoes-card)', 'test-consulta-secoes-card.js'],
+  // Faixa de valor. O defeito guardado é o zero: "sem valor informado" no PNCP
+  // é 0, e não NULL, então uma faixa ingênua de 0 a 50 mil traria as 21 mil
+  // licitações que ninguém precificou junto das que interessam.
+  ['125. filtro de valor (test-consulta-filtro-valor)', 'test-consulta-filtro-valor.js'],
+  // Histórico de proposta por licitação. Cada portal registra o envio à sua
+  // maneira, e o modo de falha é silencioso nos dois sentidos: envio de outra
+  // licitação vazando para este histórico, e tenant sem a tabela de um portal
+  // derrubando o histórico dos outros.
+  ['126. historico de proposta (test-proposta-historico)', 'test-proposta-historico.js'],
+  ['127. historico na tela (test-interesse-historico-tela)', 'test-interesse-historico-tela.js'],
+  // Anexos e mensagens pelo card de Interesses. A garantia que mais importa é a
+  // colisão de rota: `DELETE /api/interesse/anexos` caía no `:id` e tentava
+  // apagar um interesse com id "anexos". As demais checam que toda recusa
+  // acontece antes de gastar chamada no Comprasnet.
+  ['127b. anexos pelo interesse (test-interesse-anexos-api)', 'test-interesse-anexos-api.js'],
+  // Filtro por fase. As duas garantias são a exclusividade — contador que soma
+  // mais que o total é a duplicidade que já apareceu aqui — e a precedência da
+  // situação sobre a data: licitação suspensa com prazo correndo não está
+  // recebendo proposta.
+  ['128. fases da licitacao (test-interesse-fases)', 'test-interesse-fases.js'],
   // Horário do último scan. O SQLite grava CURRENT_TIMESTAMP em UTC, e a tela
   // lia cru: em -03 isso adiantava o relógio em 3h e anunciava um scan que
   // ainda não tinha acontecido. A suíte fixa o fuso do navegador, senão
@@ -569,6 +619,10 @@ const suites = [
   // recusar as chamadas. As três guardas — ler no banco certo, contar só o que
   // gravou, e parar no 429 — são o que o teste exercita.
   ['130. lacunas do catalogo (test-lacunas-catalogo)', 'test-lacunas-catalogo.js'],
+  // Fila da ponte do Electron enchida por antecipação. O ciclo roda no
+  // scheduler, como root, sobre todos os tenants — as guardas (só com Electron
+  // vivo, só depois da migration) são o que este teste existe para segurar.
+  ['131. fila de coleta do Comprasnet (test-fila-coleta)', 'test-fila-coleta.js'],
   // Freios do sync incremental. Ele roda de 5 em 5 minutos e era a única rotina
   // sem nenhum: cinco retries IMEDIATOS por página recusada, sem cooldown, e
   // paginação sempre da página 1 rebaixando o dia inteiro. Consumia a cota da
@@ -608,12 +662,75 @@ const suites = [
   // de promoções, promoção para o visitante e a loja como página inicial. Cada
   // bloco foi sabotado em 27/09 e reprovou; um verde aqui prova alguma coisa.
   ['137. loja de floricultura (test-floricultura)', 'test-floricultura.js'],
+  // Robô de lances do PCP, no padrão do robô do Comprasnet. Guarda o que o
+  // Comprasnet aprendeu em produção (ganhando não lança, config relida no
+  // lance, rajada que para ao assumir a ponta, piso) e o que é do PCP: relógio
+  // de resolução de segundo e o último lance chegando antes do fim. Sala de
+  // mentira e banco em memória; nada sai para o portal.
+  ['138. robo de lances do PCP (test-pcp-auto-lance)', 'test-pcp-auto-lance.js'],
+  // O painel do robô na tela Salas PCP, com as rotas reais sobre banco em
+  // memória. A tela está em public/ e entra no ar antes do restart que traz as
+  // rotas: sem elas, o painel tem de sumir em vez de mostrar erro.
+  ['139. painel do robo na tela Salas PCP (test-pcp-salas-robo)', 'test-pcp-salas-robo.js'],
+  // A campanha legado manda o modelo e nunca consulta a IA (28/09). Roda o
+  // motor de verdade com a IA simulada quebrada e contada: contra o motor
+  // anterior, reprovou em 12 de 16 e contou 36 chamadas à IA.
+  ['140. campanha manda o modelo, sem IA (test-campanha-modelo)', 'test-campanha-modelo.js'],
+  // Vários números de WhatsApp (28/09). A migração roda contra CÓPIAS reais do
+  // 1bit e do josecarloscostafilho: nenhuma conversa se perde, ids e campos
+  // iguais, configuração copiada chave a chave. A outra roda envio, ritmo,
+  // webhook e caixa com dois números; sabotadas (ritmo somado da empresa,
+  // resposta pelo padrão), reprovaram.
+  ['142. migracao para varios numeros (test-whatsapp-canais-migracao)', 'test-whatsapp-canais-migracao.js'],
+  ['143. varios numeros de WhatsApp (test-whatsapp-canais)', 'test-whatsapp-canais.js'],
   // Estoque como o dono de mercado lê (28/09): Análises com as abas visíveis,
   // saldo por quilo sem resíduo, parado sem giro, cobertura pelo histórico
   // real, lote vencido pela data de Marabá, cartões sobre todos os lotes,
   // ordem com acento, nada cortado e sugestão de compra sem o mercado do 1bit.
   // Contra as versões anteriores das rotas e das telas, reprovou em 21 de 22.
   ['141. estoque e compras para o dono de mercado (test-estoque-mercado)', 'test-estoque-mercado.js'],
+  // A mesma campanha enviada mais de uma vez (28/09): cada envio é uma rodada,
+  // com a lista inteira de novo e as anteriores guardadas. Sabotadas (preparo
+  // do WhatsApp e do e-mail sem o filtro de rodada), a rodada 2 não mandou
+  // nada e a suíte reprovou.
+  ['144. campanha em rodadas (test-campanha-rodadas)', 'test-campanha-rodadas.js'],
+  // Segmento na ficha da pessoa e lead das listas com ficha própria (28/09):
+  // cadastro, filtros em pessoas, Listas, campanha e Conversas, a planilha e a
+  // migração dos avulsos. Sabotadas (lead casando com a ficha do contador,
+  // campanha sem o filtro de segmento, público filtrado depois do limite),
+  // reprovou nas três.
+  ['145. segmento na ficha e lead das listas (test-segmentos)', 'test-segmentos.js'],
+  // Imagens do modelo (29/09): a foto escolhida se perdia ao "Salvar modelo",
+  // porque só subia por um botão à parte. Contra a tela antiga, reprovou em
+  // 4 de 5.
+  ['146. imagens do modelo de mensagem (test-modelos-imagens)', 'test-modelos-imagens.js'],
+  // Uploads da comunicação com o db de produção (proxy do tenant) (29/09):
+  // imagem do modelo, planilha da lista e PDF da Base da IA respondiam
+  // "currentDb() chamado fora de contexto de tenant". Contra as rotas sem o
+  // reentrarContextoTenant, reprovou nas três.
+  ['147. uploads da comunicacao no contexto do tenant (test-upload-comunicacao)', 'test-upload-comunicacao.js'],
+  // Mídia que o contato manda (29/09): o texto da mensagem de empresa e do
+  // documento se perdia, e nenhuma mídia era guardada. Contra o webhook
+  // antigo, reprovou o W1; a tela tem a parte M da test-conversas-ux.
+  ['148. midia nas conversas (test-conversas-midia)', 'test-conversas-midia.js'],
+  // Números sem WhatsApp (29/09): a falha "exists": false marca o número, as
+  // campanhas o pulam, e a lista se verifica na Evolution em lotes. Sabotadas
+  // (campanha nova sem pular, envio sem marcar, legado sem pular), reprovaram.
+  ['149. numeros sem WhatsApp (test-numeros-whatsapp)', 'test-numeros-whatsapp.js'],
+  // Roteiro de qualificação por campanha (29/09): etapas com encerra e pulo, a
+  // IA marca com o trecho, o qualificado vira oportunidade e filtro, o
+  // editor em Comunicação › Roteiros e o campo na campanha. Sabotadas (pulo
+  // ignorado, encerra ignorado, roteiro padrão da casa, trecho sem conferir,
+  // oportunidade em dobro, prompt com todas as etapas, remover em uso, id da
+  // resposta refeito na edição, campanha sem mandar o roteiro), reprovou nas nove.
+  ['150. roteiro de qualificacao por campanha (test-roteiros-campanha)', 'test-roteiros-campanha.js'],
+  // O fio entre o webhook e os desvios do roteiro (01/10): pedir uma pessoa
+  // desliga a IA da conversa e a põe nas não lidas, pedir o link entrega o
+  // material com a pergunta da etapa, e os dois vêm DEPOIS das guardas do
+  // atendimento — com a IA desligada à mão, o desvio cala. A 150 prova as
+  // regras; esta prova que o sistema as consulta. Sabotada (chamada do desvio
+  // removida do autoResponder), reprovou em 2 das 4.
+  ['166. desvio do roteiro no webhook (test-roteiro-desvio-webhook)', 'test-roteiro-desvio-webhook.js'],
   // Monte seu buquê e Pix da loja (29/09), com o Asaas falso no lugar do
   // fetch: tabela de preço por quantidade, cor pelo estoque, mix em rodízio,
   // baixa com custo, Pix no checkout, aviso do Asaas, entrega a combinar e
@@ -621,6 +738,87 @@ const suites = [
   // boleto, cor sem olhar o estoque, montagem sem componentes, Pix sem CPF,
   // link com o nome do cliente, troca sem conferir o pago), reprovou nas sete.
   ['146. monte seu buquê e Pix da loja (test-montagem-pix)', 'test-montagem-pix.js'],
+  // Conciliação bancária (30/09): a baixa passa pelo razão de CP/CR, aceita
+  // parcial, juros e desconto, recusa valor acima do saldo, estorna de verdade
+  // ao desconciliar, e o avulso classifica no plano e recusa contar duas vezes.
+  // Rodada contra o código do HEAD, reprovou em 16 das 21.
+  ['151. conciliacao bancaria: baixa e avulso (test-conciliacao-baixa)', 'test-conciliacao-baixa.js'],
+  // O modal da conciliação (30/09), em Chrome: a sugestão abre o painel com a
+  // diferença repartida em juros ou desconto, o resumo avisa da parcial e
+  // bloqueia o principal acima do saldo, e o avulso escolhe a conta do plano.
+  // Rodada contra a tela do HEAD, reprovou nas oito.
+  ['152. modal da conciliacao bancaria (test-conciliacao-tela)', 'test-conciliacao-tela.js'],
+  // Extrato pela API do provedor, sem OFX (30/09): o recebimento que o polling
+  // ja baixou nasce conciliado em vez de pendente (senao um clique em avulsa
+  // dobra saldo e DRE), uma baixa responde por uma linha so, a tarifa exige
+  // valor igual, e provedor sem extrato manda importar o OFX. E o mesmo
+  // lancamento nao entra pelas duas portas: o 1bit ja sobe o OFX do Asaas, e as
+  // 57 linhas de setembro da API eram as mesmas 57 do arquivo. Oito sabotagens
+  // reprovaram: a guarda do pagamento reivindicado, a conferencia de valor, a
+  // conciliacao automatica, a paginacao, o descarte de linha ilegivel, a guarda
+  // das duas portas, o casamento um-para-um e o aproveitamento do vinculo.
+  ['153. conciliacao pelo extrato da API (test-conciliacao-extrato)', 'test-conciliacao-extrato.js'],
+
+  // Inventario (30/09): a coluna depositoId que faltava — sem ela "+ Novo
+  // inventario" respondia 500 em todo tenant — e a divergencia com uma
+  // definicao so, faltas/sobras/liquido, igual na lista e na tela. Guarda
+  // tambem o grid, que media a largura da coluna com a linha de "Carregando"
+  // e cortava o dado que chegava depois. Quatro sabotagens reprovaram.
+  ['154. inventario: deposito e divergencia (test-inventario-divergencia)', 'test-inventario-divergencia.js'],
+
+  // A unidade como o balcao fala (30/09): 'SC' vira saco, 'M3' vira m3, e o
+  // que nao se parte perde a casa decimal. Cobre o aviso de falta pelo nome do
+  // produto, o fornecedor pelo fantasia, o card-info que herdava o flex do
+  // kanban e o aviso de abaixo do minimo virando uma linha com filtro. Tres
+  // sabotagens reprovaram.
+  ['155. unidade do balcao e aviso de falta (test-unidades-balcao)', 'test-unidades-balcao.js'],
+
+  // Busca de editais (30/09): o grupo de palavras deixou de disparar a
+  // pesquisa sozinho, uma palavra so passou a casar palavra inteira, o estado
+  // entra antes da varredura dos itens (as 12 palavras de uma loja de
+  // construcao estouravam os 30s) e o edital que entrou por item mostra o
+  // trecho que casou. O bloco E fala com o catalogo Postgres; sem ele, avisa
+  // e nao reprova.
+  ['156. busca de editais (test-busca-editais)', 'test-busca-editais.js'],
+
+  /* A padronização dos campos de dado (30/09 e 01/10). Seis suítes, porque são
+     seis coisas que falhavam por conta própria:
+
+     - 157: a conferência do CPF/CNPJ na fronteira do servidor, com as duas
+       metades — documento errado recusado E identificador interno (`SD-`,
+       `EX-`, `UASG-`) aceito. Sem a segunda, a validação recusaria 9.783
+       fichas que estão certas.
+     - 158: o contraste dos quatro níveis de texto contra todos os fundos, nos
+       dois temas. O `--text-3` do escuro estava em 3,73:1 e o do claro em
+       4,37:1, contra os 4,5:1 de AA — e o comentário do CSS afirmava 4,6:1.
+     - 159: a peça de campo: máscara, limite, teclado do celular, dígito
+       verificador, marcação no próprio campo, e o valor numérico que o campo
+       de dinheiro entrega ao JavaScript (as 152 leituras de `.value` que as 48
+       telas já fazem dependem disso).
+     - 160: o aviso e a confirmação do sistema, no lugar dos 323 `alert()` e
+       280 `confirm()` do navegador. Guarda sobretudo a frase de erro que nunca
+       sai vazia: havia telas mostrando "Erro: " e "undefined".
+     - 161: as peças alcançáveis SEM login. O static de `public/` está atrás do
+       `requireAuth`, e o checkout da loja pública depende do campo-formato.js:
+       sem a liberação em `pre-auth-routes.js`, a vitrine quebraria inteira.
+     - 162: tela por tela, todo texto legível nos dois temas. Nasceu das 21
+       telas com cor cravada, que não acompanhavam o tema claro. */
+  ['157. documento validado na fronteira (test-documento-validacao)', 'test-documento-validacao.js'],
+  ['158. contraste dos dois temas (test-contraste-tema)', 'test-contraste-tema.js'],
+  ['159. peca de campo (test-campo-formato)', 'test-campo-formato.js'],
+  ['160. aviso e confirmacao do sistema (test-aviso-sistema)', 'test-aviso-sistema.js'],
+  ['161. pecas antes do login (test-pecas-pre-auth)', 'test-pecas-pre-auth.js'],
+  ['162. telas nos dois temas (test-telas-dois-temas)', 'test-telas-dois-temas.js'],
+  ['163. campos dos tres cadastros (test-campos-cadastros)', 'test-campos-cadastros.js'],
+  ['164. campos de todas as telas (test-campos-todas-telas)', 'test-campos-todas-telas.js'],
+  // Mídia guardada no recebimento e mensagem apagada no WhatsApp (01/10): o
+  // link do WhatsApp expira em ~26 dias e a busca era só ao abrir a conversa,
+  // então 2.434 das 4.519 mídias do 1bit já estavam perdidas. Figurinha fica
+  // de fora do que se guarda sozinho, a pedido. Apagar para todos marca a
+  // mensagem e NÃO a remove, com os dois formatos de id que a Evolution emite.
+  // Sabotadas (figurinha de volta, `data.key.id` ignorado, webhook sem
+  // guardar), reprovou em 6 checagens.
+  ['165. midia guardada e mensagem apagada (test-wa-midia-apagada)', 'test-wa-midia-apagada.js'],
 ];
 // ==================== modo rápido: quais suítes ====================
 /**

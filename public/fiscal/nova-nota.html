@@ -101,7 +101,7 @@
                         </div>
                     </div>
                     <div class="form-group">
-                        <label>Observação (vai para os dados adicionais da NF-e)</label>
+                        <label>Observação</label><small class="muted">Vai para os dados adicionais da NF-e</small>
                         <textarea id="observacao" rows="2"></textarea>
                     </div>
                 </div>
@@ -149,11 +149,11 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label>Frete</label>
-                            <input type="number" id="valorFrete" step="0.01" min="0" value="0" oninput="recalcular()">
+                            <input type="text" id="valorFrete" value="0" oninput="recalcular()" data-formato="dinheiro">
                         </div>
                         <div class="form-group">
                             <label>Desconto</label>
-                            <input type="number" id="valorDesconto" step="0.01" min="0" value="0" oninput="recalcular()">
+                            <input type="text" id="valorDesconto" value="0" oninput="recalcular()" data-formato="dinheiro">
                         </div>
                     </div>
                     <div class="totais-grid" id="totaisGrid">
@@ -221,7 +221,7 @@
             <div class="form-group"><label>COFINS %</label><input type="number" id="mPCofins" step="0.01" min="0"></div>
           </div>
           <div class="form-group">
-            <label>Informação adicional do item (lote, validade, ONU…)</label>
+            <label>Informação adicional do item</label><small class="muted">Lote, validade, número ONU</small>
             <textarea id="mInfAdProd" rows="3"></textarea>
           </div>
         </div>
@@ -628,7 +628,7 @@ function renderMemoria(res) {
 async function emitir() {
   if (!notaId && !(await salvar())) return;
   if (statusAtual !== 'rascunho') { alerta('Esta nota já foi emitida.', 'error'); return; }
-  if (!confirm('Emitir a NF-e? Depois disso o documento não pode mais ser editado.')) return;
+  if (!await Aviso.confirmar('Emitir a NF-e? Depois disso o documento não pode mais ser editado.')) return;
 
   $('btnEmitir').disabled = true;
   alerta('Emitindo… isso pode levar alguns segundos.', 'info');
@@ -646,7 +646,7 @@ async function emitir() {
 }
 
 async function descartar() {
-  if (!notaId || !confirm('Descartar este rascunho? Ele some junto com os itens.')) return;
+  if (!notaId || !await Aviso.confirmar('Descartar este rascunho? Ele some junto com os itens.')) return;
   try {
     const r = await fetch('/api/nf-avulsa/' + notaId + '/excluir', { method: 'POST' });
     const j = await r.json();
@@ -666,6 +666,8 @@ init();
 </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
     <script>initSidebar('nova-nota');</script>
 </body>
 </html>

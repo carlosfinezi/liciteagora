@@ -85,7 +85,7 @@
                         <div class="form-group" style="grid-column: span 2;">
                             <label for="cnpj" class="required">CNPJ</label>
                             <div style="display:flex; gap:6px;">
-                                <input type="text" id="cnpj" name="cnpj" placeholder="00.000.000/0000-00" style="flex:1;">
+                                <input type="text" id="cnpj" name="cnpj" placeholder="00.000.000/0000-00" style="flex:1;" data-formato="cnpj">
                                 <button type="button" id="btnBuscarCnpj" class="btn btn-secondary btn-sm" onclick="buscarDadosCnpj()" style="white-space:nowrap;">🔎 Buscar</button>
                             </div>
                             <small id="cnpjStatus" class="hint"></small>
@@ -93,11 +93,11 @@
                         </div>
                         <div class="form-group">
                             <label for="inscricaoEstadual">Inscrição Estadual</label>
-                            <input type="text" id="inscricaoEstadual" name="inscricaoEstadual" placeholder="Inscrição estadual">
+                            <input type="text" id="inscricaoEstadual" name="inscricaoEstadual" placeholder="Inscrição estadual" data-formato="inscricao">
                         </div>
                         <div class="form-group">
                             <label for="inscricaoMunicipal">Inscrição Municipal</label>
-                            <input type="text" id="inscricaoMunicipal" name="inscricaoMunicipal" placeholder="Inscrição municipal">
+                            <input type="text" id="inscricaoMunicipal" name="inscricaoMunicipal" placeholder="Inscrição municipal" data-formato="inscricao">
                         </div>
                         <div class="form-group">
                             <label for="regimeTributario">Regime Tributário (NFS-e)</label>
@@ -199,7 +199,7 @@
                         </div>
                         <div class="form-group">
                             <label for="cep">CEP</label>
-                            <input type="text" id="cep" name="cep" placeholder="00000-000">
+                            <input type="text" id="cep" name="cep" placeholder="00000-000" data-formato="cep">
                         </div>
                         <div class="form-group">
                             <label for="codigoMunicipio">Código IBGE do Município</label>
@@ -217,15 +217,15 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="telefone">Telefone</label>
-                            <input type="text" id="telefone" name="telefone" placeholder="(00) 0000-0000">
+                            <input type="text" id="telefone" name="telefone" placeholder="(00) 0000-0000" data-formato="telefone">
                         </div>
                         <div class="form-group">
                             <label for="celular">Celular</label>
-                            <input type="text" id="celular" name="celular" placeholder="(00) 00000-0000">
+                            <input type="text" id="celular" name="celular" placeholder="(00) 00000-0000" data-formato="telefone">
                         </div>
                         <div class="form-group">
                             <label for="email">E-mail</label>
-                            <input type="email" id="email" name="email" placeholder="email@empresa.com.br">
+                            <input type="email" id="email" name="email" placeholder="email@empresa.com.br" data-formato="email">
                         </div>
                         <div class="form-group">
                             <label for="site">Site</label>
@@ -246,7 +246,7 @@
                         </div>
                         <div class="form-group">
                             <label for="cpfRepresentante">CPF</label>
-                            <input type="text" id="cpfRepresentante" name="cpfRepresentante" placeholder="000.000.000-00">
+                            <input type="text" id="cpfRepresentante" name="cpfRepresentante" placeholder="000.000.000-00" data-formato="cpf">
                         </div>
                     </div>
                     <div class="form-row">
@@ -669,54 +669,24 @@
             el.style.display = 'block';
         }
 
+        /**
+         * As máscaras saíram daqui em 30/09/2026.
+         *
+         * Quem formata agora é o `data-formato` de cada campo, em
+         * `public/js/campo-formato.js`. As cinco que existiam aqui eram cópias
+         * das de outras telas, e a do telefone estava errada para celular:
+         * cortava em 14 caracteres com a regra do fixo, então 11 dígitos saíam
+         * como "(94) 9917-69924".
+         *
+         * O que ficou é o que não é máscara: a busca automática dos dados da
+         * empresa quando o CNPJ fica completo.
+         */
         function configurarMascaras() {
-            // Máscara CNPJ + auto-busca quando sai do campo com 14 dígitos
-            const cnpjEl = document.getElementById('cnpj');
-            cnpjEl.addEventListener('input', function(e) {
-                let value = e.target.value.replace(/\D/g, '');
-                value = value.replace(/^(\d{2})(\d)/, '$1.$2');
-                value = value.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
-                value = value.replace(/\.(\d{3})(\d)/, '.$1/$2');
-                value = value.replace(/(\d{4})(\d)/, '$1-$2');
-                e.target.value = value.substring(0, 18);
-            });
-            cnpjEl.addEventListener('blur', function() {
+            document.getElementById('cnpj').addEventListener('blur', function() {
                 const raw = (this.value || '').replace(/\D/g, '');
                 if (raw.length === 14 && raw !== _ultimoCnpjBuscado) {
                     buscarDadosCnpj({ silencioso: true });
                 }
-            });
-
-            // Máscara CPF
-            document.getElementById('cpfRepresentante').addEventListener('input', function(e) {
-                let value = e.target.value.replace(/\D/g, '');
-                value = value.replace(/(\d{3})(\d)/, '$1.$2');
-                value = value.replace(/(\d{3})(\d)/, '$1.$2');
-                value = value.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
-                e.target.value = value.substring(0, 14);
-            });
-
-            // Máscara CEP
-            document.getElementById('cep').addEventListener('input', function(e) {
-                let value = e.target.value.replace(/\D/g, '');
-                value = value.replace(/(\d{5})(\d)/, '$1-$2');
-                e.target.value = value.substring(0, 9);
-            });
-
-            // Máscara Telefone
-            document.getElementById('telefone').addEventListener('input', function(e) {
-                let value = e.target.value.replace(/\D/g, '');
-                value = value.replace(/(\d{2})(\d)/, '($1) $2');
-                value = value.replace(/(\d{4})(\d)/, '$1-$2');
-                e.target.value = value.substring(0, 14);
-            });
-
-            // Máscara Celular
-            document.getElementById('celular').addEventListener('input', function(e) {
-                let value = e.target.value.replace(/\D/g, '');
-                value = value.replace(/(\d{2})(\d)/, '($1) $2');
-                value = value.replace(/(\d{5})(\d)/, '$1-$2');
-                e.target.value = value.substring(0, 15);
             });
         }
 
@@ -906,7 +876,7 @@
         }
 
         async function removerCertificado() {
-            if (!confirm('Tem certeza que deseja remover o certificado digital?')) {
+            if (!await Aviso.confirmar('Tem certeza que deseja remover o certificado digital?')) {
                 return;
             }
 
@@ -956,6 +926,8 @@
     </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
     <script>initSidebar('minha-empresa');
     </script>
 </body>

@@ -58,12 +58,12 @@
     </div>
     <h4>Remetente</h4>
     <div class="form-row">
-      <div class="form-group"><label>CNPJ/CPF</label><input type="text" id="fRemCnpj"></div>
+      <div class="form-group"><label>CNPJ/CPF</label><input type="text" id="fRemCnpj" data-formato="cnpj"></div>
       <div class="form-group" style="flex:2;"><label>Razão social/Nome</label><input type="text" id="fRemNome"></div>
     </div>
     <h4>Destinatário</h4>
     <div class="form-row">
-      <div class="form-group"><label>CNPJ/CPF</label><input type="text" id="fDestCnpj"></div>
+      <div class="form-group"><label>CNPJ/CPF</label><input type="text" id="fDestCnpj" data-formato="cnpj"></div>
       <div class="form-group" style="flex:2;"><label>Razão social/Nome</label><input type="text" id="fDestNome"></div>
     </div>
     <h4>Carga e prestação</h4>
@@ -78,7 +78,7 @@
       <div class="form-group" style="flex:2;"><label>NF-e referenciada (chave 44 dígitos)</label><input type="text" id="fNfe" maxlength="44"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Placa veículo</label><input type="text" id="fPlaca" style="text-transform:uppercase"></div>
+      <div class="form-group"><label>Placa veículo</label><input type="text" id="fPlaca" style="text-transform:uppercase" data-formato="placa"></div>
       <div class="form-group" style="flex:2;"><label>Condutor</label><input type="text" id="fCond"></div>
       <div class="form-group"><label>CPF condutor</label><input type="text" id="fCondCpf"></div>
     </div>
@@ -92,6 +92,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('cte');</script>
@@ -161,7 +163,7 @@ async function salvar(){
 }
 
 async function preparar(id){
-  if (!confirm('Gerar XML não-assinado?')) return;
+  if (!await Aviso.confirmar('Gerar XML não-assinado?')) return;
   const r = await fetch(`/api/cte/${id}/preparar`, { method:'POST' });
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   showAlert('XML gerado. Use seu emissor para transmitir.'); carregar();

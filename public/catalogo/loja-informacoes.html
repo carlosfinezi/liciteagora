@@ -99,12 +99,12 @@
     <div class="grade-form">
       <div class="campo">
         <label for="whatsapp">WhatsApp</label>
-        <input id="whatsapp" inputmode="tel" maxlength="20" placeholder="(00) 00000-0000">
+        <input id="whatsapp" inputmode="tel" maxlength="20" placeholder="(00) 00000-0000" data-formato="telefone">
         <span class="dica">Só dígitos são guardados; o link é montado no servidor.</span>
       </div>
       <div class="campo">
         <label for="telefone">Telefone fixo</label>
-        <input id="telefone" inputmode="tel" maxlength="40" placeholder="(00) 0000-0000">
+        <input id="telefone" inputmode="tel" maxlength="40" placeholder="(00) 0000-0000" data-formato="telefone">
         <span class="dica herdado" id="dicaTelefone"></span>
       </div>
       <div class="campo">
@@ -161,6 +161,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('loja');</script>
 <script>
 /* Informações da empresa — o que alimenta o catálogo público.

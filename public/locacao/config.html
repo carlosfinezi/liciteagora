@@ -43,7 +43,7 @@
         <small class="muted">Atraso menor que isso não gera multa.</small>
       </div>
       <div class="form-group">
-        <label>Multa por dia de atraso (% da diária)</label>
+        <label>Multa por dia de atraso</label><small class="muted">Em percentual da diária</small>
         <input type="number" id="cMulta" min="0" max="1000" step="1">
         <small class="muted">100% = cada dia atrasado custa uma diária.</small>
       </div>
@@ -61,7 +61,7 @@
         </select>
       </div>
       <div class="form-group">
-        <label>Exigir vistoria (OS) na entrega e devolução</label>
+        <label>Exigir vistoria</label><small class="muted">Abre uma OS na entrega e na devolução</small>
         <select id="cExigirVistoria">
           <option value="1">Sim</option>
           <option value="0">Não</option>
@@ -96,7 +96,7 @@
       </div>
       <div class="form-group">
         <label>Valor mínimo de locação (R$)</label>
-        <input type="number" id="cValorMinimo" step="0.01" min="0" placeholder="ex.: 80">
+        <input type="text" id="cValorMinimo" placeholder="ex.: 80" data-formato="dinheiro">
         <small class="muted">
           Piso <strong>do contrato inteiro</strong>, não de cada item: 12 andaimes
           a R$ 20 somam R$ 240 e ficam em R$ 240. Só age quando o contrato todo
@@ -172,7 +172,7 @@
       </div>
       <div class="form-group">
         <label>Valor (R$)</label>
-        <input type="number" id="exValor" step="0.01" min="0">
+        <input type="text" id="exValor" data-formato="dinheiro">
       </div>
       <div class="form-group">
         <button class="btn btn-primary" onclick="salvarExcecao()">Incluir exceção</button>
@@ -211,6 +211,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('locacao-config');</script>
 <script>

@@ -598,6 +598,8 @@ body.arrastando-lista { user-select: none; -webkit-user-select: none; cursor: gr
 <script src="/js/arrastar-ordenar.js"></script>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('loja');</script>
 <script>
 /* Catálogo Online — central de montagem da vitrine.
@@ -1389,7 +1391,7 @@ function pintarProduto(p, resumo) {
     <div class="pp-sec">
       <h4>Preço</h4>
       <div class="form-group"><label>Preço de venda *</label>
-        <input type="number" step="0.01" min="0" id="fPrecoVenda" value="${Number(p.precoVenda) || 0}"></div>
+        <input type="text" id="fPrecoVenda" value="${Number(p.precoVenda) || 0}" data-formato="dinheiro"></div>
       <p class="pp-nota">Promoção por vigência já existe no ERP, em Tabelas de preço.
         A interface aqui vem numa próxima fase.</p>
     </div>

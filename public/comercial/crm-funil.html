@@ -230,13 +230,13 @@
       </div>
       <div class="form-group" style="width:160px;">
         <label>Valor (R$)</label>
-        <input type="number" id="opValor" step="0.01" min="0" value="0">
+        <input type="text" id="opValor" value="0" data-formato="dinheiro">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
         <label>Telefone / WhatsApp <small class="muted">(do cliente)</small></label>
-        <input type="text" id="opTelefone" placeholder="Ex.: (94) 91234-5678 — preenche ao escolher o cliente" autocomplete="off" oninput="maskTelInput(this)">
+        <input type="text" id="opTelefone" placeholder="Ex.: (94) 91234-5678 — preenche ao escolher o cliente" autocomplete="off" oninput="maskTelInput(this)" data-formato="telefone">
       </div>
     </div>
     <div class="form-row">
@@ -294,6 +294,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('crm-funil');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -714,7 +716,7 @@ async function salvarFunil(){
 }
 async function excluirFunil(){
   if (!funilAtual) return;
-  if (!confirm(`Excluir o funil "${funilAtual.nome}" e suas etapas?\n\nSó é possível se ele não tiver oportunidades.`)) return;
+  if (!await Aviso.confirmar(`Excluir o funil "${funilAtual.nome}" e suas etapas?\n\nSó é possível se ele não tiver oportunidades.`)) return;
   try {
     const r = await fetch('/api/crm/funis/'+funilAtual.id, { method:'DELETE' });
     const d = await r.json();
@@ -786,7 +788,7 @@ async function excluirEt(id){
   if ((funilAtual.etapas.length||0) <= 1) return showAlert('O funil precisa ter pelo menos uma etapa','error');
   const n = etapaCounts[id] || 0;
   if (n > 0) return showAlert(`A etapa "${et.nome}" tem ${n} oportunidade(s). Mova-as para outra etapa antes de excluir.`, 'error');
-  if (!confirm(`Excluir a etapa "${et.nome}"?`)) return;
+  if (!await Aviso.confirmar(`Excluir a etapa "${et.nome}"?`)) return;
   try {
     const r = await fetch('/api/crm/etapas/'+id, {
       method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ativo: false })

@@ -107,7 +107,7 @@
       </div>
       <div class="form-group">
         <label>Telefone na obra</label>
-        <input type="text" id="nTelefoneObra">
+        <input type="text" id="nTelefoneObra" data-formato="telefone">
       </div>
     </div>
     <div class="form-row">
@@ -137,6 +137,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('locacao-locacoes');</script>
 <script>
@@ -464,7 +466,7 @@ async function aplicarCaucao(id, valor) {
 // A limpeza percentual só é cobrada se quem recebe marcar que precisa —
 // não é automática, é constatação da vistoria.
 async function devolver(id) {
-  const precisa = confirm('O equipamento voltou sujo e precisa de limpeza?\n\n'
+  const precisa = await Aviso.confirmar('O equipamento voltou sujo e precisa de limpeza?\n\n'
     + 'OK = cobrar a taxa de limpeza · Cancelar = sem taxa');
   await acao(id, 'devolver', { abrirVistoria: true, exigiuLimpeza: precisa });
 }

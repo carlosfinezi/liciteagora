@@ -43,6 +43,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('tabelas-fiscais');</script>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -162,11 +163,9 @@ async function exportar() {
   } catch (e) { toast('Erro: ' + e.message, 'warn'); }
 }
 
-function toast(msg, tipo) {
-  const box = $('toasts'); const el = document.createElement('div');
-  el.className = 'toast ' + (tipo || 'success'); el.textContent = msg;
-  box.appendChild(el); setTimeout(() => el.remove(), 3000);
-}
+/* O `toast()` local saiu em 01/10/2026: quem avisa agora é o
+   `window.toast` de `/js/aviso-sistema.js`, que é um só no sistema, aceita as
+   mesmas palavras de tipo e acompanha o tema. */
 init();
 </script>
 </body>

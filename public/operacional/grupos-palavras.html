@@ -65,12 +65,12 @@
         <div class="form-group">
           <label>Cor</label>
           <div class="color-picker">
-            <div class="color-option selected" style="background: #2196F3" data-cor="#2196F3"></div>
-            <div class="color-option" style="background: #4CAF50" data-cor="#4CAF50"></div>
-            <div class="color-option" style="background: #FF9800" data-cor="#FF9800"></div>
-            <div class="color-option" style="background: #9C27B0" data-cor="#9C27B0"></div>
-            <div class="color-option" style="background: #f44336" data-cor="#f44336"></div>
-            <div class="color-option" style="background: #00BCD4" data-cor="#00BCD4"></div>
+            <div class="color-option selected" style="background: var(--accent)" data-cor="#2196F3"></div>
+            <div class="color-option" style="background: var(--success)" data-cor="#4CAF50"></div>
+            <div class="color-option" style="background: var(--warn)" data-cor="#FF9800"></div>
+            <div class="color-option" style="background: var(--purple)" data-cor="#9C27B0"></div>
+            <div class="color-option" style="background: var(--danger)" data-cor="#f44336"></div>
+            <div class="color-option" style="background: var(--accent)" data-cor="#00BCD4"></div>
             <div class="color-option" style="background: #795548" data-cor="#795548"></div>
             <div class="color-option" style="background: #607D8B" data-cor="#607D8B"></div>
           </div>
@@ -138,7 +138,7 @@
           </div>
           <div class="form-group">
             <label for="agendamentoValorMin">Valor mínimo estimado (R$)</label>
-            <input type="number" id="agendamentoValorMin" placeholder="Ex: 50000" min="0" step="1000">
+            <input type="text" id="agendamentoValorMin" placeholder="Ex: 50000" data-formato="dinheiro">
             <div class="hint">Ignora licitações abaixo deste valor</div>
           </div>
           <div class="form-group">
@@ -160,7 +160,7 @@
 
           <div class="form-group form-inline">
             <input type="checkbox" id="agendamentoAutoInteresse">
-            <label for="agendamentoAutoInteresse">⭐ Marcar todos os itens da licitação como "interesse"</label>
+            <label for="agendamentoAutoInteresse">⭐ Marcar todos os itens</label><small class="muted">Como interesse, na licitação inteira</small>
           </div>
           <div class="form-group form-inline">
             <input type="checkbox" id="agendamentoAutoTelegram">
@@ -349,7 +349,7 @@
       console.log('[Debug] Grupos de exclusao disponiveis:', gruposExclusao.length, gruposExclusao);
 
       if (!gruposExclusao || gruposExclusao.length === 0) {
-        container.innerHTML = '<span style="color: #999; font-size: 13px;">Nenhum grupo de exclusao disponivel. Crie um grupo de exclusao primeiro.</span>';
+        container.innerHTML = '<span style="color: var(--text-2); font-size: 13px;">Nenhum grupo de exclusao disponivel. Crie um grupo de exclusao primeiro.</span>';
         return;
       }
 
@@ -519,7 +519,7 @@
 
     async function excluirGrupo(id) {
       const grupo = [...gruposPesquisa, ...gruposExclusao].find(g => g.id === id);
-      if (!grupo || !confirm(`Excluir o grupo "${grupo.nome}"?`)) return;
+      if (!grupo || !await Aviso.confirmar(`Excluir o grupo "${grupo.nome}"?`)) return;
 
       try {
         const res = await fetch(`${API_URL}/api/grupos-palavras/${id}`, { method: 'DELETE' });
@@ -746,15 +746,18 @@
       }
     }
 
+    /* As 19 chamadas de `showToast` continuam valendo: o corpo dela agora é o
+       aviso do sistema (`/js/aviso-sistema.js`), que empilha os avisos em vez
+       de reaproveitar uma caixa só — dois avisos seguidos deixavam de ser
+       lidos, porque o segundo apagava o primeiro. */
     function showToast(message, type = '') {
-      const toast = document.getElementById('toast');
-      toast.textContent = message;
-      toast.className = 'toast show ' + type;
-      setTimeout(() => toast.classList.remove('show'), 3000);
+      return window.toast(message, type);
     }
   </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/campo-formato.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
     <script>initSidebar('grupos-palavras');</script>
 </body>
 </html>

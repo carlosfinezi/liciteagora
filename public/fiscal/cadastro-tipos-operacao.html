@@ -198,7 +198,7 @@
         <h4 style="margin:18px 0 8px;">Textos padrão</h4>
         <div class="form-row">
           <div class="form-group full-width">
-            <label>Texto da natureza da operação na NF-e (natOp)</label>
+            <label>Natureza da operação</label><small class="muted">O texto que vai no natOp da NF-e</small>
             <input type="text" id="fTextoNFe" maxlength="60" placeholder="VENDA DE MERCADORIA">
             <small class="muted">Vai literalmente no campo natOp da NF-e (máx 60 chars, sem acentos).</small>
           </div>
@@ -216,6 +216,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('cadastro-tipos-operacao');</script>
@@ -414,7 +415,7 @@ async function salvar(){
 async function desativar(){
   const id = val('fId');
   if (!id) return;
-  if (!confirm('Desativar este tipo de operação? Pedidos existentes não serão afetados.')) return;
+  if (!await Aviso.confirmar('Desativar este tipo de operação? Pedidos existentes não serão afetados.')) return;
   try {
     const r = await fetch('/api/tipos-operacao/' + id, { method: 'DELETE' });
     const d = await r.json();

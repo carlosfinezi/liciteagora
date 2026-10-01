@@ -88,7 +88,7 @@
         </small>
       </div>
       <div class="form-group">
-        <label>Tempo de preparo entre uma locação e a seguinte</label>
+        <label>Tempo de preparo</label><small class="muted">Entre uma locação e a seguinte</small>
         <div style="display:flex;align-items:center;gap:6px;">
           <input type="number" id="ePreparo" step="0.5" min="0" max="720" style="width:100px;">
           <span class="muted">horas</span>
@@ -136,14 +136,14 @@
         <input type="number" id="eReposicao" step="0.01" min="0" onchange="atualizarPrevia()">
       </div>
       <div class="form-group">
-        <label>Ou percentual (%) do valor do equipamento</label>
+        <label>Percentual</label><small class="muted">Do valor do equipamento</small>
         <input type="number" id="eReposicaoPct" step="0.01" min="0" max="1000"
                placeholder="deixe vazio para usar o valor fixo" onchange="atualizarPrevia()">
         <small class="muted">Ex.: 120% para cobrir a reposição com margem.</small>
       </div>
       <div class="form-group">
         <label>Valor do equipamento</label>
-        <input type="text" id="eValorBem" disabled>
+        <input type="text" id="eValorBem" disabled data-formato="dinheiro">
         <small class="muted">Vem do cadastro do produto (preço de venda; na falta dele, o de custo).</small>
       </div>
     </div>
@@ -188,6 +188,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('locacao-itens');</script>
 <script>

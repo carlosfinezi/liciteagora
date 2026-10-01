@@ -39,7 +39,7 @@
       margin-bottom: 18px;
     }
     button.primary {
-      background: #3b82f6; color: white; border: none;
+      background: #2563eb; color: white; border: none;
       padding: 9px 18px; border-radius: 6px; font-size: 13px;
       font-weight: 600; cursor: pointer;
     }
@@ -96,7 +96,7 @@
     .venc-overdue { color: #fb923c; font-size: 12px; font-weight: 600; }
     .venc-suspended { color: #fca5a5; font-size: 12px; font-weight: 600; }
     .venc-vitalicio { color: #94a3b8; font-size: 12px; }
-    .venc-none { color: #64748b; font-size: 12px; }
+    .venc-none { color: #8c9bb1; font-size: 12px; }
     .plano-badge {
       display: inline-block; padding: 2px 8px; border-radius: 12px;
       font-size: 11px; font-weight: 500;
@@ -109,7 +109,7 @@
     .split-badge.padrao  { background: rgba(148,163,184,0.15); color: #94a3b8; }
     .split-badge.proprio { background: rgba(96,165,250,0.15); color: #93c5fd; }
     .split-badge.isento  { background: rgba(251,191,36,0.15); color: #fbbf24; }
-    .split-badge.off     { background: rgba(148,163,184,0.10); color: #64748b; }
+    .split-badge.off     { background: rgba(148,163,184,0.10); color: #8c9bb1; }
     .tabs {
       display: flex; gap: 2px; border-bottom: 1px solid #1e293b;
       margin-bottom: 18px;
@@ -121,7 +121,7 @@
       border-bottom: 2px solid transparent;
     }
     .tab-btn:hover { color: #e2e8f0; }
-    .tab-btn.active { color: #f1f5f9; border-bottom-color: #3b82f6; }
+    .tab-btn.active { color: #f1f5f9; border-bottom-color: #2563eb; }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
     .status.READY { background: rgba(52,211,153,0.15); color: #34d399; }
@@ -175,7 +175,7 @@
       margin-bottom: 14px;
     }
     .modal-body input:focus, .modal-body select:focus {
-      outline: none; border-color: #3b82f6;
+      outline: none; border-color: #2563eb;
     }
     .modal-footer {
       padding: 14px 24px;
@@ -244,7 +244,7 @@
       border: 1px solid #334155; border-radius: 6px;
       background: #0f172a; color: #e2e8f0; font-size: 13px;
     }
-    .panel input:focus { outline: none; border-color: #3b82f6; }
+    .panel input:focus { outline: none; border-color: #2563eb; }
     .panel .linha-switch {
       display: flex; align-items: center; gap: 11px;
       padding-bottom: 18px; margin-bottom: 18px;
@@ -255,7 +255,7 @@
     .hint strong { color: #cbd5e1; font-weight: 600; }
 
     .empty { text-align: center; padding: 60px 20px; color: #94a3b8; }
-    .features-loading { text-align: center; padding: 40px 20px; color: #64748b; font-size: 13px; }
+    .features-loading { text-align: center; padding: 40px 20px; color: #8c9bb1; font-size: 13px; }
 
     /* Dropdown actions menu */
     .dropdown { position: relative; display: inline-block; }
@@ -479,13 +479,13 @@
             <option value="CUSTOM">Custom</option>
           </select>
 
-          <label>Duração em dias <small style="text-transform:none;color:#64748b;">(deixe vazio para vitalício)</small></label>
+          <label>Duração em dias <small style="text-transform:none;color:#8c9bb1;">(deixe vazio para vitalício)</small></label>
           <input name="duracao_dias" id="planoFormDuracao" type="number" min="0" placeholder="ex: 30">
 
           <label>Dias de carência</label>
           <input name="dias_carencia" id="planoFormCarencia" type="number" min="0" value="0" placeholder="0">
 
-          <label>Preço em centavos <small style="text-transform:none;color:#64748b;">(informativo)</small></label>
+          <label>Preço em centavos <small style="text-transform:none;color:#8c9bb1;">(informativo)</small></label>
           <input name="preco_centavos" id="planoFormPreco" type="number" min="0" placeholder="ex: 9990">
 
           <label style="display:flex;align-items:center;gap:8px;margin-top:8px;">
@@ -512,7 +512,7 @@
         <div class="modal-body">
           <label>Plano</label>
           <select name="planoId" id="trocarPlanoSelect" required></select>
-          <label>Novo vencimento <small style="text-transform:none;color:#64748b;">(opcional — vazio = recalcula a partir de hoje)</small></label>
+          <label>Novo vencimento <small style="text-transform:none;color:#8c9bb1;">(opcional — vazio = recalcula a partir de hoje)</small></label>
           <input name="novoVencimento" id="trocarPlanoData" type="date">
         </div>
         <div class="modal-footer">
@@ -567,7 +567,7 @@
           <select name="planoId" id="createPlanoSelect">
             <option value="">— selecione —</option>
           </select>
-          <p style="font-size:11px;color:#64748b;margin-top:-10px;margin-bottom:14px;">A duração e carência vêm do plano. Para criar planos novos, use a aba "Planos".</p>
+          <p style="font-size:11px;color:#8c9bb1;margin-top:-10px;margin-bottom:14px;">A duração e carência vêm do plano. Para criar planos novos, use a aba "Planos".</p>
 
           <div class="result" id="createResult" style="display:none"></div>
         </div>
@@ -579,7 +579,8 @@
     </div>
   </div>
 
-  <script>
+  <script src="/js/aviso-sistema.js"></script>
+<script>
     async function api(method, path, body) {
       const opts = { method, credentials: 'include', headers: { 'Content-Type': 'application/json' } };
       if (body) opts.body = JSON.stringify(body);
@@ -887,17 +888,17 @@
         closePlanoModal();
         loadPlanos();
         loadTenants(); // refresca cache de planos no select de criação
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     });
 
     async function desativarPlano(id) {
-      if (!confirm('Desativar este plano?')) return;
+      if (!await Aviso.confirmar('Desativar este plano?')) return;
       try { await api('DELETE', '/api/admin/planos/' + id); loadPlanos(); loadTenants(); }
-      catch (err) { alert('Erro: ' + err.message); }
+      catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
     async function reativarPlano(id) {
       try { await api('PATCH', '/api/admin/planos/' + id, { ativo: 1 }); loadPlanos(); loadTenants(); }
-      catch (err) { alert('Erro: ' + err.message); }
+      catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
 
     // ========== Trocar plano / Renovar / Estender ==========
@@ -928,15 +929,15 @@
         await api('PATCH', `/api/admin/tenants/${encodeURIComponent(_trocarPlanoSlug)}/plano`, body);
         closeTrocarPlano();
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     });
 
     async function renovar(slug) {
-      if (!confirm(`Renovar ${slug} pelo plano atual?`)) return;
+      if (!await Aviso.confirmar(`Renovar ${slug} pelo plano atual?`)) return;
       try {
         await api('POST', `/api/admin/tenants/${encodeURIComponent(slug)}/renovar`);
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
 
     let _vencimentoSlug = null;
@@ -960,7 +961,7 @@
         await api('PATCH', `/api/admin/tenants/${encodeURIComponent(_vencimentoSlug)}/vencimento`, { periodoTerminaEm: ts });
         closeVencimentoModal();
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     });
 
     document.getElementById('splitPercentual').addEventListener('input', atualizarMinimoSplit);
@@ -975,7 +976,7 @@
       if (modo === 'proprio') {
         percentual = Number(document.getElementById('splitTenantPct').value);
         if (!Number.isFinite(percentual) || percentual <= 0 || percentual >= 100) {
-          alert('Percentual inválido — informe um número maior que 0 e menor que 100.');
+          Aviso.erro('Percentual inválido — informe um número maior que 0 e menor que 100.');
           return;
         }
       }
@@ -983,7 +984,7 @@
         await api('PATCH', `/api/admin/tenants/${encodeURIComponent(_splitTenantSlug)}/split`, { modo, percentual });
         closeSplitTenant();
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     });
 
     document.getElementById('splitForm').addEventListener('submit', async (e) => {
@@ -998,8 +999,8 @@
         await api('PUT', '/api/admin/split-asaas', body);
         await loadSplit();
         loadTenants(); // badges da aba Tenants mostram o percentual global
-        alert('Split atualizado — vale já na próxima cobrança emitida.');
-      } catch (err) { alert('Erro: ' + err.message); }
+        Aviso.ok('Split atualizado — vale já na próxima cobrança emitida.');
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     });
 
     async function rodarExpiryCheck() {
@@ -1008,9 +1009,9 @@
         const msg = r.transitions.length
           ? r.transitions.length + ' transição(ões):\n' + r.transitions.map(t => `${t.slug}: ${t.from} → ${t.to}`).join('\n')
           : 'Nenhuma transição (todos dentro do prazo ou já no estado correto).';
-        alert(msg);
+        Aviso.erro(Aviso.mensagemDeErro(msg));
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
 
     let _featuresSlug = null;
@@ -1074,7 +1075,7 @@
         if (label) label.title = `${enabled ? 'Desativar' : 'Ativar'} ${item ? item.querySelector('.label-name').textContent : ''}`.trim();
       } catch (err) {
         input.checked = !enabled;
-        alert('Erro: ' + err.message);
+        Aviso.erro(Aviso.mensagemDeErro(err));
       } finally {
         input.disabled = false;
       }
@@ -1089,7 +1090,7 @@
         select.dataset.anterior = modo;
       } catch (err) {
         select.value = anterior;
-        alert('Erro: ' + err.message);
+        Aviso.erro(Aviso.mensagemDeErro(err));
       } finally {
         select.disabled = false;
       }
@@ -1186,35 +1187,35 @@
         btn.textContent = 'OK — fechar';
         btn.onclick = closeCreate;
       } catch (err) {
-        alert('Erro: ' + err.message);
+        Aviso.erro(Aviso.mensagemDeErro(err));
         btn.disabled = false;
         btn.textContent = 'Criar';
       }
     });
 
     async function setStatus(slug, status) {
-      if (!confirm(`Confirma marcar ${slug} como ${status}?`)) return;
+      if (!await Aviso.confirmar(`Confirma marcar ${slug} como ${status}?`)) return;
       try {
         await api('PATCH', `/api/admin/tenants/${encodeURIComponent(slug)}/status`, { status });
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
 
     async function resetPassword(slug) {
-      if (!confirm(`Gerar nova senha admin para ${slug}?`)) return;
+      if (!await Aviso.confirmar(`Gerar nova senha admin para ${slug}?`)) return;
       try {
         const data = await api('POST', `/api/admin/tenants/${encodeURIComponent(slug)}/reset-password`);
-        alert(`Nova senha para ${slug}:\n\nUsuário: ${data.username}\nSenha: ${data.password}\n\nEntregue essas credenciais ao cliente e peça para trocar na primeira entrada.`);
-      } catch (err) { alert('Erro: ' + err.message); }
+        Aviso.erro(`Nova senha para ${slug}:\n\nUsuário: ${data.username}\nSenha: ${data.password}\n\nEntregue essas credenciais ao cliente e peça para trocar na primeira entrada.`);
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
 
     async function reprovision(slug) {
-      if (!confirm(`Re-disparar provisionamento de vhost/SSL para ${slug}?`)) return;
+      if (!await Aviso.confirmar(`Re-disparar provisionamento de vhost/SSL para ${slug}?`)) return;
       try {
         await api('POST', `/api/admin/tenants/${encodeURIComponent(slug)}/reprovision`);
-        alert('Provisionamento iniciado em background. Atualize a página em ~60s para ver o status.');
+        Aviso.erro('Provisionamento iniciado em background. Atualize a página em ~60s para ver o status.');
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
 
     async function registerPayment(slug) {
@@ -1228,7 +1229,7 @@
         if (next) body.nextDueAt = new Date(next + 'T12:00:00').getTime();
         await api('POST', `/api/admin/tenants/${encodeURIComponent(slug)}/billing/paid`, body);
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
 
     document.getElementById('logoutBtn').addEventListener('click', async (e) => {

@@ -159,7 +159,7 @@ function abrirSistema(link) {
 }
 
 async function removerDoKanban(cnpj, ano, sequencial) {
-    if (!confirm('Remover esta licitação do Kanban?')) return;
+    if (!await Aviso.confirmar('Remover esta licitação do Kanban?')) return;
 
     try {
         const response = await fetch(`/api/kanban/${cnpj}/${ano}/${sequencial}`, {

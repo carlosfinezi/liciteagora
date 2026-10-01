@@ -15,10 +15,10 @@
         .tab-pane { display:none; }
         .tab-pane.active { display:block; }
         .badge-status { padding:2px 8px; border-radius:4px; font-size:0.8em; font-weight:600; text-transform:uppercase; }
-        .badge-agendada { background:#fbbf2433; color:#fbbf24; }
-        .badge-executada { background:#4caf5033; color:#4caf50; }
-        .badge-cancelada { background:#88888833; color:#aaa; }
-        .badge-expirada  { background:#f9731633; color:#f97316; }
+        .badge-agendada { background:#fbbf2433; color: var(--warn); }
+        .badge-executada { background:#4caf5033; color: var(--success); }
+        .badge-cancelada { background:#88888833; color: var(--text-3); }
+        .badge-expirada  { background:#f9731633; color: var(--warn); }
         .filters-bar { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:14px; padding:12px; background:var(--bg-1); border:1px solid var(--border); border-radius:6px; }
         .filters-bar label { display:flex; flex-direction:column; gap:4px; font-size:0.85em; color:var(--text-2); }
         .filters-bar input, .filters-bar select { padding:6px 8px; }
@@ -98,6 +98,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('blitz');</script>
@@ -236,18 +237,18 @@ async function carregarHistorico() {
 }
 
 async function cancelar(compraId, itemNumero) {
-    if (!confirm('Cancelar a rajada agendada do item '+itemNumero+'?')) return;
+    if (!await Aviso.confirmar('Cancelar a rajada agendada do item '+itemNumero+'?')) return;
     try {
         var r = await fetch('/api/sniper/cancelar-blitz', {
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ compraId, itemNumero })
         });
         var d = await r.json();
-        if (!d.success) { alert('Falha: '+(d.error||'')); return; }
+        if (!d.success) { Aviso.erro('Falha: '+(d.error||'')); return; }
         carregarAgendadas();
         carregarKpis();
     } catch (e) {
-        alert('Erro: '+e.message);
+        Aviso.erro(Aviso.mensagemDeErro(e));
     }
 }
 

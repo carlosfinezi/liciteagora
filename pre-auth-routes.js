@@ -38,6 +38,28 @@ const { registrarRotasPortal } = require('./portal-routes');
 const { registrarRotasElectron } = require('./electron-routes');
 
 function registerPreAuthRoutes(app, db, { apiKey }) {
+  // ==================== PEÇAS DE INTERFACE (antes do auth) ====================
+  // `campo-formato.js` (máscara, dígito verificador, marcação do que falta) e
+  // `aviso-sistema.js` (o aviso e a confirmação do sistema, no lugar do
+  // `alert`/`confirm` do navegador) são usados TAMBÉM pelas telas públicas: o
+  // checkout da loja, o cardápio do QR Code, o portal do cliente e as telas de
+  // orçamento. O static de `public/` vive atrás do `requireAuth`
+  // (`auth-bootstrap.installProtectedStatic`), então sem esta liberação o
+  // navegador de quem não está logado receberia o HTML da tela de login no
+  // lugar do script — e o checkout da loja, que depende da peça desde
+  // 30/09/2026, quebraria por inteiro.
+  //
+  // São só estes dois arquivos, nomeados um a um: `public/js` inteiro traria o
+  // `menu-config.js` e o `sidebar.js`, que descrevem o menu do ERP e não têm
+  // por que sair para fora do login.
+  for (const peca of ['campo-formato.js', 'aviso-sistema.js']) {
+    app.get(`/js/${peca}`, (_req, res) => {
+      res.sendFile(path.join(__dirname, 'public', 'js', peca), {
+        maxAge: '1h', headers: { 'Content-Type': 'application/javascript; charset=utf-8' },
+      });
+    });
+  }
+
   // ==================== PORTAL DO CLIENTE (antes do auth) ====================
   app.use('/portal', express.static(path.join(__dirname, 'public', 'portal')));
   registrarRotasPortal(app, db);

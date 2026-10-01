@@ -45,6 +45,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('fiscal-inutilizacao');</script>
@@ -72,7 +73,7 @@ async function inutilizar(){
     justificativa: document.getElementById('iJust').value.trim()
   };
   if (body.justificativa.length < 15) return showAlert('Justificativa mínima de 15 caracteres','error');
-  if (!confirm(`Inutilizar série ${body.serie}, números ${body.numeroInicial} a ${body.numeroFinal}? Esta ação é IRREVERSÍVEL na SEFAZ.`)) return;
+  if (!await Aviso.confirmar(`Inutilizar série ${body.serie}, números ${body.numeroInicial} a ${body.numeroFinal}? Esta ação é IRREVERSÍVEL na SEFAZ.`)) return;
   const r = await fetch('/api/nfe/inutilizar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const d = await r.json();
   if(!d.success) return showAlert(`${d.error || (d.cStat+' '+d.xMotivo)}`,'error');

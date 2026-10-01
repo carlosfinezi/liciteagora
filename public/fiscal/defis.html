@@ -147,6 +147,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('defis');</script>
 <script>
 let defisAtual = null;
@@ -333,7 +334,7 @@ async function salvarSocio(idx){
 async function removerSocio(idx){
   const s = sociosAtual[idx];
   if (!s) return;
-  if (!confirm('Remover este sócio?')) return;
+  if (!await Aviso.confirmar('Remover este sócio?')) return;
   if (s.id) {
     try {
       const r = await fetch('/api/fiscal/socios/' + s.id, { method: 'DELETE' });

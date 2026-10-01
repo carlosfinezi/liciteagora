@@ -256,7 +256,12 @@
   // ===== Wire events =====
   btn.addEventListener('click', abrir);
   els.close.addEventListener('click', fechar);
-  els.nova.addEventListener('click', () => { if (confirm('Iniciar nova conversa? O histórico fica salvo.')) novaConversa(); });
+  // A caixa do sistema é assíncrona (é o que a faz não travar a aba), então o
+  // handler virou async. Quem dispara um evento não olha o retorno, e por isso
+  // a troca é segura aqui.
+  els.nova.addEventListener('click', async () => {
+    if (await Aviso.confirmar('Iniciar nova conversa? O histórico fica salvo.')) novaConversa();
+  });
   els.form.addEventListener('submit', (e) => { e.preventDefault(); enviar(els.input.value); });
   els.input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(els.input.value); }

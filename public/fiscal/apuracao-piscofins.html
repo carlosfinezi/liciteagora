@@ -99,7 +99,7 @@
               </select>
             </div>
             <div class="form-group"><label>Tipo *</label><select id="ajTipo"></select></div>
-            <div class="form-group"><label>Valor *</label><input type="number" id="ajValor" step="0.01" min="0.01"></div>
+            <div class="form-group"><label>Valor *</label><input type="text" id="ajValor" data-formato="dinheiro"></div>
             <div class="form-group">
               <label>Código</label>
               <input type="text" id="ajCodigo" placeholder="opcional">
@@ -339,7 +339,7 @@ async function salvarAjuste() {
 }
 
 async function excluirAjuste(id) {
-  if (!confirm('Excluir este ajuste?')) return;
+  if (!await Aviso.confirmar('Excluir este ajuste?')) return;
   try {
     const r = await fetch('/api/fiscal/apuracao-piscofins/ajustes/' + id + '/excluir', { method: 'POST' });
     const d = await r.json();
@@ -349,7 +349,7 @@ async function excluirAjuste(id) {
 }
 
 async function fechar() {
-  if (!confirm('Fechar a competência? Os números ficam congelados e o crédito passa a ser ' +
+  if (!await Aviso.confirmar('Fechar a competência? Os números ficam congelados e o crédito passa a ser ' +
                'transportado para o mês seguinte.')) return;
   try {
     const r = await fetch('/api/fiscal/apuracao-piscofins/' + $('competencia').value + '/fechar', { method: 'POST' });
@@ -361,7 +361,7 @@ async function fechar() {
 }
 
 async function reabrir() {
-  if (!confirm('Reabrir a competência?')) return;
+  if (!await Aviso.confirmar('Reabrir a competência?')) return;
   try {
     const r = await fetch('/api/fiscal/apuracao-piscofins/' + $('competencia').value + '/reabrir', { method: 'POST' });
     const d = await r.json();
@@ -385,6 +385,8 @@ document.addEventListener('click', (ev) => {
 </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
     <script>initSidebar('apuracao-piscofins');</script>
 </body>
 </html>

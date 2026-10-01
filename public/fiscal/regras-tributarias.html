@@ -38,7 +38,7 @@
             <div class="page-header">
               <div>
                 <h1>Regras Tributárias</h1>
-                <small>A matriz que decide CST, alíquota e redução por contexto — operação × NCM × UF × destinatário</small>
+                <small>A matriz que decide CST, alíquota e redução por operação, NCM, UF e destinatário</small>
               </div>
               <div class="actions">
                 <button class="btn btn-secondary btn-sm" onclick="abrirAliquotas()">🗺️ Alíquotas por UF</button>
@@ -139,7 +139,7 @@
               <label>Vigência — fim</label>
               <input type="date" id="rVigenciaFim">
               <small class="hint">Vazio = sem prazo. Serve para agendar a virada de alíquota
-                e aposentar a regra — a emissão é sempre na data de hoje.</small>
+                e aposentar a regra. A emissão é sempre na data de hoje.</small>
             </div>
             <div class="form-group">
               <label>Código de benefício fiscal</label>
@@ -274,8 +274,8 @@
                 <small class="hint">Vazio usa o FCP cadastrado em Alíquotas por UF.</small>
               </div>
             </div>
-            <p class="hint" style="margin:0;">A alíquota interna do destino não fica aqui — ela é da
-              outra UF e vive em <strong>Alíquotas por UF</strong>. Sem ela cadastrada, o DIFAL não é
+            <p class="hint" style="margin:0;">A alíquota interna do destino é da outra UF, e
+              vive em <strong>Alíquotas por UF</strong>. Sem ela cadastrada, o DIFAL não é
               calculado e a emissão avisa qual estado falta.</p>
           </div>
 
@@ -363,8 +363,8 @@
         </div>
         <div class="modal-body">
           <p class="hint" style="margin-top:0;">
-            Usadas no cálculo do DIFAL — a diferença entre a alíquota interna do destino e a
-            interestadual. Nascem vazias de propósito: preencher com número errado produziria
+            Usadas no cálculo do DIFAL, que é a diferença entre a alíquota interna do
+            destino e a interestadual. Nascem vazias de propósito: preencher com número errado produziria
             imposto errado numa nota autorizada. Enquanto a UF estiver em branco, o DIFAL para
             ela não é calculado e a emissão avisa.
           </p>
@@ -426,7 +426,7 @@ function render() {
   const corpo = $('corpo');
   if (!regras.length) {
     corpo.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-3);padding:20px;">' +
-      'Nenhuma regra cadastrada. Sem regra, o regime normal não consegue emitir — o Simples continua funcionando.' +
+      'Nenhuma regra cadastrada. Sem regra, o regime normal não consegue emitir. O Simples continua funcionando.' +
       '</td></tr>';
     return;
   }
@@ -579,7 +579,7 @@ async function duplicar(id) {
 }
 
 async function excluir(id) {
-  if (!confirm('Excluir esta regra?')) return;
+  if (!await Aviso.confirmar('Excluir esta regra?')) return;
   try {
     const r = await fetch('/api/fiscal-regras/' + id + '/excluir', { method: 'POST' });
     const d = await r.json();
@@ -753,6 +753,7 @@ carregar();
 </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
     <script>initSidebar('regras-tributarias');</script>
 </body>
 </html>

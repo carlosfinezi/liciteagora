@@ -7,7 +7,10 @@
 <style>
   .cards { display:grid;grid-template-columns:1fr 320px;gap:16px;margin-top:16px; }
   @media (max-width: 900px) { .cards { grid-template-columns: 1fr; } }
-  .card { background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px; }
+  /* O card é branco e o portal é escuro: sem declarar a cor do texto, o que
+     está dentro herda o claro do `body` e fica em 1,3:1 sobre o branco —
+     praticamente invisível. O título já declarava a sua; o corpo, não. */
+  .card { background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;color:#1f2937; }
   .card h3 { margin:0 0 10px;font-size:15px;color:#111; }
   .kv { display:grid;grid-template-columns:130px 1fr;gap:6px;font-size:13px; }
   .kv dt { color:#6b7280; }
@@ -72,7 +75,7 @@
           <dl class="kv">
             <dt>Peças</dt><dd id="totPecas">—</dd>
             <dt>Serviços</dt><dd id="totServ">—</dd>
-            <dt style="font-weight:700;">Total</dt><dd id="totTotal" style="font-weight:700;color:#059669;">—</dd>
+            <dt style="font-weight:700;">Total</dt><dd id="totTotal" style="font-weight:700;color:#046c4e;">—</dd>
           </dl>
           <p style="margin-top:12px;">
             <a id="pdfLink" href="#" target="_blank" style="color:#2563eb;">📄 Baixar PDF</a>
@@ -99,6 +102,7 @@
   </div>
 </main>
 <script src="/portal/portal-common.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>
 const id = new URLSearchParams(location.search).get('id');
 function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
@@ -106,7 +110,7 @@ function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&am
 
 async function carregar(){
   if (!await initMe()) return;
-  if (!id) return alert('ID inválido');
+  if (!id) return Aviso.erro('ID inválido');
   const r = await fetch('/portal/api/os/'+id).then(r=>r.json());
   if (!r.success) { document.getElementById('titulo').textContent = 'Erro: '+r.error; return; }
   render(r);
@@ -215,13 +219,13 @@ function limparSig() { const c = document.getElementById('sig'); c.getContext('2
 async function salvarSig() {
   const c = document.getElementById('sig');
   const dataUrl = c.toDataURL('image/png');
-  if (dataUrl.length < 1200) return alert('Desenhe a assinatura primeiro');
+  if (dataUrl.length < 1200) return Aviso.erro('Desenhe a assinatura primeiro');
   const r = await fetch('/portal/api/os/'+id+'/assinar', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ dataUrl })
   });
   const d = await r.json();
-  if (!d.success) return alert('Erro: ' + d.error);
+  if (!d.success) return Aviso.erro(Aviso.mensagemDeErro(d));
   document.getElementById('sigStatus').textContent = '✓ Assinatura enviada!';
   setTimeout(carregar, 500);
 }

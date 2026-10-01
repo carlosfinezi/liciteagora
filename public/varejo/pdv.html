@@ -63,6 +63,22 @@
     .modal-bg { position: static !important; background: none !important; display: block !important; }
     .modal { border: 0 !important; background: white !important; color: black !important; box-shadow: none !important; max-width: 100% !important; }
     .chave-display { background: white; color: black; border: 1px solid var(--text-3); }
+    /* No papel, tudo que tem cor própria do tema vira preto: o `color: black`
+       do `.modal` não alcança quem declarou a própria cor, e esses textos
+       saíam claros sobre o branco (1,1:1 medido). */
+    /* Botão não serve no papel: no cupom impresso ficam só os dados. Sai antes
+       da regra de cor, porque é ele que mantém o fundo escuro. */
+    .modal button, .modal .modal-actions, .modal .btn { display: none !important; }
+    /* No papel, tudo que tem cor própria do tema vira preto: o `color: black`
+       do `.modal` não alcança quem declarou a própria cor, e esses textos
+       saíam claros sobre o branco (1,1:1 medido). O `:not` deixa de fora o que
+       foi escondido acima — pintar de preto o texto de um botão com fundo
+       escuro daria 1,44:1 se ele voltasse a aparecer. */
+    .modal :not(.btn), .chave-display * { color: black !important; }
+    /* Depois e com a mesma especificidade, para o cinza da hierarquia valer:
+       com três `:not` encadeados acima, a regra de cima vencia esta e o cupom
+       saía todo preto, sem distinguir o dado do rótulo. */
+    .modal .muted, .modal small { color: #444 !important; }
   }
 </style>
 </head>
@@ -75,7 +91,7 @@
     </div>
     <div class="actions">
       <a href="/fiscal/configuracao.html" class="btn btn-ghost btn-sm" style="text-decoration:none;">⚙️ Config NFC-e</a>
-      <a href="/nfce.html" class="btn btn-secondary btn-sm" style="text-decoration:none;" id="linkHist">📋 Histórico</a>
+      <a href="/fiscal/notas-fiscais.html?tipo=nfce" class="btn btn-secondary btn-sm" style="text-decoration:none;" id="linkHist">📋 Histórico</a>
     </div>
   </div>
 
@@ -165,6 +181,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/politica-prazo.js"></script>
 <script>initSidebar('pdv');</script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>

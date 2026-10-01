@@ -10,6 +10,7 @@ const { MercadoPagoClient, loadMPConfig } = require('./mercadopago-client');
 const { lancarMovimentacao, getContaMercadoPago } = require('./contas-financeiras-routes');
 const { registrarBaixaCR } = require('./contas-receber-routes');
 const { logAction } = require('./audit-log');
+const { erroDeDocumento } = require('./pessoa-sem-documento');
 const { reentrarContextoTenant } = require('./tenant-middleware');
 const { comTratamentoDeErro, nomeOriginalUtf8 } = require('./upload-anexos');
 const { parsePrazo, normalizarPrazo, prazoDaPessoa } = require('./prazo-pagamento');
@@ -371,11 +372,29 @@ function registrarRotasFinanceiro(app, db) {
 
   // ==================== PESSOAS ====================
 
+  // Cadastro de segmentos (segmentos.js). Antes de /api/pessoas/:id, senão o
+  // Express leria "segmentos" como o id de uma pessoa.
+  require('./segmentos').registrarRotasSegmentos(app, db);
+
+  // Lead: contato vindo das listas de WhatsApp, com ficha desde 28/09 (~27 mil
+  // no 1bit, contra ~180 clientes). A listagem inteira os deixa de fora por
+  // padrão: dez telas montam seletor de cliente com ela, e a de Clientes &
+  // Fornecedores desenha uma linha por pessoa. Some só o lead PURO
+  // (`["lead"]`, como a importação grava): marcado também como cliente, ele
+  // volta às telas. `?leads=1` traz todos os que têm a categoria lead, com
+  // teto e o total, para a tela filtrar por eles.
+  const E_LEAD = `categorias LIKE '%"lead"%'`;
+  const E_LEAD_PURO = `COALESCE(categorias,'') = '["lead"]'`;
+  const LIMITE_LEADS = 500;
+
   app.get('/api/pessoas', (req, res) => {
     try {
       const { q, ativo } = req.query;
+      const soLeads = req.query.leads === '1';
+      // `sql` junta só os filtros de quem pede; o recorte de lead entra no fim.
       let sql = 'SELECT * FROM pessoas WHERE 1=1';
       const params = [];
+      if (req.query.segmento) { sql += ' AND segmentoId = ?'; params.push(Number(req.query.segmento)); }
 
       if (ativo !== undefined) {
         sql += ' AND ativo = ?';
@@ -405,9 +424,14 @@ function registrarRotasFinanceiro(app, db) {
         sql += ')';
       }
 
-      sql += ' ORDER BY razaoSocial ASC';
-      const pessoas = db.prepare(sql).all(...params);
-      res.json({ success: true, pessoas });
+      const contar = (recorte) => db.prepare(sql.replace('SELECT *', 'SELECT COUNT(*) n') + recorte).get(...params).n;
+      if (soLeads) {
+        const total = contar(` AND ${E_LEAD}`);
+        const pessoas = db.prepare(sql + ` AND ${E_LEAD} ORDER BY razaoSocial ASC LIMIT ${LIMITE_LEADS}`).all(...params);
+        return res.json({ success: true, pessoas, total, limite: LIMITE_LEADS });
+      }
+      const pessoas = db.prepare(sql + ` AND NOT (${E_LEAD_PURO}) ORDER BY razaoSocial ASC`).all(...params);
+      res.json({ success: true, pessoas, totalLeads: contar(` AND ${E_LEAD}`) });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -466,10 +490,27 @@ function registrarRotasFinanceiro(app, db) {
     try {
       const pessoa = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(req.params.id);
       if (!pessoa) return res.status(404).json({ success: false, error: 'Pessoa nao encontrada' });
-      res.json({ success: true, pessoa });
+      // A marca "sem WhatsApp" é do número (wa-numeros.js); a ficha a mostra.
+      let semWhatsapp = null;
+      try {
+        const d = require('./comm-destinos').normalizarDestino('whatsapp', pessoa.telefone);
+        if (d) semWhatsapp = db.prepare('SELECT verificadoEm, origem FROM wa_numeros WHERE destino = ? AND existe = 0').get(d) || null;
+      } catch (_) { /* sem a tabela ainda */ }
+      res.json({ success: true, pessoa, semWhatsapp });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
+  });
+
+  /** Tira a marca "sem WhatsApp" do telefone da pessoa: as campanhas voltam a tentar. */
+  app.delete('/api/pessoas/:id/sem-whatsapp', (req, res) => {
+    try {
+      const pessoa = db.prepare('SELECT telefone FROM pessoas WHERE id = ?').get(req.params.id);
+      if (!pessoa) return res.status(404).json({ success: false, error: 'Pessoa nao encontrada' });
+      const d = require('./comm-destinos').normalizarDestino('whatsapp', pessoa.telefone);
+      const removidos = d ? require('./wa-numeros').desfazer(db, d) : 0;
+      res.json({ success: true, removidos });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
   // Campos escalares aceitos em POST/PUT. `cpfCnpj` e `tipo` são tratados
@@ -492,7 +533,7 @@ function registrarRotasFinanceiro(app, db) {
     'rg', 'rgOrgaoEmissor', 'rgDataExpedicao', 'dataNascimento',
     'sexo', 'estadoCivil', 'profissao', 'nomeMae', 'nomePai', 'nacionalidade',
     // Comercial
-    'categorias', 'origem', 'vendedorId', 'tabelaPrecoId',
+    'categorias', 'origem', 'vendedorId', 'tabelaPrecoId', 'segmentoId',
     'limiteCredito', 'prazoMedioDias', 'condicaoPagamentoPadrao',
     'meiosPagamentoPermitidos', 'tags',
     // Prazo e meios saíram da ficha em 2026-08-21 e viraram Política de Prazo;
@@ -533,6 +574,15 @@ function registrarRotasFinanceiro(app, db) {
       // já recusou o que não é prazo antes de chegar aqui.
       if (k === 'condicaoPagamentoPadrao' && v != null) {
         try { v = normalizarPrazo(v); } catch { v = null; }
+      }
+      // CEP entra só com os dígitos, que é como as 28 mil linhas de hoje estão
+      // gravadas. A tela passou a mascarar o campo em 30/09/2026, e sem esta
+      // linha o mesmo CEP entraria como "68506-640" daqui e "68506640" da
+      // importação — dois formatos para o mesmo dado, e nenhum filtro casando
+      // os dois.
+      if (k === 'cep' && v != null) {
+        const d = String(v).replace(/\D/g, '');
+        v = d || null;
       }
       out[k] = v;
     }
@@ -579,7 +629,12 @@ function registrarRotasFinanceiro(app, db) {
         || checa('tipoFrete', FRETES, 'Tipo de frete')
         || checa('statusHomologacao', STATUS_HOMOLOGACAO, 'Status de homologação')
         || (b.avaliacao != null && b.avaliacao !== '' && !(Number(b.avaliacao) >= 1 && Number(b.avaliacao) <= 5)
-              ? 'Avaliação deve ficar entre 1 e 5' : null);
+              ? 'Avaliação deve ficar entre 1 e 5' : null)
+        // Segmento que não existe no cadastro não entra: o filtro por ele
+        // nunca acharia a pessoa, sem erro nenhum.
+        || (b.segmentoId != null && b.segmentoId !== ''
+              && !db.prepare('SELECT 1 FROM segmentos WHERE id = ?').get(Number(b.segmentoId))
+              ? 'Segmento não encontrado' : null);
   }
 
   /**
@@ -657,6 +712,13 @@ function registrarRotasFinanceiro(app, db) {
       if (!cpfCnpj || !razaoSocial) {
         return res.status(400).json({ success: false, error: 'CPF/CNPJ e Razao Social sao obrigatorios' });
       }
+
+      // O documento é a chave única desta tabela, e esta é a última fronteira
+      // antes de ele virar permanente: dígito errado gravado não se conserta
+      // depois. Identificador interno (SD-, EX-, UASG-, TARIFA-) passa, porque
+      // tem letra — ver `erroDeDocumento`.
+      const erroDoc = erroDeDocumento(cpfCnpj);
+      if (erroDoc) return res.status(400).json({ success: false, error: erroDoc, campo: 'cpfCnpj' });
 
       const erroDom = erroDominioPessoa(req.body);
       if (erroDom) return res.status(400).json({ success: false, error: erroDom });

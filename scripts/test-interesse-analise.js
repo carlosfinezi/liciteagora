@@ -23,6 +23,7 @@ const path = require('path');
 const BASE = path.resolve(__dirname, '..');
 const express = require(BASE + '/node_modules/express');
 const puppeteer = require(BASE + '/node_modules/puppeteer-core');
+const { prepararAvisos } = require('./aviso-de-teste');
 
 const CHROME = '/usr/bin/google-chrome';
 
@@ -131,15 +132,45 @@ const estado = {
 
   const errosJs = [];
   const page = await navegador.newPage();
+  /* O `confirm()` do navegador era dispensado pelo puppeteer sozinho, e com
+     isso a suíte clicava em "excluir" e o fluxo seguia. Desde 01/10/2026 a
+     confirmação é a caixa do sistema (`Aviso.confirmar`), que é uma PROMESSA
+     esperando alguém clicar: sem isto, o `evaluate` fica pendurado e a suíte
+     morre com "Runtime.callFunctionOn timed out". `prepararAvisos` responde
+     SIM, que é o que o diálogo nativo fazia, e registra o que foi pedido em
+     `window.__confirmacoes`. */
+  await prepararAvisos(page);
+
   page.on('pageerror', e => errosJs.push(String(e.message)));
   page.on('dialog', d => d.accept().catch(() => {}));   // o lote confirma antes de rodar
 
-  const abrirTela = async () => {
+  // Esta suíte foi escrita para o recorte "Em aberto", que é o que dá sentido
+  // às contagens (4 em aberto + 1 vencida de fora). A tela passou a ABRIR em
+  // "Todos os prazos" em 25/09/2026, então o recorte é fixado aqui, num ponto
+  // só. O padrão em si é provado no bloco logo abaixo.
+  const abrirTela = async (recorte = 'ativas') => {
     await page.goto(URL_TELA, { waitUntil: 'networkidle2', timeout: 25000 });
     const f = page.frames().find(x => x !== page.mainFrame() && x.url().includes('interesse.html'));
     await f.waitForSelector('#interessesContainer .card', { timeout: 10000 });
+    if (recorte) {
+      await f.evaluate((r) => { document.getElementById('filtroPeriodo').value = r; aplicarFiltro(); }, recorte);
+      await new Promise((r) => setTimeout(r, 250));
+    }
     return f;
   };
+
+  // ── 0. o padrão da tela ────────────────────────────────────────────────────
+  console.log('\n── o filtro com que a tela abre');
+  {
+    estado.acesso = { success: true, irrestrito: true, paginas: [] };
+    const f = await abrirTela(null);   // sem fixar recorte: vê o padrão de fábrica
+    const r = await f.evaluate(() => ({
+      periodo: document.getElementById('filtroPeriodo').value,
+      cards: document.querySelectorAll('#interessesContainer .card').length,
+    }));
+    assert(r.periodo === 'todas', 'a tela abre em "Todos os prazos"', r);
+    assert(r.cards === 5, 'e mostra também a vencida (4 em aberto + 1)', r);
+  }
 
   // ── 1. permissão: o botão não existe para quem tomaria 403 ─────────────────
   console.log('\n── permissão (RBAC fail-closed em /api/licitacoes)');

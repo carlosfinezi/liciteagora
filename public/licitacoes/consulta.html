@@ -12,6 +12,44 @@
            Componentes page-local abaixo (cards, badges, modais) seguem
            usando vars do design system (--bg-2, --border, --accent...). */
 
+        /* Painel de filtros recolhido: só a linha de resumo, com padding menor. */
+        #filtrosPainel.recolhido { padding: 10px 16px !important; margin-bottom: 14px !important; }
+        #filtrosPainel.recolhido #filtrosCorpo { display: none; }
+
+        .filtros-resumo {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+        }
+        #filtrosPainel.recolhido .filtros-resumo { display: flex; }
+
+        #filtrosResumoTexto {
+            color: var(--text-1);
+            font-size: 13px;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* As seções do card (.card-secoes, .det-lista, .arq-lista, .avisos-lista)
+           passaram para o app-modern.css: a tela de interesse usa o mesmo card. */
+
+        .card-prazo {
+            color: var(--warn);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .card-prazo .rotulo {
+            display: block;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.85;
+        }
+
         .filters-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -78,7 +116,7 @@
 
         .licitacao-card {
             background: var(--bg-2);
-            padding: 20px;
+            padding: 14px 18px;
             border-radius: 10px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             transition: transform 0.3s, box-shadow 0.3s;
@@ -93,9 +131,9 @@
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            margin-bottom: 15px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid var(--border);
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
         }
 
         .licitacao-titulo {
@@ -189,18 +227,6 @@
             border-left: 4px solid var(--warn);
         }
 
-        .licitacao-info {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-
-        .info-item {
-            display: flex;
-            flex-direction: column;
-        }
-
         .info-label {
             font-size: 12px;
             color: var(--text-0) !important;
@@ -215,33 +241,13 @@
             font-weight: 500;
         }
 
-        .licitacao-objeto {
-            background: var(--bg-3);
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 15px;
-        }
-
-        .objeto-label {
-            font-size: 12px;
-            color: var(--text-3);
-            margin-bottom: 5px;
-            text-transform: uppercase;
-        }
-
-        .objeto-text {
-            font-size: 14px;
-            color: var(--text-1);
-            line-height: 1.6;
-        }
-
         .licitacao-footer {
             display: flex;
             justify-content: space-between;
             align-items: flex-end;
             gap: 16px;
             flex-wrap: wrap;
-            padding-top: 15px;
+            padding-top: 11px;
             border-top: 1px solid var(--border);
         }
 
@@ -607,8 +613,21 @@
     </div>
   </div>
 
-  <section class="panel" style="padding:20px;margin-bottom:20px;">
-    <h3 style="margin:0 0 16px 0;">🔍 Filtros de busca</h3>
+  <section class="panel" id="filtrosPainel" style="padding:20px;margin-bottom:20px;">
+
+    <!-- Aparece no lugar do formulário depois da busca. Os 15 campos ocupavam
+         590px de uma janela de 800: o primeiro resultado nascia abaixo da
+         dobra, e buscar não mostrava nada sem rolar. -->
+    <div class="filtros-resumo" id="filtrosResumo">
+      <span id="filtrosResumoTexto"></span>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="mostrarFiltros()">Alterar</button>
+    </div>
+
+    <div id="filtrosCorpo">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 16px 0;">
+      <h3 style="margin:0;">🔍 Filtros de busca</h3>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="ocultarFiltros()">Ocultar</button>
+    </div>
     <form id="searchForm">
                 <div class="filters-grid">
                     <div class="form-group">
@@ -704,6 +723,19 @@
                         <small style="color: var(--text-3); font-size: 11px; margin-top: 3px;">Busca parcial pelo nome (com acento)</small>
                     </div>
 
+                    <div class="form-group" id="grupoValor">
+                        <label>Valor estimado (R$)</label>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <input type="text" id="valorMin" name="valorMin" placeholder="Mínimo" style="min-width:0;" data-formato="dinheiro">
+                            <span style="color:var(--text-3);">até</span>
+                            <input type="text" id="valorMax" name="valorMax" placeholder="Máximo" style="min-width:0;" data-formato="dinheiro">
+                        </div>
+                        <label style="display:flex;align-items:center;gap:7px;margin-top:6px;text-transform:none;font-size:12px;cursor:pointer;">
+                            <input type="checkbox" id="incluirSemValor" style="width:15px;height:15px;flex:none;">
+                            Incluir as que não informam valor
+                        </label>
+                    </div>
+
                     <div class="form-group">
                         <label for="portal">Portal/Sistema</label>
                         <select id="portal" name="portal">
@@ -776,6 +808,7 @@
                     </button>
                 </div>
             </form>
+    </div><!-- /#filtrosCorpo -->
   </section>
 
         <div id="errorContainer"></div>
@@ -853,8 +886,75 @@
 
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
     <script src="/app.js?v=20260803"></script>
     <script>
+        // Quem reabre o formulário à mão manda: a partir daí ele não se recolhe
+        // sozinho na próxima busca. Volta ao automático quando o usuário o
+        // recolhe pelo próprio botão.
+        let filtrosFixadosAbertos = false;
+
+        function mostrarFiltros(fixar = true) {
+            document.getElementById('filtrosPainel').classList.remove('recolhido');
+            if (fixar) filtrosFixadosAbertos = true;
+        }
+
+        function recolherFiltros() {
+            document.getElementById('filtrosResumoTexto').textContent = resumoDosFiltros();
+            document.getElementById('filtrosPainel').classList.add('recolhido');
+        }
+
+        // Recolher pelo botão devolve o comportamento automático.
+        function ocultarFiltros() {
+            filtrosFixadosAbertos = false;
+            recolherFiltros();
+        }
+
+        // O que está valendo, em uma linha. Sem isto o painel recolhido esconde
+        // o filtro E o fato de que ele existe.
+        function resumoDosFiltros() {
+            const txt = (id) => {
+                const e = document.getElementById(id);
+                return e ? e.value.trim() : '';
+            };
+            const opcao = (id) => {
+                const e = document.getElementById(id);
+                const o = e && e.options[e.selectedIndex];
+                return o && e.value ? o.textContent.trim() : '';
+            };
+            const partes = [];
+            if (txt('palavraChave')) partes.push('“' + txt('palavraChave') + '”');
+            if (opcao('grupoPalavras')) partes.push('Grupo: ' + opcao('grupoPalavras'));
+            if (txt('numeroLicitacao')) partes.push('Nº ' + txt('numeroLicitacao'));
+            if (txt('uasg')) partes.push('UASG ' + txt('uasg'));
+            if (opcao('modalidade')) partes.push(opcao('modalidade'));
+            if (opcao('uf')) partes.push(opcao('uf'));
+            if (txt('municipio')) partes.push(txt('municipio'));
+            if (opcao('portal')) partes.push(opcao('portal'));
+            const moeda = (v) => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+            const vMin = txt('valorMin');
+            const vMax = txt('valorMax');
+            if (vMin || vMax) {
+                let faixa;
+                if (vMin && vMax) faixa = moeda(vMin) + ' a ' + moeda(vMax);
+                else if (vMin) faixa = 'a partir de ' + moeda(vMin);
+                else faixa = 'até ' + moeda(vMax);
+                const semValor = document.getElementById('incluirSemValor');
+                if (semValor && semValor.checked) faixa += ' (+ sem valor informado)';
+                partes.push(faixa);
+            }
+
+            if (txt('palavraExclusao')) partes.push('exceto: ' + txt('palavraExclusao'));
+            if (opcao('grupoExclusao')) partes.push('exceto grupo: ' + opcao('grupoExclusao'));
+
+            return partes.length ? partes.join('  ·  ') : 'Sem filtros — todas as licitações do período';
+        }
+
+        document.getElementById('searchForm').addEventListener('submit', function () {
+            if (!filtrosFixadosAbertos) recolherFiltros();
+        });
+
         initSidebar('consulta');
 
         // Grupos de palavras-chave
@@ -955,12 +1055,12 @@
                     if (selExclusao) selExclusao.value = '';
                 }
 
-                // Dispara a pesquisa automaticamente
-                if (typeof pesquisar === 'function') {
-                    pesquisar();
-                } else if (document.getElementById('searchForm')) {
-                    document.getElementById('searchForm').dispatchEvent(new Event('submit'));
-                }
+                // Escolher o grupo só PREENCHE as palavras. Buscar é o botão.
+                //
+                // Enquanto isto disparava a pesquisa sozinho, quem escolhia o
+                // grupo antes do estado recebia o resultado do Brasil inteiro:
+                // a busca saía com o formulário pela metade, e a segunda —
+                // agora com o estado — chegava depois, ou nem chegava.
             }
         }
 

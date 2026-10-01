@@ -107,6 +107,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('importacao');</script>
 <script>
 let previewCache = null;
@@ -214,7 +215,7 @@ function renderPreview(d){
 
 async function confirmar(){
   if (!previewCache) return;
-  if (!confirm(`Importar ${previewCache.totais.validas} linha(s) válida(s)?\n\nLinhas com erros serão puladas.`)) return;
+  if (!await Aviso.confirmar(`Importar ${previewCache.totais.validas} linha(s) válida(s)?\n\nLinhas com erros serão puladas.`)) return;
   document.getElementById('btnConfirmar').disabled = true;
   document.getElementById('btnConfirmar').textContent = 'Importando…';
   try {

@@ -86,16 +86,12 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('sugestao-produto');</script>
 <script>
-  function toast(msg, tipo) {
-    const box = document.getElementById('toasts');
-    const el = document.createElement('div');
-    el.className = 'toast ' + (tipo || 'info');
-    el.textContent = msg;
-    box.appendChild(el);
-    setTimeout(() => el.remove(), 4000);
-  }
+/* O `toast()` local saiu em 01/10/2026: quem avisa agora é o
+   `window.toast` de `/js/aviso-sistema.js`, que é um só no sistema, aceita as
+   mesmas palavras de tipo e acompanha o tema. */
 
   async function carregar() {
     try {

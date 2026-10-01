@@ -230,6 +230,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('loja');</script>
@@ -372,7 +373,7 @@ async function publicar(valor){
   // Produto sem foto na vitrine fica com um retângulo vazio — avisa antes.
   if (valor) {
     const semFoto = PRODUTOS.filter(p => SEL.has(p.id) && !p.temFoto).length;
-    if (semFoto && !confirm(`${semFoto} produto(s) selecionado(s) não têm foto e vão aparecer sem imagem na vitrine.\n\nColocar mesmo assim?`)) return;
+    if (semFoto && !await Aviso.confirmar(`${semFoto} produto(s) selecionado(s) não têm foto e vão aparecer sem imagem na vitrine.\n\nColocar mesmo assim?`)) return;
   }
   const d = await fetch('/api/loja/produtos/publicar', {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -455,7 +456,7 @@ async function enviarLogo(){
   await carregarConfig();
 }
 async function removerLogo(){
-  if (!confirm('Remover o logotipo da loja?')) return;
+  if (!await Aviso.confirmar('Remover o logotipo da loja?')) return;
   const d = await fetch('/api/loja/logo', { method:'DELETE' }).then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');
   document.getElementById('logoAtual').hidden = true;

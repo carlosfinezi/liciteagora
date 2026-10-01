@@ -211,7 +211,7 @@
     <div class="form-row">
       <div class="form-group">
         <label>CPF/CNPJ do tomador</label>
-        <input type="text" id="edTomaCpfCnpj">
+        <input type="text" id="edTomaCpfCnpj" data-formato="cnpj">
       </div>
       <div class="form-group" style="flex:2;">
         <label>Razão social / Nome</label>
@@ -229,7 +229,7 @@
       </div>
       <div class="form-group">
         <label>Valor do serviço</label>
-        <input type="number" id="edValor" step="0.01" min="0.01">
+        <input type="text" id="edValor" data-formato="dinheiro">
       </div>
       <div class="form-group">
         <label>Competência</label>
@@ -299,6 +299,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('notas-fiscais');</script>
@@ -777,7 +779,7 @@ let _reemitindo = false;
 async function reemitirNfse(id, jaConfirmado){
   fecharDetalhesNfse();
   if (_reemitindo) return;
-  if (!jaConfirmado && !confirm('Reemitir esta NFS-e para a SEFIN?')) return;
+  if (!jaConfirmado && !await Aviso.confirmar('Reemitir esta NFS-e para a SEFIN?')) return;
   _reemitindo = true;
   showAlert('Reemitindo nota, aguarde…', 'info');
   try {

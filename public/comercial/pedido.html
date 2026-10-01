@@ -222,9 +222,9 @@
         </div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>CPF/CNPJ</label><input type="text" id="clCpfCnpj" disabled></div>
+        <div class="form-group"><label>CPF/CNPJ</label><input type="text" id="clCpfCnpj" disabled data-formato="cnpj"></div>
         <div class="form-group"><label>Nome fantasia</label><input type="text" id="clNomeFantasia" disabled></div>
-        <div class="form-group"><label>Email</label><input type="text" id="clEmail" disabled></div>
+        <div class="form-group"><label>Email</label><input type="text" id="clEmail" disabled data-formato="email"></div>
       </div>
     </div>
 
@@ -246,7 +246,7 @@
       </div>
       <div class="form-row">
         <div class="form-group"><label>Contato</label><input type="text" id="contatoEntrega" placeholder="Nome da pessoa que recebe"></div>
-        <div class="form-group"><label>Telefone</label><input type="text" id="telefoneEntrega"></div>
+        <div class="form-group"><label>Telefone</label><input type="text" id="telefoneEntrega" data-formato="telefone"></div>
         <div class="form-group" style="justify-content:flex-end;">
           <button class="btn btn-ghost btn-sm" onclick="copiarEnderecoCliente()" type="button">Copiar endereço do cliente</button>
         </div>
@@ -314,7 +314,7 @@
       </div>
       <div class="form-row">
         <div class="form-group"><label>Tipo de frete</label><select id="tipoFrete"></select></div>
-        <div class="form-group"><label>Valor do frete (R$)</label><input type="number" id="valorFrete" step="0.01"></div>
+        <div class="form-group"><label>Valor do frete (R$)</label><input type="text" id="valorFrete" data-formato="dinheiro"></div>
       </div>
     </div>
   </div>
@@ -351,6 +351,10 @@
   <div class="ped-painel" data-aba="pgto">
     <h3>Pagamento</h3>
 
+    <!-- Pix pelo site, do pedido do Catálogo Online: taxa de entrega, Pix pelo
+         provedor de cobrança e a mensagem pronta para o cliente. -->
+    <div id="pixLojaBox" hidden style="margin-bottom:12px;"></div>
+
     <!-- Política de prazo do cliente: é ela que define meios aceitos, prazo das
          parcelas e valor mínimo. Fica no topo da aba porque explica por que os
          seletores abaixo aparecem restritos. -->
@@ -375,7 +379,7 @@
           <small id="meioPagamentoRestricao" class="muted" style="display:block;color:var(--warn);"></small>
           <small id="meioPagamentoHint" class="muted"></small>
         </div>
-        <div class="form-group"><label>Valor total</label><input type="text" id="resValorTotal" disabled></div>
+        <div class="form-group"><label>Valor total</label><input type="text" id="resValorTotal" disabled data-formato="dinheiro"></div>
       </div>
       <div style="margin-top:10px;">
         <button class="btn btn-secondary btn-sm" onclick="ativarParcelamento()">➕ Dividir em parcelas (mesclar formas)</button>
@@ -647,18 +651,18 @@
     <div class="form-row">
       <div class="form-group"><label>CNPJ/CPF *</label>
         <div style="display:flex;gap:8px;">
-          <input type="text" id="tCpfCnpj" style="flex:1;">
+          <input type="text" id="tCpfCnpj" style="flex:1;" data-formato="cnpj">
           <button class="btn btn-secondary btn-sm" onclick="consultarCnpjTransp()" type="button">Consultar</button>
         </div>
         <small id="tCnpjStatus"></small>
       </div>
       <div class="form-group"><label>RNTRC</label><input type="text" id="tRntrc"></div>
-      <div class="form-group"><label>Placa</label><input type="text" id="tPlaca" maxlength="8"></div>
+      <div class="form-group"><label>Placa</label><input type="text" id="tPlaca" maxlength="8" data-formato="placa"></div>
     </div>
     <div class="form-row"><div class="form-group full-width"><label>Razão social *</label><input type="text" id="tRazaoSocial"></div></div>
     <div class="form-row">
       <div class="form-group"><label>Nome fantasia</label><input type="text" id="tNomeFantasia"></div>
-      <div class="form-group"><label>Insc. estadual</label><input type="text" id="tInscricaoEstadual"></div>
+      <div class="form-group"><label>Insc. estadual</label><input type="text" id="tInscricaoEstadual" data-formato="inscricao"></div>
     </div>
     <div class="form-row">
       <div class="form-group"><label>Endereço</label><input type="text" id="tEndereco"></div>
@@ -671,7 +675,7 @@
       <div class="form-group"><label>CEP</label><input type="text" id="tCep"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Telefone</label><input type="text" id="tTelefone"></div>
+      <div class="form-group"><label>Telefone</label><input type="text" id="tTelefone" data-formato="telefone"></div>
       <div class="form-group"><label>Email</label><input type="email" id="tEmail"></div>
       <div class="form-group"><label>Contato</label><input type="text" id="tContato"></div>
     </div>
@@ -684,6 +688,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/politica-prazo.js"></script>
 <script>initSidebar('pedidos');</script>
 <script>
@@ -894,6 +900,35 @@ function showAlert(m,t='success'){
   setTimeout(()=>el.remove(), t==='error'?8000:4000);
 }
 function fmt(v){ return (v==null||isNaN(v))?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+// Quantidade e unidade vêm decididas pelo servidor (`unidades.js`): o que não
+// se parte sai sem casa decimal, e a sigla vira o nome do balcão. Saco de
+// cimento em "181,00" era precisão que o pátio não tem.
+const UNID = {};                     // produtoId → { nome, fraciona }
+function unidInfo(produtoId, unidade, item){
+  // O item do pedido já vem com o vocabulário; o mapa da falta é o reforço
+  // para quem chamar sem o item em mãos.
+  if (item && item.unidadeNome !== undefined) {
+    return { nome: item.unidadeNome || item.unidade || '', plural: item.unidadeNomePlural || item.unidadeNome || item.unidade || '',
+             fraciona: item.unidadeFraciona !== false };
+  }
+  const i = UNID[String(produtoId)];
+  if (i) return i;
+  return { nome: unidade || '', plural: unidade || '', fraciona: true };
+}
+function fmtQtd(v, produtoId, unidade, item){
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  return unidInfo(produtoId, unidade, item).fraciona
+    ? n.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:3})
+    : Math.round(n).toLocaleString('pt-BR');
+}
+// Plural quando a quantidade pede: "181 sacos", "1 saco", "10,5 m³".
+function nomeUnid(produtoId, unidade, item, qtd){
+  const i = unidInfo(produtoId, unidade, item);
+  const usaPlural = qtd !== undefined && Math.abs(Number(qtd)) !== 1;
+  return (usaPlural ? i.plural : i.nome) || unidade || '';
+}
 function val(id){ const e=document.getElementById(id); return e?e.value:''; }
 
 function atualizarHintMeio(){
@@ -967,7 +1002,7 @@ function ativarParcelamento(){
 
 // Gera N parcelas com valores iguais (última absorve diferença de centavos)
 // e vencimentos escalonados pelo intervalo informado.
-function gerarParcelas(){
+async function gerarParcelas(){
   const total = Number(pedidoAtual.valorTotal || 0);
   if (total <= 0) { showAlert('Pedido sem valor total — adicione itens antes','error'); return; }
   const n = Math.max(1, Math.min(60, parseInt(document.getElementById('parcQtd').value) || 1));
@@ -975,7 +1010,7 @@ function gerarParcelas(){
   const intervalo = Math.max(0, Math.min(365, parseInt(document.getElementById('parcIntervalo').value) || 30));
   const meio = meioDefault(document.getElementById('parcMeioDefault').value || pedidoAtual.meioPagamento || '15');
 
-  if (PARCELAS.length > 0 && !confirm(`Gerar ${n} parcela(s) irá substituir as parcelas atuais. Continuar?`)) return;
+  if (PARCELAS.length > 0 && !await Aviso.confirmar(`Gerar ${n} parcela(s) irá substituir as parcelas atuais. Continuar?`)) return;
 
   const parcelaBase = Math.floor((total * 100) / n) / 100; // arredonda pra baixo (centavos)
   const addDias = (iso, d) => {
@@ -1007,7 +1042,7 @@ function gerarParcelas(){
 }
 
 async function desativarParcelamento(){
-  if (PARCELAS.length && !confirm('Descartar as parcelas e voltar ao pagamento único?')) return;
+  if (PARCELAS.length && !await Aviso.confirmar('Descartar as parcelas e voltar ao pagamento único?')) return;
   try {
     const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/parcelas', {
       method:'PUT', headers:{'Content-Type':'application/json'},
@@ -1324,7 +1359,7 @@ async function onTrocarTipoOp(){
   marcarDirty();
   // Se já tem itens, oferece re-sugerir CFOPs
   if (pedidoAtual?.itens?.length) {
-    if (confirm('Re-sugerir CFOP de todos os itens com base no novo tipo de operação?')) {
+    if (await Aviso.confirmar('Re-sugerir CFOP de todos os itens com base no novo tipo de operação?')) {
       // Salva header primeiro para o backend ler o novo tipoOperacaoId
       const okSave = await salvarHeaderSilencioso();
       if (!okSave) return;
@@ -1510,7 +1545,7 @@ async function converterModo(destino){
     if (!ok) return;
   }
   const label = destino === 'orcamento' ? 'orçamento' : 'pedido';
-  if (!confirm(`Converter para ${label}? O número do documento será regerado.`)) return;
+  if (!await Aviso.confirmar(`Converter para ${label}? O número do documento será regerado.`)) return;
   try {
     const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/converter-modo', {
       method: 'POST', headers: {'Content-Type':'application/json'},
@@ -1904,7 +1939,7 @@ async function copiarLinkPublico(btn){
 }
 
 async function regerarLinkPublico(btn){
-  if (!confirm('Gerar um link novo?\n\nO link atual para de funcionar na hora, inclusive para quem já o recebeu.')) return;
+  if (!await Aviso.confirmar('Gerar um link novo?\n\nO link atual para de funcionar na hora, inclusive para quem já o recebeu.')) return;
   const rotulo = btn ? btn.innerHTML : null;
   if (btn) { btn.disabled = true; btn.innerHTML = 'Gerando…'; }
   try {
@@ -1919,7 +1954,7 @@ async function regerarLinkPublico(btn){
 }
 
 async function revogarLinkPublico(btn){
-  if (!confirm('Revogar o link público?\n\nQuem já recebeu o endereço deixa de conseguir abrir o documento. Você pode gerar outro depois.')) return;
+  if (!await Aviso.confirmar('Revogar o link público?\n\nQuem já recebeu o endereço deixa de conseguir abrir o documento. Você pode gerar outro depois.')) return;
   const rotulo = btn ? btn.innerHTML : null;
   if (btn) { btn.disabled = true; btn.innerHTML = 'Revogando…'; }
   try {
@@ -2020,6 +2055,152 @@ async function ativarAba(aba){
   if (aba === 'historico') carregarHistorico();
   if (aba === 'fatura' && pedidoAtual?.faturaId) carregarFaturaInfo();
   if (aba === 'fiscal') carregarFiscal();
+  if (aba === 'pgto' && pedidoAtual && pedidoAtual.tipo === 'catalogo') carregarPixLoja();
+}
+
+// ==================== PIX PELO SITE (pedido do Catálogo Online) ====================
+/*
+ * O Pix é uma conta a receber do pedido, emitida pelo provedor de cobrança
+ * (Asaas). Quando o cliente paga, o aviso do provedor baixa a conta e o pedido
+ * vira pago. Enquanto a aba está aberta e o Pix espera, a tela confere a cada
+ * 10 s e se atualiza sozinha.
+ */
+let PIX_LOJA = null;
+let PIX_ESPERA = null;
+
+async function carregarPixLoja(){
+  const box = document.getElementById('pixLojaBox');
+  if (!box) return;
+  clearTimeout(PIX_ESPERA);
+  try {
+    const r = await fetch('/api/pedidos/' + PEDIDO_ID + '/pix');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'Falha ao ler o Pix');
+    const estavaPago = PIX_LOJA && PIX_LOJA.estado && PIX_LOJA.estado.pago;
+    PIX_LOJA = d;
+    box.hidden = false;
+    /* A taxa daqui é gravada pela rota do Pix, e não pelo Salvar do pedido:
+       sem isto, digitar a taxa marcava o pedido como alterado, e trocar de
+       aba disparava um salvamento do cabeçalho que ninguém pediu. */
+    if (!box.dataset.isolado) {
+      for (const ev of ['input', 'change']) box.addEventListener(ev, (e) => e.stopPropagation());
+      box.dataset.isolado = '1';
+    }
+    box.innerHTML = montarPainelPix(d);
+    // Virou pago enquanto a tela estava aberta: recarrega o pedido inteiro.
+    if (d.estado.pago && estavaPago === false) {
+      showAlert('Pagamento recebido pelo Pix.');
+      carregar();
+      return;
+    }
+    const aberta = document.querySelector('.ped-painel.active[data-aba="pgto"]');
+    if (aberta && d.estado.pix && !d.estado.pago && !d.estado.cancelado) {
+      PIX_ESPERA = setTimeout(carregarPixLoja, 10000);
+    }
+  } catch (e) {
+    box.hidden = false;
+    box.innerHTML = '<div class="alert alert-error">Não foi possível ler o Pix: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+function linkDoPix(d){
+  return d.token ? location.origin + '/loja/#/pagar/' + d.token : null;
+}
+
+function montarPainelPix(d){
+  const e = d.estado;
+  const brl = (v) => 'R$ ' + fmt(v);
+  const partes = ['<div class="panel"><div style="display:flex;flex-direction:column;gap:10px;">',
+    '<strong>Pix pelo site</strong>'];
+  if (e.cancelado) {
+    partes.push('<p class="muted" style="margin:0">Pedido cancelado.</p></div></div>');
+    return partes.join('');
+  }
+  if (e.pago) {
+    partes.push('<div class="alert alert-success" style="margin:0"><strong>Pago pelo Pix</strong>'
+      + (e.pagoEm ? ' em ' + escHtml(String(e.pagoEm).slice(0, 10).split('-').reverse().join('/')) : '')
+      + ' · ' + brl(e.total) + '</div></div></div>');
+    return partes.join('');
+  }
+  if (!d.provedorPronto) {
+    partes.push('<div class="alert alert-warning" style="margin:0">Nenhuma conta de cobrança com Pix está ativa. '
+      + 'Configure o Asaas em Financeiro › Contas financeiras para gerar o Pix por aqui.</div>');
+  }
+  const entrega = e.atendimento === 'entrega';
+  if (e.aCombinar) {
+    partes.push('<div class="alert alert-info" style="margin:0">A taxa de entrega está a combinar. '
+      + 'Lance a taxa e gere o Pix do total.</div>');
+  }
+  if (e.pix) {
+    partes.push('<div>Aguardando o pagamento de <strong>' + brl(e.pix.valor) + '</strong>'
+      + (e.pix.vencimento ? ' · vale até ' + escHtml(e.pix.vencimento.split('-').reverse().join('/')) : '') + '</div>');
+    partes.push('<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;">'
+      + (e.pix.qr ? '<img src="data:image/png;base64,' + escHtml(e.pix.qr) + '" alt="QR code do Pix" style="width:132px;height:132px;background:#fff;border-radius:8px;padding:6px;">' : '')
+      + '<div style="flex:1;min-width:220px;display:flex;flex-direction:column;gap:6px;">'
+      + (e.pix.copiaECola ? '<small class="muted">Pix copia e cola</small><textarea id="pixCC" readonly rows="3" onclick="this.select()" style="width:100%;font-size:12px;word-break:break-all;">' + escHtml(e.pix.copiaECola) + '</textarea>' : '')
+      + (linkDoPix(d) ? '<small class="muted">Link de pagamento</small><input id="pixLink" readonly value="' + escHtml(linkDoPix(d)) + '" onclick="this.select()">' : '')
+      + '</div></div>');
+  } else if (!e.aCombinar) {
+    partes.push('<p class="muted" style="margin:0">Nenhum Pix gerado para este pedido.</p>');
+  }
+  if (d.provedorPronto) {
+    const campoTaxa = entrega
+      ? '<div class="form-group" style="max-width:200px;margin:0;"><label>Taxa de entrega (R$)</label>'
+        + '<input type="number" id="pixTaxa" step="0.01" min="0" value="' + (e.aCombinar ? '' : (e.frete || 0)) + '"></div>'
+      : '';
+    partes.push('<div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">' + campoTaxa
+      + '<button type="button" class="btn btn-primary" id="btGerarPix" onclick="gerarPixLoja(this)">'
+      + (e.pix ? 'Gerar novo Pix' : 'Gerar Pix') + '</button>'
+      + (e.pix && d.cliente && d.cliente.telefone
+        ? '<button type="button" class="btn btn-secondary" onclick="enviarPixWhatsApp()">Enviar ao cliente pelo WhatsApp</button>' : '')
+      + '</div>');
+    if (e.pix && !(d.cliente && d.cliente.telefone)) {
+      partes.push('<small class="muted">O cliente não tem telefone no cadastro. Copie o link acima e mande por onde preferir.</small>');
+    }
+  }
+  partes.push('</div></div>');
+  return partes.join('');
+}
+
+async function gerarPixLoja(bt){
+  const taxa = document.getElementById('pixTaxa');
+  const corpo = {};
+  if (taxa) {
+    if (taxa.value === '') { showAlert('Informe a taxa de entrega.', 'error'); taxa.focus(); return; }
+    corpo.taxaEntrega = taxa.value;
+  }
+  bt.disabled = true;
+  bt.textContent = 'Gerando…';
+  try {
+    const r = await fetch('/api/pedidos/' + PEDIDO_ID + '/pix', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'Falha ao gerar o Pix');
+    showAlert('Pix gerado.');
+    await carregar();
+    ativarAba('pgto');
+  } catch (e) {
+    showAlert(escHtml(e.message), 'error');
+    bt.disabled = false;
+    bt.textContent = 'Gerar Pix';
+  }
+}
+
+/* Abre o WhatsApp de quem atende, com a mensagem pronta para o cliente. */
+function enviarPixWhatsApp(){
+  const d = PIX_LOJA;
+  if (!d || !d.estado.pix) return;
+  let tel = String(d.cliente.telefone || '').replace(/\D/g, '');
+  if (tel.length === 10 || tel.length === 11) tel = '55' + tel;
+  const nome = String(d.cliente.nome || '').trim().split(/\s+/)[0];
+  const e = d.estado;
+  const msg = (nome ? 'Olá, ' + nome + '! ' : 'Olá! ')
+    + 'Seu pedido nº ' + e.numero + ' ficou em R$ ' + fmt(e.pix.valor)
+    + (e.frete ? ', com R$ ' + fmt(e.frete) + ' de entrega' : '') + '.'
+    + '\nPara pagar pelo Pix, é só abrir este link:\n' + linkDoPix(d)
+    + (d.lojaNome ? '\n\n' + d.lojaNome : '');
+  window.open('https://wa.me/' + tel + '?text=' + encodeURIComponent(msg), '_blank', 'noopener');
 }
 
 // ==================== DOCUMENTO FISCAL (NFC-e do Catálogo) ====================
@@ -2357,7 +2538,7 @@ function preencher(){
           <td class="muted col-indice" data-rot="Item">${i+1}</td>
           <td class="mono" data-rot="Produto">${it.sku||'<span class="muted">livre</span>'}</td>
           <td class="col-descricao" data-rot="Descrição">${it.descricao}</td>
-          <td data-rot="Qtd">${fmt(it.quantidade)} <span class="muted">${it.unidade||''}</span></td>
+          <td data-rot="Qtd">${fmtQtd(it.quantidade, it.produtoId, it.unidade, it)} <span class="muted">${escHtml(nomeUnid(it.produtoId, it.unidade, it, it.quantidade))}</span></td>
           <td data-disp="${it.produtoId||''}" class="muted" data-rot="Disp.">—</td>
           <td data-rot="V.Unit">R$ ${fmt(it.precoUnitario)}</td>
           <td class="col-cfop" data-rot="CFOP"><span class="mono">${it.cfop || '—'}</span></td>
@@ -2369,7 +2550,7 @@ function preencher(){
         <td class="muted col-indice" data-rot="Item">${i+1}</td>
         <td class="mono" data-rot="Produto">${it.sku||'<span class="muted">livre</span>'}</td>
         <td class="col-descricao" data-rot="Descrição"><textarea rows="1" class="auto-altura desc-item" oninput="ajustarAltura(this)" onchange="salvarItemCampo(${it.id},'descricao',this.value)" title="${escHtml(it.descricao||'')}">${escHtml(it.descricao||'')}</textarea></td>
-        <td data-rot="Qtd"><input type="number" step="0.01" min="0" value="${Number(it.quantidade)||0}" oninput="recalcularLinha(${it.id})" onchange="salvarItemCampo(${it.id},'quantidade',this.value)" style="width:80px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;" data-campo="qtd"> <span class="muted">${it.unidade||''}</span></td>
+        <td data-rot="Qtd"><input type="number" step="0.01" min="0" value="${Number(it.quantidade)||0}" oninput="recalcularLinha(${it.id})" onchange="salvarItemCampo(${it.id},'quantidade',this.value)" style="width:80px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;" data-campo="qtd"> <span class="muted">${escHtml(nomeUnid(it.produtoId, it.unidade, it, it.quantidade))}</span></td>
         <td data-disp="${it.produtoId||''}" class="muted" data-rot="Disp.">—</td>
         <td data-rot="V.Unit"><input type="number" step="0.01" min="0" value="${Number(it.precoUnitario)||0}" oninput="recalcularLinha(${it.id})" onchange="salvarItemCampo(${it.id},'precoUnitario',this.value)" style="width:100px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;" data-campo="pu"></td>
         <td class="col-cfop" data-rot="CFOP">${cfopSelectHtml(it.id, it.cfop)}</td>
@@ -2740,7 +2921,7 @@ async function addItem(){
   } catch(e){ showAlert('Erro: '+e.message, 'error'); }
 }
 async function removerItem(itemId){
-  if (!confirm('Remover item?')) return;
+  if (!await Aviso.confirmar('Remover item?')) return;
   try {
     const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/itens/'+itemId, { method:'DELETE' });
     const d = await r.json();
@@ -2897,17 +3078,22 @@ async function carregarFalta(){
 
 function aplicarFalta(){
   const porProduto = new Map(FALTA.itens.map(i => [String(i.produtoId), i]));
+  // Guarda o vocabulário que veio do servidor para a grade toda usar.
+  FALTA.itens.forEach(i => { UNID[String(i.produtoId)] = { nome: i.unidadeNome || i.unidade || '',
+    plural: i.unidadeNomePlural || i.unidadeNome || i.unidade || '', fraciona: i.unidadeFraciona !== false }; });
   document.querySelectorAll('#tbItens td[data-disp]').forEach(td => {
     const info = porProduto.get(td.dataset.disp);
     if (!info) { td.textContent = '—'; td.className = 'muted'; return; }
+    const q = (v) => fmtQtd(v, info.produtoId, info.unidade, info);
+    const un = (v) => escHtml(nomeUnid(info.produtoId, info.unidade, info, v));
     if (info.faltando > 0) {
       td.className = 'text-danger';
-      td.innerHTML = `<strong>${fmt(info.disponivel)}</strong>` +
-        `<br><span style="font-size:.82em;">faltam ${fmt(info.faltando)}</span>` +
-        (info.emTransito > 0 ? `<br><span class="muted" style="font-size:.78em;">${fmt(info.emTransito)} a caminho</span>` : '');
+      td.innerHTML = `<strong>${q(info.disponivel)} ${un(info.disponivel)}</strong>` +
+        `<br><span style="font-size:.82em;">faltam ${q(info.faltando)} ${un(info.faltando)}</span>` +
+        (info.emTransito > 0 ? `<br><span class="muted" style="font-size:.78em;">${q(info.emTransito)} ${un(info.emTransito)} a caminho</span>` : '');
     } else {
       td.className = 'text-success';
-      td.textContent = fmt(info.disponivel);
+      td.innerHTML = `${q(info.disponivel)} <span class="muted">${un(info.disponivel)}</span>`;
     }
   });
 
@@ -2919,12 +3105,15 @@ function aplicarFalta(){
   aviso.style.display = 'block';
   aviso.className = 'card';
   aviso.style.cssText = 'display:block;margin-bottom:14px;border-left:3px solid var(--danger, #d9534f);';
+  // O nome vem na frente e o código entre parênteses: "MC-1001 (faltam 172)"
+  // não diz a ninguém que o que falta é cimento.
+  const comoChama = (i) => `${escHtml(i.descricao || i.sku)}${i.sku ? ` (${escHtml(i.sku)})` : ''}`;
   aviso.innerHTML =
     `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
        <div>
          <strong>Sem saldo para ${faltantes.length} ${faltantes.length === 1 ? 'item' : 'itens'}:</strong>
-         ${faltantes.map(i => `${escHtml(i.sku || i.descricao)} (faltam ${fmt(i.faltando)})`).join(', ')}
-         ${emTransito.length ? `<br><span class="muted" style="font-size:.85em;">Já há compra a caminho para ${emTransito.map(i => escHtml(i.sku)).join(', ')}.</span>` : ''}
+         ${faltantes.map(i => `${comoChama(i)} — faltam ${fmtQtd(i.faltando, i.produtoId, i.unidade, i)} ${escHtml(nomeUnid(i.produtoId, i.unidade, i, i.faltando))}`).join('; ')}
+         ${emTransito.length ? `<br><span class="muted" style="font-size:.85em;">Já há compra a caminho para ${emTransito.map(comoChama).join(', ')}.</span>` : ''}
        </div>
        <button class="btn btn-primary btn-sm" onclick="abrirModalFalta(false)">Comprar faltantes</button>
      </div>`;
@@ -2977,17 +3166,23 @@ function abrirModalFalta(daConfirmacao, insuficiencias){
     ? `Falta saldo para <strong>${lista.length}</strong> ${lista.length === 1 ? 'item' : 'itens'}.
        Comprar abre documento em <strong>rascunho</strong> — nada é enviado ao fornecedor agora.`
     : 'Nenhum item em falta.';
-  document.getElementById('faltaItens').innerHTML = lista.map((i, n) => `
+  document.getElementById('faltaItens').innerHTML = lista.map((i, n) => {
+    const q = (v) => fmtQtd(v, i.produtoId, i.unidade, i);
+    const un = (v) => escHtml(nomeUnid(i.produtoId, i.unidade, i, v));
+    return `
     <tr>
       <td><input type="checkbox" class="falta-chk" data-idx="${n}" checked></td>
-      <td>${escHtml(i.sku || '')} ${escHtml(i.descricao || '')}</td>
-      <td style="text-align:right;">${fmt(i.quantidade)}</td>
-      <td style="text-align:right;">${fmt(i.disponivel)}</td>
-      <td style="text-align:right;">${i.emTransito > 0 ? `<strong>${fmt(i.emTransito)}</strong>` : '<span class="muted">—</span>'}</td>
-      <td><input type="number" step="0.01" min="0" class="falta-qtd" data-idx="${n}" value="${Number(i.faltando)||0}"
-             style="width:100px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;"></td>
+      <td>${escHtml(i.descricao || '')}${i.sku ? `<br><span class="muted mono" style="font-size:.82em;">${escHtml(i.sku)}</span>` : ''}</td>
+      <td style="text-align:right;">${q(i.quantidade)} <span class="muted">${un(i.quantidade)}</span></td>
+      <td style="text-align:right;">${q(i.disponivel)} <span class="muted">${un(i.disponivel)}</span></td>
+      <td style="text-align:right;">${i.emTransito > 0 ? `<strong>${q(i.emTransito)}</strong> <span class="muted">${un(i.emTransito)}</span>` : '<span class="muted">—</span>'}</td>
+      <td><input type="number" step="${i.unidadeFraciona === false ? '1' : '0.01'}" min="0" class="falta-qtd" data-idx="${n}"
+             value="${i.unidadeFraciona === false ? Math.ceil(Number(i.faltando)||0) : (Number(i.faltando)||0)}"
+             style="width:100px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;">
+          <span class="muted" style="font-size:.82em;">${un(i.faltando)}</span></td>
       <td>${escHtml(i.fornecedorNome || 'a definir')}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
   document.getElementById('modalFalta').classList.add('open');
 }
 function fecharModalFalta(){ document.getElementById('modalFalta').classList.remove('open'); }
@@ -3050,7 +3245,7 @@ async function acao(a, body){
     const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/'+a, opts);
     const d = await r.json();
     if (!d.success) {
-      // 409 na confirmação = saldo insuficiente. Antes era um confirm() com uma
+      // 409 na confirmação = saldo insuficiente. Antes era um await Aviso.confirmar() com uma
       // saída só (forçar); agora o modal também deixa comprar o que falta.
       if (a === 'confirmar' && r.status === 409 && Array.isArray(d.insuficiencias) && d.insuficiencias.length) {
         await carregarFalta();
@@ -3073,7 +3268,7 @@ async function statusPara(s){
   } catch(e){ showAlert('Erro: '+e.message,'error'); }
 }
 async function excluir(){
-  if (!confirm('Excluir rascunho?')) return;
+  if (!await Aviso.confirmar('Excluir rascunho?')) return;
   try {
     const r = await fetch('/api/pedidos/'+PEDIDO_ID, { method:'DELETE' });
     const d = await r.json();
@@ -3281,7 +3476,7 @@ async function faturarAgora(){
   const msg = docInterno
     ? `Faturar pedido ${p.numero}?\n\nDocumento INTERNO — não será enviado à SEFAZ.${temParcelas ? '\nSerão criadas '+temParcelas+' contas a receber conforme o plano de parcelas.' : '\nSerá gerada fatura, conta a receber e movimentação financeira.'}`
     : `Faturar pedido ${p.numero}?\n\nSerá gerada a fatura${temParcelas ? ', as contas a receber do plano de parcelas' : ', conta a receber'} e a NF-e será emitida automaticamente na SEFAZ.`;
-  if (!confirm(msg)) return;
+  if (!await Aviso.confirmar(msg)) return;
 
   await executarFaturar({});
 }
@@ -3445,7 +3640,7 @@ async function carregarFaturaInfo(){
 }
 
 async function emitirNFe(fid){
-  if (!confirm('Emitir NF-e para SEFAZ? Esta ação reserva um número fiscal.')) return;
+  if (!await Aviso.confirmar('Emitir NF-e para SEFAZ? Esta ação reserva um número fiscal.')) return;
   showAlert('Enviando NF-e para SEFAZ… aguarde.');
   try {
     const r = await fetch('/api/faturas/'+fid+'/emitir-nfe', { method:'POST' });
@@ -3468,7 +3663,7 @@ async function cancelarFatura(fid, temNFe){
     if (motivo === null) return;
     if (motivo.trim().length < 15) { showAlert('Motivo precisa ter pelo menos 15 caracteres','error'); return; }
   } else {
-    if (!confirm('Cancelar fatura? A conta a receber também será cancelada e o pedido voltará para "rascunho".')) return;
+    if (!await Aviso.confirmar('Cancelar fatura? A conta a receber também será cancelada e o pedido voltará para "rascunho".')) return;
   }
   try {
     const r = await fetch('/api/faturas/'+fid+'/cancelar', {

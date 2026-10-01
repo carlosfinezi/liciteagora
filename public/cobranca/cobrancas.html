@@ -141,7 +141,9 @@
                 return;
             }
             tbody.innerHTML = contas.map(c => {
-                const etapaLabel = c.ultimaEtapa ? 'Etapa ' + c.ultimaEtapa : 'Nenhuma';
+                const etapaLabel = c.ultimaEtapa
+                    ? (c.ultimaEtapaNome || ('Etapa ' + c.ultimaEtapa))
+                    : 'Nenhuma cobrança enviada';
                 const etapaClass = 'etapa-' + (c.ultimaEtapa || 0);
                 const pausadoBadge = c.cobrancaAtiva === 0 ? '<span class="badge pausado">Pausado</span>' : '';
                 return `
@@ -149,10 +151,10 @@
                         <td><input type="checkbox" class="selConta" value="${c.id}" onchange="atualizarSelecao()" ${c.cobrancaAtiva === 0 ? 'disabled' : ''}></td>
                         <td>${escHtml(c.razaoSocial)} ${pausadoBadge}</td>
                         <td title="${escHtml(c.descricao)}">${escHtml((c.descricao || '').substring(0, 40))}${(c.descricao || '').length > 40 ? '...' : ''}</td>
-                        <td>${formatarValor(c.valor)}</td>
+                        <td class="cel-valor">${formatarValor(c.valor)}</td>
                         <td>${formatarData(c.dataVencimento)}</td>
                         <td><strong style="color:${c.diasAtraso >= 15 ? 'var(--danger)' : c.diasAtraso >= 7 ? 'var(--warn)' : 'var(--accent)'};">${c.diasAtraso}d</strong></td>
-                        <td><span class="badge ${etapaClass}">${etapaLabel}</span></td>
+                        <td><span class="badge badge-os ${etapaClass}" title="${c.ultimaEtapa ? 'Etapa ' + c.ultimaEtapa + ' da régua' : 'A régua ainda não disparou para este título'}">${escHtml(etapaLabel)}</span></td>
                         <td style="text-align:right;white-space:nowrap;">
                             <button class="btn btn-ghost btn-sm" onclick="cobrarUm(${c.id}, 'email')" title="E-mail">✉️</button>
                             <button class="btn btn-ghost btn-sm" onclick="cobrarUm(${c.id}, 'whatsapp')" title="WhatsApp">📱</button>
@@ -187,7 +189,7 @@
             const conta = contasCache.find(c => c.id === contaId);
             if (!conta) return;
             const etapa = (conta.ultimaEtapa || 0) + 1;
-            if (!confirm('Disparar cobrança etapa ' + etapa + ' via ' + canalOuAmbos + ' para ' + conta.razaoSocial + '?')) return;
+            if (!await Aviso.confirmar('Disparar cobrança etapa ' + etapa + ' via ' + canalOuAmbos + ' para ' + conta.razaoSocial + '?')) return;
 
             const canais = canalOuAmbos === 'ambos' ? ['email', 'whatsapp'] : [canalOuAmbos];
             try {
@@ -211,7 +213,7 @@
 
         async function cobrarMassa(canalOuAmbos) {
             if (!selecionadas.size) return;
-            if (!confirm('Disparar cobrança via ' + canalOuAmbos + ' para ' + selecionadas.size + ' clientes?')) return;
+            if (!await Aviso.confirmar('Disparar cobrança via ' + canalOuAmbos + ' para ' + selecionadas.size + ' clientes?')) return;
 
             const canais = canalOuAmbos === 'ambos' ? ['email', 'whatsapp'] : [canalOuAmbos];
             try {
@@ -239,7 +241,7 @@
 
         async function togglePausa(pessoaId, cobrancaAtualAtiva) {
             const novaAtiva = cobrancaAtualAtiva === 1 ? false : true;
-            if (!confirm((novaAtiva ? 'Retomar' : 'Pausar') + ' cobranças automáticas para este cliente?')) return;
+            if (!await Aviso.confirmar((novaAtiva ? 'Retomar' : 'Pausar') + ' cobranças automáticas para este cliente?')) return;
             try {
                 const resp = await fetch('/api/cobrancas/pessoa/' + pessoaId + '/pausar', {
                     method: 'POST',
@@ -366,6 +368,7 @@
     </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
     <script>initSidebar('cobrancas');</script>
 </body>
 </html>

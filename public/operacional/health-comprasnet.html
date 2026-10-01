@@ -92,20 +92,14 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('health-comprasnet');</script>
 <script>
-function toast(msg, tipo = 'success') {
-    const cont = document.getElementById('toasts');
-    if (!cont) return;
-    const el = document.createElement('div');
-    el.className = 'toast ' + tipo;
-    const ic = tipo === 'error' ? icon('x-circle', 'ic-sm') : icon('check-circle', 'ic-sm');
-    el.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px">${ic}<span>${msg}</span></span>`;
-    el.onclick = () => el.remove();
-    cont.appendChild(el);
-    setTimeout(() => el.remove(), 4500);
-}
+/* O `toast()` local saiu em 01/10/2026, junto dos outros cinco: quem avisa é o
+   `window.toast` de `/js/aviso-sistema.js`. Esta versão trazia um ícone, que
+   o do sistema não tem — a troca custa o ícone e entrega um aviso só para o
+   sistema inteiro, que é o que a padronização quer. */
 
 const fmtMs = (v) => v == null ? '—' : v + 'ms';
 const fmtTs = (iso) => {

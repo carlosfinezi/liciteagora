@@ -143,7 +143,7 @@
     <h2>Editar conta</h2>
     <div class="row"><label>Descrição</label><input type="text" id="eDesc"></div>
     <div class="row-2">
-      <div class="row"><label>Valor</label><input type="number" step="0.01" id="eValor"></div>
+      <div class="row"><label>Valor</label><input type="text" id="eValor" data-formato="dinheiro"></div>
       <div class="row"><label>Vencimento</label><input type="date" id="eVenc"></div>
     </div>
     <div class="row-2">
@@ -198,6 +198,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/politica-prazo.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('contas-a-receber');</script>
@@ -522,26 +524,26 @@ async function confirmarReceber(){
   };
   const totalReceber = (Number(body.valorBase) || 0) + body.juros + body.multa - body.desconto;
   // Bonificação: total 0 (desconto cobre tudo) não exige conta financeira.
-  if (totalReceber > 0 && !body.contaFinanceiraId) { alert('Selecione conta financeira'); return; }
-  if (!body.valorBase || body.valorBase <= 0) { alert('Valor base inválido'); return; }
+  if (totalReceber > 0 && !body.contaFinanceiraId) { Aviso.erro('Selecione conta financeira'); return; }
+  if (!body.valorBase || body.valorBase <= 0) { Aviso.erro('Valor base inválido'); return; }
   try {
     const r = await fetch('/api/contas-a-receber/'+CR_ID+'/baixar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     fecharReceber(); carregar();
-    if (d.jurosPendenteCrId) alert('Baixa registrada. Título de juros/multa pendente criado (conta #'+d.jurosPendenteCrId+').');
-  } catch(e){ alert('Erro: '+e.message); }
+    if (d.jurosPendenteCrId) Aviso.ok('Baixa registrada. Título de juros/multa pendente criado (conta #'+d.jurosPendenteCrId+').');
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function estornar(pagamentoId){
-  if (!confirm('Estornar este recebimento?\n\nO registro fica marcado como estornado (histórico preservado) e a movimentação financeira é anulada por um lançamento reverso.')) return;
+  if (!await Aviso.confirmar('Estornar este recebimento?\n\nO registro fica marcado como estornado (histórico preservado) e a movimentação financeira é anulada por um lançamento reverso.')) return;
   const motivo = prompt('Motivo do estorno (fica no histórico):') || '';
   try {
     const r = await fetch('/api/contas-a-receber/'+CR_ID+'/estornar-baixa', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pagamentoId, motivo: motivo.trim() || null }) });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 // ===== Retificar recebimento (estorno + relançamento) =====
@@ -584,7 +586,7 @@ function recalcRetif(){
 }
 async function confirmarRetificar(){
   const motivo = (document.getElementById('rMotivo').value || '').trim();
-  if (motivo.length < 5) { alert('Informe o motivo da correção (mín. 5 caracteres)'); return; }
+  if (motivo.length < 5) { Aviso.erro('Informe o motivo da correção (mín. 5 caracteres)'); return; }
   const body = {
     pagamentoId: RETIF_ID, motivo,
     contaFinanceiraId: Number(document.getElementById('rContaFin').value) || null,
@@ -596,13 +598,13 @@ async function confirmarRetificar(){
     formaPagamento: document.getElementById('rForma').value || null,
     observacoes: document.getElementById('rObs').value || null
   };
-  if (!body.valorBase || body.valorBase <= 0) { alert('Valor base inválido'); return; }
+  if (!body.valorBase || body.valorBase <= 0) { Aviso.erro('Valor base inválido'); return; }
   try {
     const r = await fetch('/api/contas-a-receber/'+CR_ID+'/retificar-baixa', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     fecharRetificar(); carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 // ===== Editar =====
@@ -647,46 +649,46 @@ async function salvarEdicao(){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     fecharEditar(); carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function duplicar(){
-  if (!confirm('Duplicar esta conta? Será criada uma nova aberta com vencimento para daqui 30 dias.')) return;
+  if (!await Aviso.confirmar('Duplicar esta conta? Será criada uma nova aberta com vencimento para daqui 30 dias.')) return;
   try {
     const r = await fetch('/api/contas-a-receber/'+CR_ID+'/duplicar', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     location.href = '/financeiro/contas-a-receber-detalhe.html?id=' + d.id;
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 async function cancelar(){
-  if (!confirm('Cancelar esta conta?')) return;
+  if (!await Aviso.confirmar('Cancelar esta conta?')) return;
   try {
     const r = await fetch('/api/contas-a-receber/'+CR_ID+'/cancelar', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 async function reabrir(){
-  if (!confirm('Reabrir esta conta cancelada?')) return;
+  if (!await Aviso.confirmar('Reabrir esta conta cancelada?')) return;
   try {
     const r = await fetch('/api/contas-a-receber/'+CR_ID+'/reabrir', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 // ===== Boletos =====
 async function gerarBoleto(){
-  if (!confirm('Gerar um novo boleto para esta cobrança?')) return;
+  if (!await Aviso.confirmar('Gerar um novo boleto para esta cobrança?')) return;
   try {
     const r = await fetch('/api/contas-a-receber/'+CR_ID+'/gerar-boleto', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 async function consultarBoleto(id){
   try {
@@ -694,24 +696,24 @@ async function consultarBoleto(id){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 async function cancelarBoleto(id){
-  if (!confirm('Cancelar este boleto?')) return;
+  if (!await Aviso.confirmar('Cancelar este boleto?')) return;
   try {
     const r = await fetch('/api/boletos/'+id+'/cancelar', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 async function enviarEmailBoleto(id){
   try {
     const r = await fetch('/api/boletos/'+id+'/enviar-email', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
-    alert('Email enviado.');
-  } catch(e){ alert('Erro: '+e.message); }
+    Aviso.ok('Email enviado.');
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 async function compartilharBoleto(id){
   try {
@@ -719,19 +721,19 @@ async function compartilharBoleto(id){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     if (d.whatsapp) window.open(d.whatsapp, '_blank');
-    else if (d.texto) { await navigator.clipboard.writeText(d.texto); alert('Texto copiado para área de transferência.'); }
-  } catch(e){ alert('Erro: '+e.message); }
+    else if (d.texto) { await navigator.clipboard.writeText(d.texto); Aviso.ok('Texto copiado para área de transferência.'); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 // ===== PIX =====
 async function gerarPix(){
-  if (!confirm('Gerar cobrança PIX (QR + link) e enviar ao cliente por email?')) return;
+  if (!await Aviso.confirmar('Gerar cobrança PIX (QR + link) e enviar ao cliente por email?')) return;
   try {
     const r = await fetch('/api/contas-a-receber/'+CR_ID+'/gerar-pix', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 async function enviarEmailPixCob(id){
   try {
@@ -742,14 +744,14 @@ async function enviarEmailPixCob(id){
     const wa = d.canais && d.canais.whatsapp;
     if (wa && (wa.queued || wa.success)) partes.push('WhatsApp'+(wa.queued ? ' (fila p/ envio)' : ''));
     if (d.canais && d.canais.email && d.canais.email.to) partes.push('email '+d.canais.email.to);
-    alert('PIX enviado'+(partes.length ? ': '+partes.join(' + ') : '')+'.');
-  } catch(e){ alert('Erro: '+e.message); }
+    Aviso.ok('PIX enviado'+(partes.length ? ': '+partes.join(' + ') : '')+'.');
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 function copiarTexto(el){
   const t = (el.textContent || '').trim();
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(t).then(()=>alert('Copiado!')).catch(()=>{ _fallbackCopy(t); alert('Copiado!'); });
-  } else { _fallbackCopy(t); alert('Copiado!'); }
+    navigator.clipboard.writeText(t).then(()=>Aviso.ok('Copiado!')).catch(()=>{ _fallbackCopy(t); Aviso.ok('Copiado!'); });
+  } else { _fallbackCopy(t); Aviso.ok('Copiado!'); }
 }
 function _fallbackCopy(t){
   const ta = document.createElement('textarea'); ta.value = t;
@@ -770,10 +772,10 @@ async function enviarAnexo(file){
     if (!d.success) throw new Error(d.error);
     document.getElementById('fileInput').value = '';
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 async function excluirAnexo(id){
-  if (!confirm('Excluir este anexo?')) return;
+  if (!await Aviso.confirmar('Excluir este anexo?')) return;
   await fetch('/api/contas-a-receber/anexos/'+id, { method:'DELETE' });
   carregar();
 }
@@ -816,7 +818,7 @@ async function abrirCobrar(){
 
     document.getElementById('modalCobrar').classList.add('open');
   } catch (err) {
-    alert('Erro: ' + err.message);
+    Aviso.erro(Aviso.mensagemDeErro(err));
   }
 }
 
@@ -860,7 +862,7 @@ async function confirmarCobrar(){
   const canais = [];
   if (document.getElementById('cobrarEmail').checked) canais.push('email');
   if (document.getElementById('cobrarWa').checked) canais.push('whatsapp');
-  if (!canais.length) { alert('Selecione ao menos um canal'); return; }
+  if (!canais.length) { Aviso.erro('Selecione ao menos um canal'); return; }
 
   const btn = document.getElementById('btnCobrarConfirmar');
   btn.disabled = true;
@@ -875,14 +877,14 @@ async function confirmarCobrar(){
       const partes = Object.entries(data.canais || {}).map(([k,v]) =>
         `${k}: ${v.success ? 'enviado' : (v.queued ? 'em fila' : 'erro — ' + v.error)}`
       ).join(' | ');
-      alert('Cobrança processada.\n' + partes);
+      Aviso.erro('Cobrança processada.\n' + partes);
       fecharCobrar();
       carregar();
     } else {
-      alert('Erro: ' + (data.error || 'desconhecido'));
+      Aviso.erro(Aviso.mensagemDeErro((data.error || 'desconhecido')));
     }
   } catch (err) {
-    alert('Erro: ' + err.message);
+    Aviso.erro(Aviso.mensagemDeErro(err));
   } finally {
     btn.disabled = false;
   }
@@ -905,14 +907,14 @@ async function baixarPerda(){
     method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ motivo })
   });
   const d = await r.json();
-  if (!d.success) return alert(d.error);
+  if (!d.success) return Aviso.erro(Aviso.mensagemDeErro(d));
   location.reload();
 }
 async function reativarPerda(){
-  if (!confirm('Reativar este título? Ele volta para em aberto e pode receber baixa normal.')) return;
+  if (!await Aviso.confirmar('Reativar este título? Ele volta para em aberto e pode receber baixa normal.')) return;
   const r = await fetch(`/api/contas-a-receber/${CR_ID}/reativar-perda`, { method:'POST' });
   const d = await r.json();
-  if (!d.success) return alert(d.error);
+  if (!d.success) return Aviso.erro(Aviso.mensagemDeErro(d));
   location.reload();
 }
 // ---------- adiantamento ----------
@@ -938,16 +940,16 @@ async function verSaldoAdiantamento(){
 }
 
 async function abaterAdiantamento(){
-  if (!confirm('Abater este título com o saldo de adiantamento? O caixa não se move — o dinheiro já entrou quando o adiantamento foi lançado.')) return;
+  if (!await Aviso.confirmar('Abater este título com o saldo de adiantamento? O caixa não se move — o dinheiro já entrou quando o adiantamento foi lançado.')) return;
   const r = await fetch(`/api/contas-a-receber/${CR_ID}/abater-adiantamento`,
     { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
   const d = await r.json();
   if (!d.success) return (typeof showAlert === 'function'
-    ? showAlert(d.error, 'error') : alert('Erro: ' + d.error));
+    ? showAlert(d.error, 'error') : Aviso.erro(Aviso.mensagemDeErro(d)));
   const msg = `Abatido R$ ${Number(d.abatido).toLocaleString('pt-BR',{minimumFractionDigits:2})}`
     + ` — título ${d.statusTitulo}`
     + (d.saldoRestanteTitulo > 0 ? `, restam R$ ${Number(d.saldoRestanteTitulo).toLocaleString('pt-BR',{minimumFractionDigits:2})}` : '');
-  if (typeof showAlert === 'function') showAlert(msg); else alert(msg);
+  if (typeof showAlert === 'function') showAlert(msg); else Aviso.erro(Aviso.mensagemDeErro(msg));
   location.reload();
 }
 

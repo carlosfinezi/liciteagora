@@ -194,6 +194,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('notas-fiscais');</script>
 <script>
 function showAlert(m, t='success'){
@@ -649,7 +650,7 @@ async function emitirDevolucao(){
 
   const total = sel.length === DEV.itens.length
     && DEV.itens.every((it, idx) => (parseFloat(document.querySelector(`.dev-qtd[data-idx="${idx}"]`)?.value) || 0) >= it.saldoDisponivel);
-  if (!confirm(`Registrar a devolução de ${sel.length} item(ns)?\n\nDá entrada no estoque, gera crédito ao cliente e emite a NF-e de devolução. Só se desfaz estornando a devolução e cancelando a nota.`)) return;
+  if (!await Aviso.confirmar(`Registrar a devolução de ${sel.length} item(ns)?\n\nDá entrada no estoque, gera crédito ao cliente e emite a NF-e de devolução. Só se desfaz estornando a devolução e cancelando a nota.`)) return;
 
   const btn = document.getElementById('btnEmitirDev');
   btn.disabled = true; btn.textContent = 'Emitindo…';
@@ -701,7 +702,7 @@ async function salvarObs(){
 }
 
 async function restaurarLancamento(){
-  if (!confirm('Restaurar este lançamento? Estoque e contas não são reaplicados automaticamente.')) return;
+  if (!await Aviso.confirmar('Restaurar este lançamento? Estoque e contas não são reaplicados automaticamente.')) return;
   try {
     const r = await fetch(`/api/faturas/${id}/restaurar`, { method: 'POST' });
     const d = await r.json();

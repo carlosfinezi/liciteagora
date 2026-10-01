@@ -5,8 +5,10 @@
 // O menu vive UMA vez no shell (app.html) e as páginas carregam num <iframe>.
 // - Página dentro do shell: não renderiza sidebar; só reporta ao pai (IN_SHELL).
 // - Página aberta top-level (bookmark/URL antiga): redireciona pra dentro do shell.
-// - Página framed por um pai que NÃO é o shell (ex.: proposta-template no editor):
-//   comportamento antigo, intacto.
+// - Página framed por um pai que NÃO é o shell: comportamento antigo, intacto.
+//   (O exemplo daqui era o proposta-template.html, apagado em 30/09/2026: o
+//   `</script>` num comentário dele fechava o bloco e a tela não desenhava
+//   nada desde maio, e nenhum editor a abria.)
 const IN_SHELL = (() => {
     try { return window.self !== window.top && window.parent.__liciteShell === true; }
     catch { return false; } // pai cross-origin
@@ -774,7 +776,15 @@ function refreshAcessoCache() {
  * Precisa ser a MESMA relação de `perfis-acesso.js` (HERDA_DE): se o menu
  * esconder o que o servidor libera, a tela existe e ninguém acha o caminho.
  */
-const HERDA_DE_MENU = { 'comunicacao-ia': 'conversas' };
+const HERDA_DE_MENU = {
+    'comunicacao-ia': 'conversas',
+    'comunicacao-campanhas': 'conversas',
+    'comunicacao-modelos': 'conversas',
+    'comunicacao-listas': 'conversas',
+    'comunicacao-canal': 'conversas',
+    'comunicacao-relatorio': 'conversas',
+    'comunicacao-roteiros': 'conversas',
+};
 
 function isPaginaPermitida(page) {
     const c = getAcessoCache();
@@ -1753,10 +1763,10 @@ async function trocarEstabelecimento(id) {
             body: JSON.stringify({ id: Number(id) })
         });
         const j = await r.json();
-        if (!j.success) { alert(j.error || 'Não foi possível trocar de estabelecimento.'); return; }
+        if (!j.success) { Aviso.erro(j.error || 'Não foi possível trocar de estabelecimento.'); return; }
         location.reload();
     } catch (_) {
-        alert('Falha ao trocar de estabelecimento.');
+        Aviso.erro('Falha ao trocar de estabelecimento.');
     }
 }
 

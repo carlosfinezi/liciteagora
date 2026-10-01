@@ -133,6 +133,73 @@ function rotuloDocumento(pessoa) {
   return documentoFiscalDe(pessoa) ? String(pessoa.cpfCnpj) : 'sem documento';
 }
 
+/* ===================== os dígitos verificadores =====================
+   Até 30/09/2026 nada no sistema conferia isto, e `cpfCnpj` é a chave única de
+   `pessoas`: um "1" entrava como PF. Medido nos 20 tenants naquele dia, das
+   28.096 linhas gravadas, 8 tinham dígito errado — pouco, e é justamente por
+   ser pouco que dá para passar a recusar sem período de transição.
+
+   Quem valida é `erroDeDocumento`, e a regra de fora dela é a mesma do
+   `documentoFiscalDe` logo acima: LETRA no valor significa identificador
+   interno, não documento. É o que deixa passar o `SD-` dos leads, o `EX-` de
+   fornecedor de fora, o `TARIFA-` e o `UASG-<código>`.
+   ==================================================================== */
+
+function cpfValido(d) {
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  for (const [ate, pos] of [[9, 10], [10, 11]]) {
+    let soma = 0;
+    for (let i = 0; i < ate; i++) soma += Number(d[i]) * (pos - i);
+    if ((soma * 10) % 11 % 10 !== Number(d[ate])) return false;
+  }
+  return true;
+}
+
+function cnpjValido(d) {
+  if (d.length !== 14 || /^(\d)\1{13}$/.test(d)) return false;
+  const conta = (ate) => {
+    const pesos = ate === 12
+      ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+      : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+    let soma = 0;
+    for (let i = 0; i < ate; i++) soma += Number(d[i]) * pesos[i];
+    const r = soma % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+  return conta(12) === Number(d[12]) && conta(13) === Number(d[13]);
+}
+
+/**
+ * O que há de errado com este valor de `cpfCnpj`, ou `null` se pode gravar.
+ *
+ * @param {string} valor      o que veio do formulário
+ * @param {object} [opcoes]
+ * @param {'cpf'|'cnpj'|'qualquer'} [opcoes.exige] recusa o outro tipo quando o
+ *        campo é de um só (o destinatário de NFС-e é sempre CPF, por exemplo)
+ * @returns {string|null} mensagem pronta para o usuário, ou null
+ */
+function erroDeDocumento(valor, { exige = 'qualquer' } = {}) {
+  const bruto = String(valor == null ? '' : valor).trim();
+  if (!bruto) return 'Informe o CPF ou o CNPJ.';
+  // Identificador interno do próprio sistema: não é documento e não se valida.
+  if (/[a-zA-Z]/.test(bruto)) return null;
+
+  const d = bruto.replace(/\D/g, '');
+  if (exige === 'cpf') {
+    if (d.length !== 11) return 'O CPF tem 11 números.';
+    return cpfValido(d) ? null : 'CPF inválido. Confira os números.';
+  }
+  if (exige === 'cnpj') {
+    if (d.length !== 14) return 'O CNPJ tem 14 números.';
+    return cnpjValido(d) ? null : 'CNPJ inválido. Confira os números.';
+  }
+  if (d.length !== 11 && d.length !== 14) {
+    return 'O CPF tem 11 números e o CNPJ tem 14.';
+  }
+  if (d.length === 11) return cpfValido(d) ? null : 'CPF inválido. Confira os números.';
+  return cnpjValido(d) ? null : 'CNPJ inválido. Confira os números.';
+}
+
 module.exports = {
   PREFIXO,
   gerarIdentificadorSemDocumento,
@@ -140,4 +207,7 @@ module.exports = {
   documentoFiscalDe,
   exigirDocumentoFiscal,
   rotuloDocumento,
+  cpfValido,
+  cnpjValido,
+  erroDeDocumento,
 };

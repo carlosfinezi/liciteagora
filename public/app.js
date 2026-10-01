@@ -101,6 +101,10 @@ async function handleSearch(event) {
         uf: document.getElementById('uf').value,
         municipio: document.getElementById('municipio') ? document.getElementById('municipio').value.trim() : '',
         portal: document.getElementById('portal').value,
+        valorMin: document.getElementById('valorMin') ? document.getElementById('valorMin').value : '',
+        valorMax: document.getElementById('valorMax') ? document.getElementById('valorMax').value : '',
+        incluirSemValor: document.getElementById('incluirSemValor')
+            ? document.getElementById('incluirSemValor').checked : false,
         ordenacao: document.getElementById('ordenacao').value
     };
 
@@ -123,6 +127,16 @@ async function buscarLicitacoes() {
             tamanhoPagina: 50
         });
 
+        if (currentFilters.valorMin) {
+            params.append('valorMin', currentFilters.valorMin);
+        }
+        if (currentFilters.valorMax) {
+            params.append('valorMax', currentFilters.valorMax);
+        }
+        // Só viaja quando há faixa: sem faixa, ele não teria o que incluir.
+        if (currentFilters.incluirSemValor && (currentFilters.valorMin || currentFilters.valorMax)) {
+            params.append('incluirSemValor', 'true');
+        }
         if (currentFilters.numeroLicitacao) {
             params.append('numeroLicitacao', currentFilters.numeroLicitacao);
         }
@@ -213,6 +227,212 @@ function displayResults(licitacoes) {
     carregarAnalisesIA(licitacoes);
 }
 
+// Guarda a licitação por chave para as seções montarem sem refazer a busca.
+const _licPorChave = {};
+
+let PNCP_ARQUIVOS_TIMEOUT_MS = 20000;
+
+function escHtml(v) {
+    return String(v == null ? '' : v)
+        .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+/**
+ * Destaca no trecho o termo que fez o edital entrar. Compara sem acento e sem
+ * caixa (o PNCP escreve "CIMENTO" e o grupo guarda "cimento"), mas devolve o
+ * texto original — quem lê quer a descrição como ela está no edital.
+ */
+function destacarTermo(trecho, termo) {
+    const texto = escHtml(trecho);
+    if (!termo) return texto;
+    const sem = (t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const alvo = sem(texto);
+    const i = alvo.indexOf(sem(escHtml(termo)));
+    if (i < 0) return texto;
+    const fim = i + escHtml(termo).length;
+    return texto.slice(0, i) + '<mark>' + texto.slice(i, fim) + '</mark>' + texto.slice(fim);
+}
+
+/**
+ * Conteúdo da seção "Detalhes": os dados que antes ficavam soltos na face do
+ * card, agora aninhados aqui. Campo sem valor não vira linha — melhor a linha
+ * não existir do que existir dizendo "N/A".
+ */
+function montarDetalhesCard(licitacao) {
+    const org = licitacao.orgaoEntidade || {};
+    const uni = licitacao.unidadeOrgao || {};
+
+    const dataPub = licitacao.dataPublicacaoPncp ? formatarData(licitacao.dataPublicacaoPncp) : '';
+    const abertura = licitacao.dataAberturaProposta ? formatarDataHora(licitacao.dataAberturaProposta) : '';
+    const fim = licitacao.dataEncerramentoProposta ? formatarDataHora(licitacao.dataEncerramentoProposta) : '';
+    const valor = (licitacao.valorTotalEstimado !== undefined && licitacao.valorTotalEstimado !== null
+                   && Number(licitacao.valorTotalEstimado) > 0)
+        ? formatarValor(licitacao.valorTotalEstimado) : 'Não informado';
+
+    // srp vem como 0/1 do PNCP ou como booleano quando a rota monta o objeto
+    // a partir das colunas. Os dois casos precisam responder igual.
+    const srp = licitacao.srp === true || licitacao.srp === 1 ? 'Sim'
+              : (licitacao.srp === false || licitacao.srp === 0 ? 'Não' : '');
+
+    const cidade = uni.municipioNome && uni.ufSigla ? `${uni.municipioNome}/${uni.ufSigla}` : '';
+    const esfera = getEsferaNome(org.esferaId);
+    const numero = licitacao.numeroCompra && licitacao.anoCompra
+        ? `${licitacao.numeroCompra}/${licitacao.anoCompra}` : (licitacao.numeroCompra || '');
+
+    const linhas = [
+        ['Órgão', org.razaoSocial],
+        ['Unidade', uni.nomeUnidade],
+        ['CNPJ', org.cnpj ? formatarCNPJ(org.cnpj) : ''],
+        ['Cidade', cidade],
+        ['Esfera', esfera && esfera !== 'N/A' ? esfera : ''],
+        ['Licitação', numero],
+        ['UASG', uni.codigoUnidade],
+        ['Modalidade', licitacao.modalidadeNome],
+        ['Modo de disputa', licitacao.modoDisputaNome],
+        ['Registro de preço', srp],
+        ['Situação', licitacao.situacaoCompraNome || licitacao.situacaoCompra],
+        ['Publicação', dataPub],
+        ['Abertura', abertura],
+        ['Fim das propostas', fim],
+        ['Valor total estimado', valor],
+    ].filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '');
+
+    return `<dl class="det-lista">${linhas.map(([r, v]) =>
+        `<div><dt>${escHtml(r)}</dt><dd>${escHtml(v)}</dd></div>`).join('')}</dl>`;
+}
+
+/**
+ * Abre e fecha as seções do card. Uma por vez: duas abertas devolveriam o card
+ * gigante que a faixa compacta acabou de resolver.
+ */
+function alternarSecaoCard(botao, chave, secao) {
+    const painel = document.getElementById('painel-' + chave);
+    if (!painel) return;
+
+    const jaAberta = painel.dataset.secao === secao && painel.classList.contains('aberto');
+    const card = botao.closest('.licitacao-card');
+    card.querySelectorAll('.card-secao-btn').forEach(b => b.classList.remove('ativo'));
+
+    if (jaAberta) {
+        painel.classList.remove('aberto');
+        painel.innerHTML = '';
+        painel.dataset.secao = '';
+        return;
+    }
+
+    botao.classList.add('ativo');
+    painel.classList.add('aberto');
+    painel.dataset.secao = secao;
+
+    const lic = _licPorChave[chave];
+    if (!lic) { painel.innerHTML = '<div class="det-vazio">Dados desta licitação não estão mais em memória. Refaça a busca.</div>'; return; }
+
+    if (secao === 'detalhes') {
+        painel.innerHTML = montarDetalhesCard(lic);
+    } else if (secao === 'arquivos') {
+        painel.innerHTML = '<div class="det-vazio">Carregando arquivos…</div>';
+        carregarArquivosCard(chave, painel);
+    } else if (secao === 'avisos') {
+        painel.innerHTML = montarAvisosCard(lic);
+    }
+}
+
+/**
+ * Anexos direto do PNCP. A API é pública e libera CORS, então não passa por
+ * rota nossa — e por isso também não depende de restart para funcionar.
+ */
+async function carregarArquivosCard(chave, painel) {
+    const lic = _licPorChave[chave];
+    const cnpj = lic?.orgaoEntidade?.cnpj || lic?.cnpj;
+    const ano = lic?.anoCompra;
+    const seq = lic?.sequencialCompra;
+    if (!cnpj || !ano || !seq) {
+        painel.innerHTML = '<div class="det-vazio">Licitação sem identificação no PNCP.</div>';
+        return;
+    }
+
+    // Prazo: sem ele, PNCP fora do ar deixa "Carregando…" para sempre.
+    // É `let` (declarado abaixo) para o teste poder encurtá-lo: esperar 20s
+    // para provar a guarda faria a suíte ser abandonada, que é como guarda
+    // morre sem ninguém notar.
+    const ctrl = new AbortController();
+    const prazo = setTimeout(() => ctrl.abort(), PNCP_ARQUIVOS_TIMEOUT_MS);
+    try {
+        const url = `https://pncp.gov.br/api/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/arquivos`;
+        const r = await fetch(url, { signal: ctrl.signal });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const lista = await r.json();
+
+        if (!Array.isArray(lista) || lista.length === 0) {
+            painel.innerHTML = '<div class="det-vazio">Nenhum arquivo publicado no PNCP para esta licitação.</div>';
+            return;
+        }
+        painel.innerHTML = '<ul class="arq-lista">' + lista.map(a => {
+            const nome = a.titulo || a.nomeArquivo || 'Documento';
+            const quando = a.dataPublicacaoPncp ? formatarData(a.dataPublicacaoPncp) : '';
+            return `<li>
+                <a href="${escHtml(a.url || a.uri)}" target="_blank" rel="noopener">${escHtml(nome)}</a>
+                ${quando ? `<span class="arq-data">${escHtml(quando)}</span>` : ''}
+            </li>`;
+        }).join('') + '</ul>';
+    } catch (e) {
+        const motivo = e.name === 'AbortError' ? 'o PNCP não respondeu a tempo' : e.message;
+        painel.innerHTML = `<div class="det-vazio">Não foi possível carregar os arquivos: ${escHtml(motivo)}.</div>`;
+    } finally {
+        clearTimeout(prazo);
+    }
+}
+
+/**
+ * Quadro de avisos.
+ *
+ * O PNCP NÃO publica avisos, impugnações nem esclarecimentos: os três
+ * endpoints respondem 404 (conferido em 2026-09-21). Esse conteúdo mora no
+ * portal de origem, e a seção leva para lá em vez de mentir que não há aviso.
+ *
+ * ── O que já foi investigado no Comprasnet, para não se refazer ─────────────
+ *
+ * O Comprasnet TEM o dado, e o endpoint é este:
+ *
+ *   /comprasnet-fase-externa/public/v1/compras/{compraId}/quadro-informativo/
+ *       {avisos|impugnacoes|esclarecimentos}?captcha=<token>&tamanhoPagina=10&pagina=0
+ *
+ * Não exige login. Exige um token de hCaptcha INVISÍVEL, e foi isso que tornou
+ * o diagnóstico enganoso — na tela ninguém vê captcha algum. Medido em
+ * 2026-09-21, na compra 38917205000252026 (que tem 2 avisos e 5
+ * esclarecimentos), interceptando o XMLHttpRequest da própria página:
+ *
+ *   - sem o parâmetro captcha           -> HTTP 204 VAZIO, e não 403. Foi esse
+ *                                          204 silencioso que me fez concluir,
+ *                                          erradamente, que a rota era um
+ *                                          handler genérico;
+ *   - com o token que a página ACABOU de usar -> 204 também: o token é de USO
+ *                                          ÚNICO, um por requisição;
+ *   - em Chrome headless a SPA nem monta: devolve só "Compras eletrônicas" e
+ *     zero botões (mesma parede do PCP, ver memória do projeto).
+ *
+ * Ou seja: integrar exige navegador vivo gerando token por consulta, nos
+ * moldes do bll-session-service / bnc-session-service, ou NopeCHA por chamada.
+ * Decidido em 2026-09-21 NÃO fazer agora.
+ */
+function montarAvisosCard(licitacao) {
+    const link = licitacao.linkSistemaOrigem;
+    const destino = link
+        ? (String(link).startsWith('http') ? link : 'https://' + link)
+        : '';
+    const itens = ['Avisos', 'Impugnações', 'Esclarecimentos']
+        .map(t => `<li>${t}</li>`).join('');
+
+    return `
+        <div class="det-vazio">
+            O PNCP não publica avisos, impugnações e esclarecimentos por API.
+            <ul class="avisos-lista">${itens}</ul>
+            ${destino
+                ? `<a href="${escHtml(destino)}" target="_blank" rel="noopener" class="card-secao-link">Abrir o portal de origem ↗</a>`
+                : 'Esta licitação não informou portal de origem.'}
+        </div>`;
+}
+
 /**
  * Criar card de licitação
  */
@@ -221,6 +441,9 @@ function createLicitacaoCard(licitacao) {
     const cnpj = licitacao.orgaoEntidade?.cnpj;
     const ano = licitacao.anoCompra;
     const seq = licitacao.sequencialCompra;
+    const chave = `${cnpj}-${ano}-${seq}`;
+    _licPorChave[chave] = licitacao;
+    const linkPncpDireto = `https://pncp.gov.br/app/editais/${cnpj || licitacao.cnpj}/${ano}/${String(seq).padStart(6, '0')}`;
 
     const lidaClass = isLida(cnpj, ano, seq) ? ' lida' : '';
     const interesseClass = hasInteresse(cnpj, ano, seq) ? ' com-interesse' : '';
@@ -243,6 +466,15 @@ function createLicitacaoCard(licitacao) {
     const siInfo = licitacoesSemInteresse[cnpj + '-' + ano + '-' + seq];
     const badgeSemInteresse = siInfo ? `<span class="status-badge badge-sem-interesse" title="${siInfo.motivo || ''}">🚫 Sem interesse</span>` : '';
 
+    // Por que este edital apareceu: quando ele entrou pela descrição de um
+    // item, o objeto não tem a palavra procurada e a lista parece aleatória.
+    const motivoItem = licitacao.motivoItem
+        ? `<div class="licitacao-motivo-item" title="Este edital entrou pela descrição de um item">
+               <span class="motivo-rotulo">Achado no item:</span>
+               <span class="motivo-trecho">${destacarTermo(licitacao.motivoItem.trecho, licitacao.motivoItem.termo)}</span>
+           </div>`
+        : '';
+
     card.innerHTML = `
         <div class="licitacao-header">
             <div class="licitacao-titulo">
@@ -254,54 +486,21 @@ function createLicitacaoCard(licitacao) {
             </div>
         </div>
 
-        <div class="licitacao-info">
-            <div class="info-item">
-                <span class="info-label">Número</span>
-                <span class="info-value">${licitacao.numeroCompra || 'N/A'}</span>
-            </div>
-            <div class="info-item">
-                <span class="info-label">Ano</span>
-                <span class="info-value">${licitacao.anoCompra || 'N/A'}</span>
-            </div>
-            <div class="info-item">
-                <span class="info-label">UASG</span>
-                <span class="info-value">${licitacao.unidadeOrgao?.codigoUnidade || 'N/A'}</span>
-            </div>
-            <div class="info-item">
-                <span class="info-label">Esfera</span>
-                <span class="info-value">${getEsferaNome(licitacao.orgaoEntidade?.esferaId)}</span>
-            </div>
-            <div class="info-item">
-                <span class="info-label">Publicação</span>
-                <span class="info-value">${dataPublicacao}</span>
-            </div>
-            <div class="info-item" style="background: #fff3e0;">
-                <span class="info-label" style="color: #e65100;">Fim Propostas</span>
-                <span class="info-value" style="color: #e65100; font-weight: bold;">${dataAbertura || 'N/A'}</span>
-            </div>
-            <div class="info-item">
-                <span class="info-label">Situação</span>
-                <span class="info-value">${licitacao.situacaoCompra || 'N/A'}</span>
-            </div>
+        ${motivoItem}
+        <div class="card-secoes">
+            <button type="button" class="card-secao-btn ativo" data-sec="detalhes"
+                onclick="alternarSecaoCard(this, '${chave}', 'detalhes')">Detalhes</button>
+            <button type="button" class="card-secao-btn" data-sec="arquivos"
+                onclick="alternarSecaoCard(this, '${chave}', 'arquivos')">Arquivos</button>
+            <button type="button" class="card-secao-btn" data-sec="avisos"
+                onclick="alternarSecaoCard(this, '${chave}', 'avisos')">Quadro de avisos</button>
+            <a class="card-secao-link" href="${linkPncpDireto}" target="_blank" rel="noopener">Ver no PNCP ↗</a>
         </div>
-
-        ${licitacao.orgaoEntidade ? `
-        <div class="licitacao-objeto">
-            <div class="objeto-label">Órgão</div>
-            <div class="objeto-text">
-                ${licitacao.orgaoEntidade.razaoSocial || 'Não informado'}
-                ${licitacao.orgaoEntidade.cnpj ? `<br>CNPJ: ${formatarCNPJ(licitacao.orgaoEntidade.cnpj)}` : ''}
-                ${licitacao.unidadeOrgao?.nomeUnidade ? `<br>Unidade: ${licitacao.unidadeOrgao.nomeUnidade}` : ''}
-                ${licitacao.unidadeOrgao?.municipioNome && licitacao.unidadeOrgao?.ufSigla ? `<br>Local: ${licitacao.unidadeOrgao.municipioNome}/${licitacao.unidadeOrgao.ufSigla}` : ''}
-            </div>
-        </div>
-        ` : ''}
+        <!-- Detalhes já vem montado e aberto: é a seção que se lê em toda
+             triagem, e deixá-la fechada custava um clique por licitação. -->
+        <div class="card-painel aberto" id="painel-${chave}" data-secao="detalhes">${montarDetalhesCard(licitacao)}</div>
 
         <div class="licitacao-footer">
-            <div>
-                <div class="info-label">Valor Estimado</div>
-                <div class="valor-estimado">${valorEstimado}</div>
-            </div>
             <div class="card-acoes">
                 <button class="btn-marcar-lida${isLida(licitacao.orgaoEntidade?.cnpj, licitacao.anoCompra, licitacao.sequencialCompra) ? ' lida' : ''}"
                     onclick="toggleLida('${licitacao.orgaoEntidade?.cnpj}', ${licitacao.anoCompra}, ${licitacao.sequencialCompra}, this)">${isLida(licitacao.orgaoEntidade?.cnpj, licitacao.anoCompra, licitacao.sequencialCompra) ? '✓ Lida' : '👁 Marcar lida'}</button>
@@ -313,11 +512,7 @@ function createLicitacaoCard(licitacao) {
                     <a href="${licitacao.linkSistemaOrigem}" target="_blank">
                         <button class="btn-detalhes">Abrir no Sistema</button>
                     </a>
-                ` : `
-                    <a href="https://pncp.gov.br/app/editais/${licitacao.orgaoEntidade?.cnpj || licitacao.cnpj}/${licitacao.anoCompra}/${String(licitacao.sequencialCompra).padStart(6, '0')}" target="_blank">
-                        <button class="btn-detalhes">Ver no PNCP</button>
-                    </a>
-                `}
+                ` : ''}
             </div>
         </div>
     `;
@@ -732,7 +927,7 @@ function fecharModal() {
 
 async function salvarInteresse() {
     if (itensSelecionados.size === 0) {
-        alert('Selecione pelo menos um item para salvar.');
+        Aviso.erro('Selecione pelo menos um item para salvar.');
         return;
     }
 
@@ -769,7 +964,7 @@ async function salvarInteresse() {
 
             // Perguntar se quer adicionar ao Google Calendar
             if (currentLicitacao.dataEncerramentoProposta) {
-                const adicionarCalendario = confirm(
+                const adicionarCalendario = await Aviso.confirmar(
                     itensSelecionados.size + ' item(s) salvos com sucesso!\n\n' +
                     'Deseja adicionar esta licitação ao Google Calendar?'
                 );
@@ -778,7 +973,7 @@ async function salvarInteresse() {
                     abrirGoogleCalendar(currentLicitacao);
                 }
             } else {
-                alert(itensSelecionados.size + ' item(s) salvos com sucesso!');
+                Aviso.ok(itensSelecionados.size + ' item(s) salvos com sucesso!');
             }
             fecharModal();
         } else {
@@ -786,7 +981,7 @@ async function salvarInteresse() {
         }
     } catch (error) {
         console.error('Erro ao salvar interesse:', error);
-        alert('Erro ao salvar interesse. Tente novamente.');
+        Aviso.erro('Erro ao salvar interesse. Tente novamente.');
     }
 }
 
@@ -1248,14 +1443,14 @@ async function analisarLicitacao(cnpj, ano, seq, btn) {
             analisesIA[key] = data.analise;
             atualizarBadgesIA();
         } else {
-            alert(data.error || 'Erro na análise IA');
+            Aviso.erro(data.error || 'Erro na análise IA');
             if (btn) {
                 btn.disabled = false;
                 btn.textContent = 'IA';
             }
         }
     } catch (e) {
-        alert('Erro ao conectar com API de análise');
+        Aviso.erro('Erro ao conectar com API de análise');
         if (btn) {
             btn.disabled = false;
             btn.textContent = 'IA';
@@ -1535,7 +1730,7 @@ async function registrarInteresseIA(cnpj, ano, seq) {
         const itens = data.itens || data.data || [];
 
         if (itens.length === 0) {
-            alert('Nenhum item encontrado para registrar interesse.');
+            Aviso.erro('Nenhum item encontrado para registrar interesse.');
             return;
         }
 
@@ -1562,7 +1757,7 @@ async function registrarInteresseIA(cnpj, ano, seq) {
         document.getElementById('modal-analise-ia').style.display = 'none';
 
     } catch(e) {
-        alert('Erro ao registrar interesse: ' + e.message);
+        Aviso.erro(Aviso.mensagemDeErro(e));
     }
 }
 

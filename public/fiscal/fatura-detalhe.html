@@ -29,6 +29,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('notas-fiscais');</script>
 <script>
 function showAlert(m, t='success'){
@@ -156,7 +157,7 @@ function render(f){
   const avisoNfeOutra = f.nfeAtivaEmOutraFatura
     ? `<div class="alert" style="background:var(--warn-soft,#78350f30);border:1px solid var(--warn,#fbbf24);color:var(--warn,#fbbf24);display:block;">
         Esta fatura <strong>não</strong> carrega a NF-e ativa do pedido. A NF-e nº <strong>${escTxt(String(f.nfeAtivaEmOutraFatura.numeroNFe || '—'))}</strong> está autorizada na fatura
-        <a href="/financeiro/fatura-detalhe.html?id=${f.nfeAtivaEmOutraFatura.id}" style="color:inherit;font-weight:bold;">${escTxt(f.nfeAtivaEmOutraFatura.numero)}</a>.
+        <a href="/fiscal/fatura-detalhe.html?id=${f.nfeAtivaEmOutraFatura.id}" style="color:inherit;font-weight:bold;">${escTxt(f.nfeAtivaEmOutraFatura.numero)}</a>.
       </div>`
     : '';
 
@@ -180,7 +181,7 @@ function render(f){
         <div><label class="muted">Data vencimento</label><div>${fmtData(f.dataVencimento)}</div></div>
         <div><label class="muted">Status fatura</label><div>${STATUS_FATURA[f.status] || escTxt(f.status)}</div></div>
         <div><label class="muted">Meio de pagamento</label><div>${escTxt(meio)}</div></div>
-        <div><label class="muted">Pedido vinculado</label><div>${f.pedidoNumero ? `<a href="/pedido.html?id=${f.pedidoId}">${escTxt(f.pedidoNumero)}</a>` : '—'}</div></div>
+        <div><label class="muted">Pedido vinculado</label><div>${f.pedidoNumero ? `<a href="/comercial/pedido.html?id=${f.pedidoId}">${escTxt(f.pedidoNumero)}</a>` : '—'}</div></div>
       </div>
     </div>
 
@@ -269,7 +270,7 @@ async function cancelarFatura(){
     if (motivo === null) return;
     mensagemSucesso = 'Fatura e NF-e canceladas';
   } else {
-    if (!confirm('Cancelar fatura? A conta a receber também será cancelada e o pedido voltará para "rascunho".')) return;
+    if (!await Aviso.confirmar('Cancelar fatura? A conta a receber também será cancelada e o pedido voltará para "rascunho".')) return;
   }
 
   if (motivo !== null && motivo.trim().length < 15) {

@@ -196,6 +196,13 @@
                             Dispara D+<input type="number" id="diasApos_${idx}" value="${e.diasApos}" min="1" style="width:64px;padding:3px 6px;text-align:center;"> dias após vencer
                         </span>
                     </h4>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Nome desta etapa</label>
+                            <input type="text" id="nome_${idx}" value="${escAttr(e.nome || '')}" placeholder="Ex.: Aviso de negativação"
+                                title="É este nome que aparece na lista de inadimplentes, na coluna Última etapa.">
+                        </div>
+                    </div>
                     <div class="canais">
                         <label><input type="checkbox" id="canalEmail_${idx}" ${e.canais?.includes('email') ? 'checked' : ''}> E‑mail</label>
                         <label><input type="checkbox" id="canalWa_${idx}" ${e.canais?.includes('whatsapp') ? 'checked' : ''}> WhatsApp</label>
@@ -230,6 +237,7 @@
                 if (document.getElementById('canalWa_'+idx).checked) canais.push('whatsapp');
                 return {
                     etapa: e.etapa,
+                    nome: document.getElementById('nome_'+idx).value.trim(),
                     diasApos: Number(document.getElementById('diasApos_'+idx).value) || e.diasApos,
                     canais,
                     assunto: document.getElementById('assunto_'+idx).value,
@@ -296,6 +304,7 @@
     </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
     <script>initSidebar('cobrancas-config');</script>
 </body>
 </html>

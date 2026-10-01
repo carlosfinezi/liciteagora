@@ -210,7 +210,7 @@
       </div>
       <div class="form-group">
         <label>Custo NicSRS (US$)</label>
-        <input type="number" id="fCustoUsd" step="0.01" min="0" placeholder="ex.: 23.30">
+        <input type="text" id="fCustoUsd" placeholder="ex.: 23.30" data-formato="dinheiro">
       </div>
     </div>
 
@@ -277,6 +277,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/campo-formato.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('ssl-certificados');</script>
@@ -1389,7 +1391,7 @@ async function salvar(){
 // ==================== ações ====================
 
 async function aprovar(id, cn){
-  if (!confirm(`Comprar o certificado de ${cn} na NicSRS?\n\nIsto debita o saldo da conta NicSRS e não pode ser desfeito sem cancelamento.`)) return;
+  if (!await Aviso.confirmar(`Comprar o certificado de ${cn} na NicSRS?\n\nIsto debita o saldo da conta NicSRS e não pode ser desfeito sem cancelamento.`)) return;
   const r = await fetch(`/api/ssl/certificados/${id}/aprovar`, { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -1429,7 +1431,7 @@ async function cancelar(id){
   // pede confirmação e um motivo escrito. Até 17/09/2026 não pedia nem uma
   // coisa nem outra: o clique ia direto para a API com um motivo fixo, e o
   // botão tinha acabado de deixar de ser invisível na tela.
-  if (!confirm(`Cancelar o certificado ${cn}?\n\nO cancelamento é definitivo e o valor pago não é devolvido.`)) return;
+  if (!await Aviso.confirmar(`Cancelar o certificado ${cn}?\n\nO cancelamento é definitivo e o valor pago não é devolvido.`)) return;
 
   const motivo = prompt('Motivo do cancelamento. Ele vai para a NicSRS e fica no histórico do certificado.');
   // Fechar o prompt é desistir, e desistir não merece alerta nenhum.
@@ -1448,7 +1450,7 @@ async function cancelar(id){
 }
 
 async function reemitir(id){
-  if (!confirm('Reemitir agora? A reemissão é gratuita dentro da assinatura, mas dispara nova validação de domínio.')) return;
+  if (!await Aviso.confirmar('Reemitir agora? A reemissão é gratuita dentro da assinatura, mas dispara nova validação de domínio.')) return;
   const r = await fetch(`/api/ssl/certificados/${id}/reemitir`, { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -1497,7 +1499,7 @@ async function sincronizarAoAbrir(){
 
 // Puxa o que já existe na conta NicSRS. Só lê — nenhuma compra acontece aqui.
 async function importar(){
-  if (!confirm('Importar os certificados que já existem na conta NicSRS?\n\nSó leitura: nada é comprado. Pode levar alguns segundos, pois cada certificado vivo é detalhado individualmente.')) return;
+  if (!await Aviso.confirmar('Importar os certificados que já existem na conta NicSRS?\n\nSó leitura: nada é comprado. Pode levar alguns segundos, pois cada certificado vivo é detalhado individualmente.')) return;
   showAlert('Importando da NicSRS… aguarde.');
   try {
     const r = await fetch('/api/ssl/certificados/importar', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });

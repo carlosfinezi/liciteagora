@@ -38,7 +38,7 @@
       <input type="date" id="fAte" onchange="carregar()"></label>
     <select id="fRel" onchange="carregar()" style="min-width:280px;">
       <option value="por-tecnico">Por técnico — produtividade, margem e comissão</option>
-      <option value="por-cliente">Por cliente — receita, margem e reincidência</option>
+      <option value="por-cliente">Resultado das OS por cliente — receita, margem e reincidência</option>
       <option value="por-equipamento">Por equipamento — retorno e garantia</option>
       <option value="lucratividade">Lucratividade — OS a OS</option>
       <option value="sla">SLA — cumprimento de prazos</option>
@@ -53,12 +53,19 @@
 <div id="toasts"></div>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('os-relatorios');</script>
 <script>
 function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',6000);}
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
 function fmtNum(v){ return v==null?'—':Number(v).toLocaleString('pt-BR',{maximumFractionDigits:2}); }
+// Data sempre dd/mm/aaaa: o banco guarda ISO e a tela mostra o formato daqui.
+function fmtData(v){
+  if (!v) return '';
+  const d = String(v).slice(0,10).split('-');
+  return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : String(v);
+}
 function pct(v){ return v==null?'—':v+'%'; }
 const cor = v => v >= 0 ? 'pos' : 'neg';
 
@@ -125,6 +132,10 @@ const RENDERERS = {
   },
 
   'por-cliente': (r) => {
+    // Oficina tem equipamento; manutenção predial, limpeza e dedetização não.
+    // Sem ninguém cadastrado, a coluna era "— / 0 equip." em toda linha, o que
+    // faz quem não usa o cadastro procurar um erro que não existe.
+    const usaEquip = r.linhas.some(x => (x.equipamentos || 0) > 0);
     if (!r.linhas.length) return vazio('Sem dados no período.');
     const rows = r.linhas.map(x => `<tr>
       <td><strong>${esc(x.clienteNome)}</strong><span class="sub">${esc(x.cpfCnpj||'')}</span></td>
@@ -133,13 +144,13 @@ const RENDERERS = {
       <td class="num">${fmtBRL(x.custoPecas)}</td>
       <td class="num">${fmtBRL(x.custoMaoDeObra)}</td>
       <td class="num ${cor(x.margem)}"><strong>${fmtBRL(x.margem)}</strong><span class="sub">${pct(x.margemPct)}</span></td>
-      <td class="num ${x.osPorEquipamento>1.5?'neg':''}">${x.osPorEquipamento!=null?fmtNum(x.osPorEquipamento):'—'}
-        <span class="sub">${x.equipamentos||0} equip.</span></td>
-      <td>${(x.ultimaAbertura||'').slice(0,10)||'—'}</td>
+      ${usaEquip ? `<td class="num ${x.osPorEquipamento>1.5?'neg':''}">${x.osPorEquipamento!=null?fmtNum(x.osPorEquipamento):'—'}
+        <span class="sub">${x.equipamentos||0} equip.</span></td>` : ''}
+      <td>${fmtData(x.ultimaAbertura)||'—'}</td>
     </tr>`).join('');
     return tabela(`<th>Cliente</th><th class="num">OS</th><th class="num">Receita</th>
       <th class="num">Custo peças</th><th class="num">Custo M.O.</th><th class="num">Margem</th>
-      <th class="num" title="OS ÷ equipamentos: acima de 1 indica aparelho voltando">OS/equip.</th>
+      ${usaEquip ? '<th class="num" title="OS ÷ equipamentos: acima de 1 indica aparelho voltando">OS/equip.</th>' : ''}
       <th>Última</th>`, rows);
   },
 
@@ -168,7 +179,7 @@ const RENDERERS = {
     const t = r.totais || {};
     const rows = r.linhas.map(x => `<tr>
       <td><a href="/os/ordem-servico.html?id=${x.osId}"><strong>${esc(x.numero)}</strong></a>
-        <span class="sub">${(x.dataAbertura||'').slice(0,10)}</span></td>
+        <span class="sub">${fmtData(x.dataAbertura)}</span></td>
       <td>${esc(x.clienteNome||'')}<span class="sub">${esc(x.tecnicoNome||'sem técnico')}</span></td>
       <td class="num">${fmtBRL(x.valorTotal)}<span class="sub">${fmtBRL(x.valorPecas)} peças · ${fmtBRL(x.valorServicos)} serv.</span></td>
       <td class="num">${fmtBRL(x.custoPecas)}</td>
@@ -232,7 +243,7 @@ const RENDERERS = {
   'comissoes': (r) => {
     if (!r.linhas.length) return vazio('Sem OS faturadas com comissão no período.');
     const rows = r.linhas.map(x => `<tr>
-      <td>${(x.dataFaturamento||'').slice(0,10)}</td>
+      <td>${fmtData(x.dataFaturamento)}</td>
       <td><a href="/os/ordem-servico.html?id=${x.osId}">${esc(x.numero)}</a></td>
       <td>${esc(x.tecnicoNome)}</td>
       <td class="num">${fmtBRL(x.valorServicos)}</td>

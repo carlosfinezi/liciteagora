@@ -89,7 +89,7 @@
       </div>
       <div class="form-group">
         <label>Valor mínimo da parcela (R$)</label>
-        <input type="number" id="fValorMin" step="0.01" min="0" placeholder="sem mínimo">
+        <input type="text" id="fValorMin" placeholder="sem mínimo" data-formato="dinheiro">
       </div>
     </div>
 
@@ -144,6 +144,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('politicas-prazo');</script>
@@ -309,7 +311,7 @@ async function toggleAtivo(id, ativo){
 }
 
 async function excluir(id){
-  if (!confirm('Excluir esta política? Só é possível porque nenhum cadastro a usa.')) return;
+  if (!await Aviso.confirmar('Excluir esta política? Só é possível porque nenhum cadastro a usa.')) return;
   const r = await fetch('/api/politicas-prazo/' + id, { method: 'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error, 'error');

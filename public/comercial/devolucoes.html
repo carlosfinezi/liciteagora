@@ -173,7 +173,7 @@
       </div>
       <div class="form-group">
         <label>Valor unitário (R$) *</label>
-        <input type="number" id="iValor" step="0.01" min="0" value="0">
+        <input type="text" id="iValor" value="0" data-formato="dinheiro">
       </div>
     </div>
     <div class="form-row" id="rowLote" style="display:none;">
@@ -203,6 +203,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('devolucoes');</script>
@@ -438,7 +440,7 @@ async function selPedido(id, numero, clienteId, clienteNome){
     const d = await r.json();
     if (d.success) {
       const disponiveis = d.itens.filter(i => i.qtdDisponivel > 0);
-      if (disponiveis.length && confirm(`Pedido tem ${disponiveis.length} item(ns) disponível(is) para devolução. Importar todos?`)) {
+      if (disponiveis.length && await Aviso.confirmar(`Pedido tem ${disponiveis.length} item(ns) disponível(is) para devolução. Importar todos?`)) {
         itensBuffer = disponiveis.map(i => ({
           pedidoItemId: i.pedidoItemId,
           produtoId: i.produtoId, sku: i.sku, descricao: i.descricao,
@@ -515,20 +517,20 @@ document.addEventListener('input', e=>{
 
 function adicionarItem(){
   const produtoId = Number(document.getElementById('iProdId').value);
-  if (!produtoId) return alert('Selecione um produto');
+  if (!produtoId) return Aviso.erro('Selecione um produto');
   const qtd = Number(document.getElementById('iQtd').value);
   const valor = Number(document.getElementById('iValor').value);
-  if (!(qtd > 0)) return alert('Quantidade inválida');
-  if (!(valor >= 0)) return alert('Valor inválido');
+  if (!(qtd > 0)) return Aviso.erro('Quantidade inválida');
+  if (!(valor >= 0)) return Aviso.erro('Valor inválido');
   const rL = Number(document.getElementById('iRastreiaLote').value);
   const rS = Number(document.getElementById('iRastreiaSerial').value);
   const loteId = document.getElementById('iLote').value || null;
   const loteNumero = document.getElementById('iLote').selectedOptions[0]?.textContent || null;
-  if (rL && !loteId) return alert('Produto rastreia lote — escolha o lote');
+  if (rL && !loteId) return Aviso.erro('Produto rastreia lote — escolha o lote');
   let serialIds = [];
   if (rS) {
     const sels = Array.from(document.getElementById('iSerials').selectedOptions).map(o=>Number(o.value));
-    if (sels.length !== qtd) return alert(`Selecione exatamente ${qtd} serial(is)`);
+    if (sels.length !== qtd) return Aviso.erro(`Selecione exatamente ${qtd} serial(is)`);
     serialIds = sels;
   }
   const partes = document.getElementById('iProdBusca').value.split(' — ');
@@ -597,7 +599,7 @@ async function salvar(efetivar){
       showAlert(msg);
       // Comissão já paga não é reduzida na linha — vira acerto manual, e
       // um toast que some em segundos não serve para dinheiro.
-      if (d.avisoComissaoPaga) alert(d.avisoComissaoPaga);
+      if (d.avisoComissaoPaga) Aviso.erro(d.avisoComissaoPaga);
     } else {
       showAlert(id ? 'Devolução atualizada' : 'Devolução salva');
     }
@@ -607,7 +609,7 @@ async function salvar(efetivar){
 }
 
 async function emitirNFeDev(id){
-  if (!confirm('Emitir NF-e de devolução (finNFe=4) na SEFAZ?\n\nSerá gerada uma NF-e de entrada referenciando a NF-e original do pedido.')) return;
+  if (!await Aviso.confirmar('Emitir NF-e de devolução (finNFe=4) na SEFAZ?\n\nSerá gerada uma NF-e de entrada referenciando a NF-e original do pedido.')) return;
   showAlert('Emitindo NF-e de devolução… aguarde','success');
   try {
     const r = await fetch('/api/devolucoes/'+id+'/emitir-nfe', { method:'POST' });
@@ -625,7 +627,7 @@ async function emitirNFeDev(id){
 }
 
 async function cancelar(id){
-  if (!confirm('Cancelar esta devolução?')) return;
+  if (!await Aviso.confirmar('Cancelar esta devolução?')) return;
   const r = await fetch('/api/devolucoes/'+id, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -653,7 +655,7 @@ async function estornar(id, numero){
   showAlert(msg);
   // Crédito já baixado não pode ser desfeito por aqui — envolve dinheiro e
   // um toast some em segundos, então vai de alert para não passar batido.
-  if (d.avisoCredito) alert(d.avisoCredito);
+  if (d.avisoCredito) Aviso.erro(d.avisoCredito);
   carregar();
 }
 

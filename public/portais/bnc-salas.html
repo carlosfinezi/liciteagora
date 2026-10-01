@@ -146,12 +146,12 @@ async function toggleDryRun(id, aoVivo) {
     });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
-    if (aoVivo && !confirm('⚠️ Modo AO VIVO ativado. O robô vai enviar lances REAIS quando atender às regras. Tem certeza?')) {
+    if (aoVivo && !await Aviso.confirmar('⚠️ Modo AO VIVO ativado. O robô vai enviar lances REAIS quando atender às regras. Tem certeza?')) {
       // re-toggle back if user cancels confirm
       await fetch('/api/bnc/salas/'+id+'/dry-run', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ dryRun: true }) });
     }
     carregar();
-  } catch (e) { alert(e.message); }
+  } catch (e) { Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function abrirAutoLance(salaId, label) {
@@ -262,7 +262,7 @@ async function toggleAtivo(id, ativo) {
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     carregar();
-  } catch (e) { alert(e.message); }
+  } catch (e) { Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function redescobrir(id) {
@@ -271,23 +271,24 @@ async function redescobrir(id) {
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     carregar();
-  } catch (e) { alert(e.message); }
+  } catch (e) { Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function remover(id) {
-  if (!confirm('Remover esta sala? O robô vai parar de monitorar.')) return;
+  if (!await Aviso.confirmar('Remover esta sala? O robô vai parar de monitorar.')) return;
   try {
     const r = await fetch('/api/bnc/salas/'+id, { method: 'DELETE' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     carregar();
-  } catch (e) { alert(e.message); }
+  } catch (e) { Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 carregar();
 </script>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
 <script src="/js/grid.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('bnc-salas');</script>

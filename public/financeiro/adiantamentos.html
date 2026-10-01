@@ -61,7 +61,7 @@
           <option value="fornecedor">A fornecedor (dinheiro sai)</option>
         </select>
       </div>
-      <div class="form-group"><label>Valor (R$)</label><input type="number" id="nValor" step="0.01" min="0.01"></div>
+      <div class="form-group"><label>Valor (R$)</label><input type="text" id="nValor" data-formato="dinheiro"></div>
     </div>
     <div class="form-row">
       <div class="form-group full-width"><label id="lblQuem">Cliente</label><select id="nQuem"></select></div>
@@ -91,7 +91,7 @@
       <div class="form-group full-width"><label>Título em aberto</label><select id="uTitulo"></select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Valor a abater (R$)</label><input type="number" id="uValor" step="0.01" min="0.01"></div>
+      <div class="form-group"><label>Valor a abater (R$)</label><input type="text" id="uValor" data-formato="dinheiro"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fechar('modalUsar')">Cancelar</button>
@@ -104,6 +104,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('fin-adiantamentos');</script>
@@ -208,7 +210,7 @@ async function confirmarUsar(){
 }
 
 async function devolver(id, saldo){
-  if (!confirm(`Devolver R$ ${fmt(saldo)} ao cliente/fornecedor? O valor sai/entra no caixa.`)) return;
+  if (!await Aviso.confirmar(`Devolver R$ ${fmt(saldo)} ao cliente/fornecedor? O valor sai/entra no caixa.`)) return;
   const r = await fetch(`/api/adiantamentos/${id}/devolver`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');

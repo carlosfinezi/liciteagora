@@ -105,6 +105,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('tef');</script>
@@ -205,7 +206,7 @@ async function salvarTerm(){
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   fechar('modalTerm'); carregarTerm();
 }
-async function remTerm(id){ if(!confirm('Desativar terminal?'))return; await fetch('/api/tef/terminais/'+id,{method:'DELETE'}); carregarTerm(); }
+async function remTerm(id){ if(!await Aviso.confirmar('Desativar terminal?'))return; await fetch('/api/tef/terminais/'+id,{method:'DELETE'}); carregarTerm(); }
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;

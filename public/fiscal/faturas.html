@@ -51,6 +51,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('faturas');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -165,7 +166,7 @@ async function cancelarFatura(id){
     mensagemSucesso = 'Fatura e NF-e canceladas';
   } else {
     // Caso A: só fatura
-    if (!confirm('Cancelar fatura? A conta a receber também será cancelada e o pedido voltará para "rascunho".')) return;
+    if (!await Aviso.confirmar('Cancelar fatura? A conta a receber também será cancelada e o pedido voltará para "rascunho".')) return;
   }
 
   if (motivo !== null && motivo.trim().length < 15) {

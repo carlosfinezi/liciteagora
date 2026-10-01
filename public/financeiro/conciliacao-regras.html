@@ -35,8 +35,8 @@
       <option value="palavra">Palavra inteira</option>
       <option value="contem">Contém (mais amplo)</option>
     </select>
-    <input type="number" id="rValorMin" placeholder="Valor mín." step="0.01" style="width:110px;">
-    <input type="number" id="rValorMax" placeholder="Valor máx." step="0.01" style="width:110px;">
+    <input type="text" id="rValorMin" placeholder="Valor mín." style="width:110px;" data-formato="dinheiro">
+    <input type="text" id="rValorMax" placeholder="Valor máx." style="width:110px;" data-formato="dinheiro">
     <button class="btn btn-secondary btn-sm" onclick="testarRegra()">Testar</button>
     <button class="btn btn-primary btn-sm" onclick="addRegra()">+ Regra</button>
   </div>
@@ -77,6 +77,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('fin-conciliacao-regras');</script>
@@ -214,7 +216,7 @@ async function reaplicar(reprocessar){
   if (!contaFinanceiraId) return showAlert('Escolha a conta','error');
   // Reprocessar desfaz o que as regras decidiram antes — inclusive devolver à
   // fila o que foi "ignorado". Conciliação feita por pessoa não é tocada.
-  if (reprocessar && !confirm('Reavaliar também o que já foi classificado por regra? A conciliação feita manualmente não é alterada.')) return;
+  if (reprocessar && !await Aviso.confirmar('Reavaliar também o que já foi classificado por regra? A conciliação feita manualmente não é alterada.')) return;
   const r = await fetch('/api/conciliacao/regras/aplicar', { method:'POST',
     headers:{'Content-Type':'application/json'}, body: JSON.stringify({ contaFinanceiraId, reprocessar: !!reprocessar }) });
   const d = await r.json();
@@ -225,7 +227,7 @@ async function reaplicar(reprocessar){
 }
 
 async function excluirRegra(id, padrao){
-  if (!confirm(`Excluir a regra "${padrao}"? As transações pendentes que ela classificou voltam a ficar sem classificação.`)) return;
+  if (!await Aviso.confirmar(`Excluir a regra "${padrao}"? As transações pendentes que ela classificou voltam a ficar sem classificação.`)) return;
   const d = await fetch('/api/conciliacao/regras/'+id, { method:'DELETE' }).then(r=>r.json());
   if(!d.success) return showAlert(d.error,'error');
   showAlert('Regra excluída'); carregar();

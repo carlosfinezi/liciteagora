@@ -188,7 +188,10 @@ let BASE;
 
   t('11. a tela trata o 409 e reenvia com `confirmar`', () => {
     ok(/precisaDecisao/.test(js), 'a tela ignora o 409 — o usuário veria só "erro"');
-    ok(/confirm\(/.test(js), 'sem confirmação, o escape vira clique cego');
+    // Vale a confirmação do navegador ou a do sistema (`Aviso.confirmar`),
+    // que a substituiu em 01/10/2026.
+    ok(/(?:^|[^.\w])confirm\(|Aviso\.confirmar\(/.test(js),
+      'sem confirmação, o escape vira clique cego');
     ok(/gerarPedidoCompra\(itemId,\s*true\)/.test(js), 'a tela não reenvia confirmando');
     // A lista tem de chegar ao texto da confirmação: "tem certeza?" sem dizer
     // o que já existe não é decisão informada.

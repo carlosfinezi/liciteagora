@@ -112,7 +112,7 @@ table.bairros td.acoes { text-align: right; white-space: nowrap; }
     </div>
     <div class="campo-valor" id="campoFixo" hidden>
       <label for="freteValor">Taxa fixa (R$)</label>
-      <input id="freteValor" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00">
+      <input id="freteValor" type="text" inputmode="decimal" placeholder="0,00" data-formato="dinheiro">
     </div>
     <div class="linha-check" style="margin-top:14px;">
       <input type="checkbox" id="aceitaFora">
@@ -135,6 +135,8 @@ table.bairros td.acoes { text-align: right; white-space: nowrap; }
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('loja');</script>
 <script>
 /* Entrega e cobertura do Catálogo Online.

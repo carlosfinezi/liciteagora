@@ -6,6 +6,21 @@
 <script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* O grid.js dimensiona a coluna pela largura do CABEÇALHO e respeita o
+     min-width declarado no <th>. Sem estes pisos, "Número" media o tamanho da
+     palavra e cortava CT-2026-004 em "CT-2026-…", com espaço sobrando à
+     direita da tabela. */
+  th.c-numero   { min-width: 128px; }
+  th.c-cliente  { min-width: 190px; }
+  th.c-desc     { min-width: 200px; }
+  th.c-vigencia { min-width: 186px; }
+  /* Cliente e descrição quebram linha em vez de serem cortados — o .grid-on
+     põe nowrap em toda td, e daqui para baixo vence por especificidade. */
+  .tbl-wrap table.grid-on td.q-quebra {
+    white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.3;
+  }
+</style>
 </head>
 <body>
 <div class="layout"><main class="main-content">
@@ -36,11 +51,11 @@
     <table>
       <thead><tr>
         <th class="col-editar"></th>
-        <th>Número</th>
-        <th>Cliente</th>
-        <th>Descrição</th>
+        <th class="c-numero">Número</th>
+        <th class="c-cliente">Cliente</th>
+        <th class="c-desc">Descrição</th>
         <th class="num">Valor mensal</th>
-        <th>Vigência</th>
+        <th class="c-vigencia">Vigência</th>
         <th>Status</th>
         <th></th>
       </tr></thead>
@@ -83,7 +98,7 @@
       </div>
       <div class="form-group">
         <label id="lblValor">Valor mensal (R$) *</label>
-        <input type="number" id="fValor" step="0.01" min="0">
+        <input type="text" id="fValor" data-formato="dinheiro">
       </div>
       <div class="form-group">
         <label>Dia de vencimento</label>
@@ -183,6 +198,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('contratos');</script>
@@ -190,6 +207,12 @@
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
 let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
 function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+// Data sempre dd/mm/aaaa: o banco guarda ISO e a tela mostra o formato daqui.
+function fmtData(v){
+  if (!v) return '';
+  const d = String(v).slice(0,10).split('-');
+  return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : String(v);
+}
 
 async function carregar(){
   const p = new URLSearchParams();
@@ -211,7 +234,7 @@ async function carregar(){
     <td>${c.clienteNome}</td>
     <td>${c.descricao}</td>
     <td class="num">${fmtBRL(c.valorMensal)}${c.periodicidade==='anual'?'<br><small class="muted">anual</small>':''}</td>
-    <td>${c.dataInicio} → ${c.dataFim||'—'}</td>
+    <td>${fmtData(c.dataInicio)} → ${c.dataFim ? fmtData(c.dataFim) : '—'}</td>
     <td><span class="badge ${c.status==='ativo'?'ativo':c.status==='suspenso'?'pendente':'inativo'}">${c.status}</span></td>
     <td></td>
   </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum contrato</td></tr>';

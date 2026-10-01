@@ -90,7 +90,7 @@ async function toggleSilenciar(chaveId, btn) {
     btn.outerHTML = btnSilenciar({ chave_id: chaveId, silenciado: d.silenciado });
   } catch (e) {
     btn.disabled = false;
-    alert('Não deu para mudar: ' + e.message);
+    Aviso.erro('Não deu para mudar: ' + e.message);
   }
 }
 </script>
@@ -98,6 +98,7 @@ async function toggleSilenciar(chaveId, btn) {
 <script>renderChatConfigPanel('cfgPanel','pcp');</script>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('pcp-monitor'); carregarPregoes();</script>
 </body>

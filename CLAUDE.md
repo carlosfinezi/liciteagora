@@ -110,6 +110,54 @@ em `data/tenants/` e a chave do pool de conexões dos dois processos:
 As imagens da loja guardam o slug antigo no nome do arquivo
 (`logo-floricultura-…`). Isso é só nome, e continua servindo.
 
+### Tenants de demonstração: um por sessão, e a posse se anuncia
+
+São **dois**, iguais no cuidado e trocáveis entre si:
+
+| slug | endereço | encerramento |
+|---|---|---|
+| `sandbox` | `sandbox.liciteagora.app` | `sudo bash scripts/encerrar-demo.sh sandbox --sim` |
+| `demo2` | `demo2.liciteagora.app` | `sudo bash scripts/encerrar-demo.sh demo2 --sim` |
+
+Os dois nascem vazios, sem certificado, sem SMTP, sem WhatsApp, sem provedor
+de boleto e sem integração nenhuma, e **é assim que ficam**: quem monta um
+retrato semeia o banco direto, nunca por rota de emissão. O banco de
+referência e o nome original de cada um vivem em `backups/<slug>/`.
+
+**Pegue um que esteja SUSPENDED, e só esse.** Isto não é etiqueta: em
+01/10/2026 duas sessões montaram retrato no `sandbox` com quatro horas de
+diferença, e a segunda só soube da primeira porque o tenant apareceu ACTIVE
+com nome de outro ramo. A primeira coisa de qualquer trabalho de retrato é:
+
+```
+sqlite3 -readonly data/control.db \
+  "SELECT slug, status, name FROM tenants WHERE slug IN ('sandbox','demo2')"
+```
+
+**ACTIVE quer dizer OCUPADO.** Não ative o que já está ativo, não encerre o
+que você não ativou, e não conte com o nome: ele é do retrato de quem pegou.
+
+**A anotação é dupla, e as duas pontas importam.** No sistema, a posse já se
+anuncia sozinha — ao ativar, você grava `status = ACTIVE`, o nome do seu
+retrato e uma linha em `tenant_audit` com o seu `actor`. Essa é a marca que a
+próxima sessão lê, e é a que vale. Para o usuário, **diga na primeira resposta
+qual você pegou**, em uma linha ("estou usando o `demo2`"), porque ele
+acompanha mais de uma conversa ao mesmo tempo e não vai consultar o banco para
+descobrir onde cada uma está mexendo.
+
+**Encerre o que você abriu, antes de acabar a sessão.** O
+`scripts/encerrar-demo.sh` restaura o banco, devolve o nome e põe em
+SUSPENDED. Sem `--sim` ele não escreve nada: lista o que o banco vivo tem e
+para, para você conferir que o retrato ali dentro é o seu. Por padrão ele
+restaura o tenant vazio; se a sua sessão tirou um backup ao começar — e
+deveria —, passe-o em `--pncp`, porque ele tem as migrações que rodaram desde
+então. Banco antigo demais deixa o servidor vivo batendo em "no such table".
+
+Precisando de um terceiro, há `sandbox2` a `sandbox6` no `control.db`, todos
+limpos e suspensos, mas **sem vhost**: sem endereço eles não abrem no
+navegador e não servem para print. O `sandbox5` ainda é o alvo padrão do
+`scripts/test-provisionamento-tenant-novo.js` — esse não se usa.
+
 ### Chave do certificado A1: `/etc/liciteagora/chave-certificado.env`
 
 Desde 27/09/2026 a senha do certificado digital fica cifrada no banco
@@ -777,6 +825,239 @@ o processo vivo segue com a versão que leu no boot. Antes de reiniciar, leia o
 que muda. **Mantenha a lista atualizada a cada edição de `.js` da raiz**, e
 esvazie a parte do serviço que foi reiniciado.
 
+### Em vigor desde o boot de 2026-10-01 12:15:33: opção numerada e os dois desvios do roteiro
+
+A pedido, sem backup (nenhuma mudança de schema). Boot limpo, `NRestarts=0`,
+HTTP 302, journal sem erro de carregamento. **O boot levou só estes três
+arquivos**: nenhuma outra frente tinha `.js` da raiz alterado depois do boot
+anterior (10:59:26), conferido por `find -newermt`. Nenhuma campanha em
+`enviando` em tenant algum.
+
+**O `sandbox` estava ACTIVE** (outra sessão o ativou) e o
+`reiniciar-com-sandbox-suspenso.sh` **não** foi usado, pelo mesmo motivo do boot
+das 10:59: ele existe para o SCHEDULER não armar jobs do sandbox, e mexe no
+status de um tenant que não é meu. Só o servidor web reiniciou. Conferido antes:
+o sandbox não tem robô do PCP ligado, campanha agendada, canal de WhatsApp,
+roteiro ativo nem chave de IA, então o boot não armou nada para ele.
+
+**Nada pendente deste serviço por esta frente.**
+
+| Arquivo | O que o boot pôs em vigor |
+|---|---|
+| `roteiros.js` | `respostaNumerica`, `opcoesNumeradas`, `desvioPedido`; `validar` recusa desvio que não é texto; `conferirExtracao` recusa trecho que é só número |
+| `roteiro-conversa.js` | resolve o número ANTES da IA (`resolverNumero`); opções numeradas no prompt; `desvioDaMensagem` |
+| `whatsapp-webhook.js` | o `autoResponder` consulta o desvio e desliga a IA quando pedem uma pessoa |
+
+- **A resposta pelo NÚMERO é resolvida pelo Node, sem IA.** O prompt oferece as
+  opções como "1) …", e a fala que é só um número grava a opção daquela posição.
+  Isso não podia ficar com o modelo: o `conferirExtracao` prova a resposta
+  exigindo que o trecho esteja no que o contato escreveu, e um trecho `"2"` casa
+  com qualquer "2" da conversa, inclusive o de um telefone. A guarda é a mensagem
+  anterior conter o rótulo daquela opção; sem ela, um "2" solto gravaria resposta.
+  Resposta escrita com as palavras do lead continua indo para a IA, como antes.
+- **Pedir uma pessoa desliga a IA da conversa** (`iaAtiva = 0`), soma uma não
+  lida e grava evento em `conv_eventos`. Só mandar "aguarde" e continuar
+  perguntando faria a promessa virar mentira na mensagem seguinte.
+- **Os gatilhos exigem o verbo junto do objeto**, e isso não é zelo: "Alguém
+  anota em caderno ou planilha" e "o gerente, de uma em uma semana" são respostas
+  legítimas do roteiro de alimentação. Com "alguém" ou "gerente" soltos, responder
+  a etapa do estoque desligaria o atendimento automático. Qualquer negação na
+  frase ("não quero falar com atendente") derruba o desvio inteiro; o custo é o
+  falso negativo, que é o erro mais barato dos dois.
+- **Os dois desvios vêm DEPOIS das guardas do `autoResponder`.** Antes delas,
+  responderiam com a IA desligada à mão, fora do expediente, fora do escopo de
+  campanha e durante a pausa por atendimento humano, justamente onde o sistema
+  hoje cala.
+- **A mensagem do material usa `{{linkMaterial}}`**, que precisa existir em
+  Variáveis do roteiro, senão o salvar recusa com "Variável sem valor" (é a regra
+  antiga, e é ela que impede o link vazio chegar ao cliente). Escrever o endereço
+  direto na mensagem também vale. **Nenhum roteiro do 1bit tem os desvios
+  configurados ainda**: até alguém preencher em Comunicação › Roteiros, a IA
+  responde esses pedidos como antes. A NUMERAÇÃO não depende de configuração
+  nenhuma e já vale em toda campanha com roteiro.
+- **Os desvios são do ROTEIRO, então não existem fora dele.** Conversa sem
+  campanha com roteiro nunca desvia, nem para pedido de atendente: quem decide
+  ali é o escopo do atendente (com `campanha`, a IA não responde a quem chegou por
+  fora, e é o caso do 1bit). Se algum dia o pedido de uma pessoa precisar desligar
+  a IA em QUALQUER conversa, o lugar não é este: seria uma regra do canal, ao lado
+  do opt-out, e não do roteiro.
+- Provas: bloco N e D da etapa 150 (`test-roteiros-campanha`, 30 checagens) e a
+  etapa 166 nova (`test-roteiro-desvio-webhook`, 4), que prova o FIO entre o
+  webhook e as regras — sem ela, esquecer a chamada no `autoResponder` passaria
+  verde, porque as regras continuariam certas.
+
+  Sabotagens que reprovaram: guarda do rótulo na mensagem anterior (N1b),
+  negação do desvio (D1b), gatilho largo com "gerente" e "alguém" soltos (D1b),
+  material sem a pergunta da etapa (D2), validação de tipo (D4) e a chamada do
+  desvio removida do `autoResponder` (W1 e W2, 3 de 4).
+
+  **Uma sabotagem passou verde, e o motivo é informação:** derrubar a conferência
+  por TIPO em `desvioPedido` não reprova nada, porque `desvioDaMensagem` recusa
+  mensagem vazia e segura o caso. São duas guardas para a mesma coisa. Reprova
+  derrubando as duas juntas (D3). Quem mexer ali não pode concluir que a primeira
+  é supérflua pelo verde de uma sabotagem só.
+
+### Pendente: reaplicar a extração da peça de campo na loja
+
+**A loja usa HOJE a cópia própria das máscaras, e isso está certo por ora.** A
+peça `public/js/campo-formato.js` nasceu dentro do `public/loja/catalogo.js` e
+saiu dele em 30/09/2026 para servir também ao ERP; o `catalogo.js` passou a
+consumi-la por uma ponte no topo (`const { ... } = window.CampoFormato`).
+
+Em **01/10 às 09:52 a extração foi desfeita** pela sessão que trabalha na loja
+do Cantinho Verde: o `catalogo.js` voltou às 2.724 linhas com as funções
+próprias (`digitosDe`, `formatarTelefone`, `cpfValido`…) e o `index.html` perdeu
+a tag do script. **Decisão do usuário: fica assim até ele avisar** que aquela
+frente terminou, e então a extração se reaplica.
+
+O que isso NÃO é: defeito. As três lojas publicadas (`1bit`,
+`produtosbomgosto`, `josecarloscostafilho`) montam até o checkout, mascaram
+telefone e documento e recusam dígito verificador errado — conferido no domínio
+real em 01/10 às 10:50, sem finalizar pedido. A do `cantinhoverde` está com
+`loja_config.ativa = 0` e responde "Loja não publicada": é a frente em
+andamento, e não falha.
+
+**O que a convivência das duas versões quebrou, e já está consertado:** as duas
+leituras do troco (`catalogo.js`, `corpo.trocoPara` e a validação) tinham sido
+ajustadas para o campo que entrega NÚMERO, que é o comportamento da peça. Com a
+máscara própria de volta, elas passaram a ler `"R$ 50,00"`, e `Number` disso é
+`NaN` — o pedido em dinheiro acusava "Para quanto precisa de troco?" com o campo
+preenchido. Voltaram para `Number(digitosDe(v(...)))/100` em 01/10 às 10:39.
+
+**Ao reaplicar**, três coisas e nenhuma é opcional:
+
+1. a ponte no topo do `catalogo.js`, em lugar das definições próprias. Ela é
+   mecânica: a peça commitada exporta os mesmos nomes que o `catalogo.js` define
+   hoje, então a ponte é um `const { … } = window.CampoFormato` com a lista
+   deles. A versão já escrita está em `/tmp/rev/catalogo-depois.js`, enquanto o
+   `/tmp` durar;
+2. `<script src="/js/campo-formato.js">` ANTES do `catalogo.js` no
+   `index.html` — sem isso a ponte lê `undefined` e a vitrine não monta;
+3. as duas leituras do troco voltam para `Number(v('chkTrocoPara') || 0)`,
+   porque com a peça o campo entrega o número. Deixá-las como estão hoje
+   dividiria o valor por 100 duas vezes.
+
+Prova de ponta a ponta: `node scripts/test-pecas-pre-auth.js` e a conferência
+das lojas no domínio real, abrindo o checkout por `pintarCheckout()` e sem
+submeter nada.
+
+**Em vigor desde o boot de 2026-09-30 17:55:38, feito por outra sessão: a
+padronização dos campos de dado.** Nada pendente deste serviço por esta frente.
+Os quatro arquivos são anteriores a esse boot (o mais recente, o
+`pre-auth-routes.js`, é das 17:42:48):
+
+| Arquivo | O que o boot pôs em vigor |
+|---|---|
+| `pre-auth-routes.js` | `/js/campo-formato.js` e `/js/aviso-sistema.js` liberados ANTES do login |
+| `pessoa-sem-documento.js` | `cpfValido`, `cnpjValido` e `erroDeDocumento` |
+| `financeiro-routes.js` | `POST /api/pessoas` recusa documento com dígito errado; `cep` entra só com dígitos |
+| `loja-routes.js` | `documentoValido` usa a conferência do `pessoa-sem-documento` |
+
+**Por que a liberação em `pre-auth-routes.js` existe, para quem for mexer nela:**
+o static de `public/` vive atrás do `requireAuth`
+(`auth-bootstrap.installProtectedStatic`), então quem pede `/js/x.js` sem sessão
+recebe o HTML da tela de login **com status 200** — e um `<script src>` que
+recebe HTML não avisa nada. A loja pública, o cardápio do QR Code, o portal do
+cliente e as telas de orçamento usam as duas peças, e sem a liberação elas
+ficariam sem nenhuma. Conferido em 01/10 às 10:45 contra a produção:
+`GET /js/campo-formato.js` sem cookie devolve 22.414 bytes de
+`application/javascript` nos hosts de `cantinhoverde`, `1bit` e
+`produtosbomgosto`. A suíte 161 (`test-pecas-pre-auth`) guarda isso, e
+`menu-config.js` e `sidebar.js` seguem atrás do login de propósito.
+
+Nenhuma migração de banco. A validação do documento vale só para cadastro novo,
+e as 8 fichas com dígito errado que já estão gravadas não travam — elas estão
+listadas por `node scripts/listar-documentos-invalidos.js`, que é leitura pura.
+
+**Em vigor desde o boot de 2026-10-01 10:59:26, a pedido (limpo,
+`NRestarts=0`, HTTP 302, depois do backup `backups/db/2026-10-01-1058`): a
+mídia do WhatsApp guardada no recebimento, e a mensagem apagada marcada.**
+Conferido depois do boot: a coluna `apagadaEm` nos 20 tenants, nenhum sem a
+tabela. Antes do boot: `sandbox` ACTIVE mas sem robô do PCP ligado, nenhuma
+campanha em `enviando` em tenant nenhum. **Só o servidor web** — o scheduler
+não carrega o webhook nem a mídia, e reiniciá-lo levaria junto a pendência de
+28/09 do estoque mais o que outras sessões deixaram hoje. O
+`reiniciar-com-sandbox-suspenso.sh` não foi usado de propósito: ele existe para
+o SCHEDULER não armar os jobs do sandbox, e mexe no status de um tenant que
+outra sessão ativou.
+
+A mídia do WhatsApp tem prazo, e ninguém sabia: até hoje ela só era buscada
+quando alguém ABRIA a conversa (`wa-midia.obter`), e o link expira sozinho.
+Medido no 1bit em 01/10, imagem por imagem: **05/09 ainda baixa, 04/09 e os 14
+dias testados antes dele, não.** São ~26 dias. Não é a Evolution que apaga — as
+4.519 mensagens de mídia estavam todas no banco dela. Era o CDN do WhatsApp.
+**2.434 das 4.519 já estavam perdidas** quando isso foi descoberto.
+
+| Arquivo | O que o boot pôs no ar |
+|---|---|
+| `whatsapp-webhook.js` | guarda a mídia no RECEBIMENTO; trata `messages.delete` marcando a mensagem |
+| `wa-midia.js` | `TIPOS_GUARDAR` (figurinha fora) e `guardarAgora`, que não lança |
+| `whatsapp-adapter.js` | ALTER de `whatsapp_messages.apagadaEm` no `migrarQueue` |
+| `db-schema.js` | o mesmo ALTER no boot, que é o que alcança os 20 tenants |
+| `conversas-routes.js` | a listagem da conversa devolve `apagadaEm` |
+
+**A Evolution assina `MESSAGES_DELETE`** nas três instâncias (`status1bit`,
+`le_1bit_2`, `le_josecarloscostafilho`), feito às 10:41 de 01/10 por
+`POST /webhook/set/<instância>`, preservando url, `base64` e `byEvents`. Entre
+10:41 e o boot das 10:59 o servidor vivo descartava esse evento, então
+**exclusão nessa janela de 18 min passou sem marca** — o evento não se repete e
+não há como recuperá-la.
+
+O boot não levou nada de outras frentes: o `.js` da raiz mais recente depois do
+meu era de 30/09, já em vigor desde os boots daquele dia.
+
+**Provado em produção com mídia real**, e não só em suíte: a primeira imagem a
+chegar depois do boot (id 52542, do contato, 11:10:03) foi guardada sozinha em
+`data/tenants/1bit/wa-midia/52542.bin`, 30.435 bytes, JPEG íntegro — sem
+ninguém abrir a conversa, que era exatamente o que faltava.
+
+**Figurinha fica de fora do que se guarda sozinho**, a pedido: 159 em 26 dias no
+1bit, quase todas repetidas. Abrir a conversa ainda a busca sob demanda, se o
+WhatsApp a tiver. O que a lista decide é o gasto automático de disco.
+
+**O resgate rodou em 01/10**, a pedido, por
+`node scripts/resgatar-wa-midia.js 1bit --aplicar`: 2.321 mídias dentro de 30
+dias sem arquivo em disco, do MAIS ANTIGO para o mais novo, porque é o da borda
+da janela que morre primeiro. Sem `--aplicar` o script só conta. As ~394 de
+mais de 26 dias são quase todas recusa esperada, e cada recusa custa ~7 s de
+espera da Evolution. O `josecarloscostafilho` tem outras 261, não resgatadas.
+
+Peso medido por amostra real, para dimensionar o disco: áudio 137 KB, imagem
+59 KB, documento 426 KB, **vídeo 5,0 MB**. No ritmo do 1bit dá cerca de 22 MB
+por dia e 7,8 GB por ano, e o vídeo é 3% dos arquivos com mais da metade do
+peso.
+
+**Dois formatos de id no mesmo evento, e trocá-los marca a mensagem errada.** A
+Evolution emite `messages.delete` de dois lugares (conferido em
+`/opt/evolution-api`, `whatsapp.baileys.service.ts`): do `messages.update` com
+a mensagem nula, que é quem apaga para todos no celular, o id vem no TOPO
+(`data.id`); do `deleteMessage` da API dela, `data.id` é o uuid INTERNO e o do
+WhatsApp está em `data.key.id`. O `idApagado` dá precedência ao `data.key.id`.
+
+Prova: etapa 165 (`test-wa-midia-apagada`), 22 checagens, com o `fetch`
+injetado e nenhuma chamada à Evolution. Sabotadas as três garantias (figurinha
+de volta, `data.key.id` ignorado, webhook sem guardar), reprovou em 6.
+
+**Em vigor desde o boot de 2026-09-30 15:00:41, feito por outra sessão (anexo
+da máquina em Meus anexos).** O arquivo é de 30/09 às 12:40, e aquele boot, mais
+os de 17:12, 17:29, 17:30 e 17:55, são todos posteriores: **a nota que dizia
+"pendente até o restart" estava errada, e o ZIP já funcionava desde ontem à
+tarde.**
+`comprasnet-anexos-routes.js` deixou de exigir PDF no envio de arquivo local. A
+validação passou a ser por extensão, contra o mapa `TIPOS_ANEXO` (pdf, zip,
+rar, png, jpg, jpeg, doc, docx, xls, xlsx, txt), e o `Content-Type` do
+multipart sai dele. Vale para as duas rotas que chamam `enviarAnexoCompra`: a
+`/api/interesse/anexos` da tela de Interesses e a `/api/comprasnet/anexos` do
+Electron.
+
+O teto é de 7 MB por arquivo, conferido no navegador, porque o body do Express
+para em 10 MB e o base64 infla 33%.
+
+Prova: bloco novo na etapa 127b (`test-interesse-anexos-api`), que grava um
+bearer com validade e substitui o `axios.post` para ver o multipart. Com a
+validação antiga de volta, reprova em 4 das 23. Verify rápido de 12:52: 7
+suítes, 89,6 s, zero falhas.
+
 **`consulta-licitacoes.service`** (o `server.js`) — boot atual: **2026-09-30
 11:29:24**, a pedido, depois do backup `backups/db/2026-09-30-1057`: **o motor
 da campanha nova não segura mais o disparo seguinte**, e a campanha enviada
@@ -784,6 +1065,74 @@ volta a ser editável. Boot limpo, `NRestarts=0`, HTTP 302; nenhum sandbox ACTIV
 e nenhuma campanha em `enviando` em tenant nenhum no instante do restart (com
 uma em envio, o restart a deixaria presa nesse estado até o tique do
 `wa-scheduler`). **Nada pendente deste serviço.**
+
+**Em vigor desde o boot de 2026-09-30 15:00:41, a pedido (limpo, `NRestarts=0`,
+HTTP 302, sandboxes SUSPENDED e nenhuma campanha em `enviando` conferidos
+antes; backup `backups/db/2026-09-30-1457`): conciliação bancária pelo extrato
+da API, sem OFX.** O provedor de boleto da conta ganhou um método opcional `listarExtrato`,
+e quem o tem passa a alimentar a mesma `transacoes_bancarias` do OFX. Hoje só o
+Asaas (`GET /v3/financialTransactions`, conferido contra a API de produção do
+1bit em 30/09: 148 lançamentos, `startDate`/`finishDate` e paginação por
+`hasMore`). Arquivos do servidor web: `conciliacao-routes.js`
+(`importarExtratoProvedor`, `POST /api/conciliacao/importar` e
+`GET /api/conciliacao/extrato-contas`), `boleto-provedores/asaas.js`,
+`boleto-provedores/index.js`, `boleto-provedores-routes.js` e
+`boleto-orchestrator.js`.
+
+- **Schema no boot, conferido nos 20 tenants**: `contas_financeiras_boleto.extratoAuto`
+  (default 0), pelo `migrarSchema` do orquestrador, mais
+  `transacoes_bancarias.origemImportacao` ('ofx' ou 'api'; NULL vale 'ofx',
+  porque todo o histórico é de arquivo). O `extratoAuto` nasce desligado em
+  todos: ligar sozinho gastaria chamada da API de quem nunca pediu.
+- **O `migrarDB` da conciliação nunca alcançou tenant nenhum, e isso já estava
+  quebrado antes desta frente.** Ele roda pelo `registrarRotasConciliacao`, que
+  passa pelo BOOT_STUB do proxy multi-tenant: o **primeiro** restart de 30/09
+  (14:59:08) criou o `extratoAuto` nos 20 e **nenhuma** coluna de
+  `transacoes_bancarias`. Ou seja, `pagamentoId` — que o CONC-02 desta mesma
+  data grava ao conciliar com CR/CP — não existia em tenant algum desde o boot
+  das 11:29. O conserto é uma linha no `db-schema.js`, logo abaixo da do
+  `boleto-orchestrator`, e foi o que motivou o segundo restart, às 15:00:41.
+  Ensaio antes, sobre cópias: as 3 colunas criadas em 1bit, produtosbomgosto e
+  reimac, sem perder linha, no máximo 715 ms.
+- **O mesmo extrato por duas portas duplicaria tudo, e isso não é hipótese.**
+  O `1bit` já sobe o OFX do Asaas: as 57 linhas de setembro que a API devolveu
+  são as mesmas 57 que o arquivo tinha trazido, com identificador diferente dos
+  dois lados. Sem guarda, a conta ficaria com 114 linhas e conciliar as duas
+  metades como avulsas lançaria o dinheiro em dobro. `jaVeioPelaOutraPorta`
+  casa por conta, data e valor, **uma linha existente para cada nova** (dois
+  recebimentos iguais no mesmo dia continuam sendo dois), e vale nos dois
+  sentidos: o upload de OFX também pula o que já veio da API.
+- **Quem já usa OFX ganha na transição.** Quando a linha da API é uma que o
+  arquivo já trouxe, ela não entra, mas o vínculo com a cobrança — que só a API
+  tem — é aplicado à linha antiga, se ela ainda estiver pendente. No ensaio
+  sobre a cópia do `1bit`, 5 linhas de setembro (R$ 6.722,89) deixaram de ser
+  pendentes e passaram a apontar as baixas que o polling já tinha feito.
+- **O `paymentId` é o que o OFX não tem.** A linha que veio de uma cobrança já
+  baixada pelo webhook ou pelo polling nasce **conciliada**, apontando aquele
+  pagamento, e a importação não lança nada. Sem isso ela nasceria pendente, e um
+  clique em "avulsa" dobraria o saldo e o DRE.
+- **Só a carteira Asaas.** Banco da Amazônia, CAIXA, Cora e Mercado Pago seguem
+  no OFX, e a transferência Asaas → banco aparece nos dois extratos.
+- A tarifa de mensageria e as transferências ficam **pendentes**, porque
+  ninguém as lançou. Casam por regra da tesouraria ou à mão.
+- Telas: `conciliacao-bancaria.html` ganhou o bloco "Importar do banco" e
+  `contas-financeiras.html` o "Buscar o extrato automaticamente". As duas só
+  aparecem para conta cujo provedor tenha `listarExtrato`, hoje as três do
+  Asaas (1bit conta 5, produtosbomgosto conta 2, josecarloscostafilho conta 2).
+- Prova: etapa 153 (`test-conciliacao-extrato`, 19 checagens), mais um ensaio
+  contra a API de produção sobre uma cópia do `1bit`. **Oito sabotagens
+  reprovaram**: a guarda do pagamento já reivindicado, a conferência de valor
+  da tarifa, a conciliação automática, a paginação, o descarte de linha
+  ilegível, a guarda das duas portas, o casamento um-para-um e o aproveitamento
+  do vínculo na linha antiga. A conferência de valor da tarifa só passou a ser
+  provada de verdade no X6b — no X6 quem segurava era a outra guarda, e a
+  sabotagem passava verde até o caso ser isolado.
+- **O boot levou junto o que a árvore tinha de outras frentes**, com a sintaxe
+  conferida antes: `perfis-api-map.js` (09:46), `comm-imagens.js` (10:27),
+  `comm-routes.js` (11:29), `whatsapp-adapter.js` (12:05), `whatsapp-webhook.js`
+  (12:24), `roteiro-conversa.js` (12:29), `conversas-routes.js` (12:32) e
+  `comprasnet-anexos-routes.js` (12:40). Os quatro do WhatsApp e das campanhas
+  são posteriores ao boot das 11:29:24 e passaram a valer agora.
 
 - **"Já está enviando" ao reenviar uma campanha que já tinha terminado.** A
   espera do intervalo era um `sleep` de 45 a 120 s que ignorava a pausa, e o laço
@@ -1765,6 +2114,21 @@ ambiente (formato antigo do Asaas) continua aceita. O `ambiente` segue fora do
 a pendência de 28/09 logo abaixo deixou de existir. O anterior foi o de
 **2026-09-28 09:42**, com o 8b68689, junto do servidor web: o `nfe-emit-routes.js` que as
 recorrências usam passou a abrir o certificado em memória.
+
+**Em vigor desde o boot de 2026-09-30 15:01:09, a pedido (limpo, `NRestarts=0`):
+a importação automática do extrato.** O `scheduler.js` chama
+`agendarImportacaoExtrato(db)` por tenant, ao lado do polling de boletos: de 6
+em 6 horas, as contas com `extratoAuto = 1` têm os últimos 7 dias importados
+sozinhas. Conferido no boot: 7 linhas de `[Extrato] Agendado`, o mesmo número
+do `[Polling Asaas] Agendado`, que são os tenants ativos que o master percorre.
+
+**Nenhum tenant tem a opção ligada**, então hoje o ciclo acorda e não faz nada.
+Quem ligar passa a receber o extrato sozinho; reimportar o mesmo período não
+duplica, porque a chave é o identificador da transação no provedor. O
+`agendarImportacaoExtrato` chama o `migrarDB` da conciliação no agendamento,
+porque o scheduler não registra rotas e passou a escrever em
+`transacoes_bancarias`: sem isso a primeira importação dependeria de o servidor
+web ter bootado antes.
 
 **Pendente (28/09, c323e54):** seis arquivos do estoque que o scheduler
 carrega (`estoque-routes.js`, `ordem-pt.js`, `precos-routes.js`,

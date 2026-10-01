@@ -7,7 +7,11 @@
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
-  .perigo { border-left:3px solid #fa5252; background:#fff5f5; padding:10px 12px; margin:10px 0; }
+  .perigo { border-left:3px solid var(--danger); background:var(--danger-soft); color:var(--danger);
+           padding:10px 12px; margin:10px 0; }
+  /* O texto de dentro herda a cor do bloco: antes ele vinha do tema e caía
+     para 2,7:1 sobre o rosa claro que estava cravado aqui. */
+  .perigo * { color: inherit; }
 </style>
 </head>
 <body>
@@ -34,7 +38,7 @@
       <div class="form-group"><label>Custo-hora padrão (R$)</label>
         <input type="number" id="producao_custo_hora_padrao" step="0.01" min="0">
         <small class="muted">Em 0, a mão de obra não entra no custo da peça — e o painel de custo avisa em vez de fingir precisão.</small></div>
-      <div class="form-group"><label>Dias para alertar peça parada no pátio</label>
+      <div class="form-group"><label>Alertar peça parada</label><small class="muted">Depois de quantos dias no pátio</small>
         <input type="number" id="producao_dias_alerta_patio" step="1" min="1"></div>
     </div>
 
@@ -78,6 +82,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/producao-vocab.js"></script>
 <script>initSidebar('producao-config');</script>

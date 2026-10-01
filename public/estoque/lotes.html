@@ -99,7 +99,7 @@
     </div>
     <div class="form-row">
       <div class="form-group"><label>Quantidade inicial *</label><input type="number" id="mlQtd" step="0.01"></div>
-      <div class="form-group"><label>Custo unitário</label><input type="number" id="mlCusto" step="0.01"></div>
+      <div class="form-group"><label>Custo unitário</label><input type="text" id="mlCusto" data-formato="dinheiro"></div>
       <div class="form-group" style="position:relative;">
         <label>Fornecedor</label>
         <input type="text" id="mlFornBusca" placeholder="CNPJ ou razão social…" oninput="acForn()" autocomplete="off">
@@ -122,6 +122,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/campo-formato.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('estoque-lotes');</script>
@@ -227,7 +229,7 @@ async function verDetalhe(id){
   const l=d.lote;
   const movs = (d.movimentacoes||[]).map(m=>`${m.data} · ${m.tipo} · qtd ${m.quantidade}`).join('\n') || '(sem movimentações)';
   const serial = (d.serial||[]).length;
-  alert(`Lote ${l.numero}\nProduto: ${l.sku} — ${l.descricao}\nSaldo: ${l.saldoAtual} / ${l.quantidadeInicial}\nValidade: ${fmtData(l.dataValidade)}\nCusto: R$ ${fmt(l.custoUnitario)}\nSeriais vinculados: ${serial}\n\nMovimentações:\n${movs}`);
+  Aviso.erro(`Lote ${l.numero}\nProduto: ${l.sku} — ${l.descricao}\nSaldo: ${l.saldoAtual} / ${l.quantidadeInicial}\nValidade: ${fmtData(l.dataValidade)}\nCusto: R$ ${fmt(l.custoUnitario)}\nSeriais vinculados: ${serial}\n\nMovimentações:\n${movs}`);
 }
 
 let acTimer;

@@ -42,11 +42,11 @@
                         <thead>
                             <tr>
                                 <th>Cliente</th>
-                                <th>Servico</th>
+                                <th>Serviço</th>
                                 <th>Valor</th>
                                 <th>Boleto</th>
                                 <th>Email</th>
-                                <th>Ultima Emissao</th>
+                                <th>Última emissão</th>
                                 <th>Status</th>
                                 <th></th>
                             </tr>
@@ -83,7 +83,7 @@
     </div>
     <div class="form-row">
       <div class="form-group"><label>Valor do serviço (R$) *</label>
-        <input type="number" id="rValor" step="0.01" min="0.01"></div>
+        <input type="text" id="rValor" data-formato="dinheiro"></div>
       <div class="form-group"><label>Código de tributação nacional *</label>
         <input type="text" id="rCodTrib" placeholder="Ex.: 010101"></div>
       <div class="form-group"><label>Item da lista de serviço</label>
@@ -122,6 +122,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('recorrencias');</script>
 
 <script>
@@ -169,14 +171,15 @@ async function carregarRecorrencias() {
                 <td class="valor-display">${formatMoney(r.valorServico)}</td>
                 <td><span class="badge ${r.gerarBoleto ? 'sim' : 'nao'}">${r.gerarBoleto ? 'Sim' : 'Nao'}</span></td>
                 <td><span class="badge ${r.enviarEmail ? 'sim' : 'nao'}">${r.enviarEmail ? 'Sim' : 'Nao'}</span></td>
-                <td>${r.ultimaEmissao || '-'}${situacaoUltimaExecucao(r)}</td>
+                <td>${fmtCompetencia(r.ultimaEmissao)}${situacaoUltimaExecucao(r)}</td>
                 <td><span class="badge ${r.ativo ? 'ativo' : 'inativo'}">${r.ativo ? 'Ativo' : 'Inativo'}</span></td>
                 <td style="text-align:right;white-space:nowrap;">
-                    <button class="btn btn-ghost btn-sm" style="color:var(--success);" onclick="executarUma(${r.id})" title="Executar agora">▶</button>
-                    <button class="btn btn-ghost btn-sm" onclick="editar(${r.id})" title="Editar">✏️</button>
+                    <button class="btn btn-ghost btn-sm" style="color:var(--success);" onclick="executarUma(${r.id})"
+                        title="Emite a nota de serviço deste cliente agora, gera o boleto e manda o e-mail">▶ Emitir agora</button>
+                    <button class="btn btn-ghost btn-sm" onclick="editar(${r.id})" title="Editar esta recorrência">✏️ Editar</button>
                     ${r.ativo
-                        ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="desativar(${r.id}, ${JSON.stringify(r.descricao)})" title="Desativar">⏸</button>`
-                        : `<button class="btn btn-ghost btn-sm" style="color:var(--success);" onclick="reativar(${r.id})" title="Reativar">↻</button>`}
+                        ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="desativar(${r.id}, ${JSON.stringify(r.descricao)})" title="Para de faturar este contrato todo mês">⏸ Pausar</button>`
+                        : `<button class="btn btn-ghost btn-sm" style="color:var(--success);" onclick="reativar(${r.id})" title="Volta a faturar este contrato todo mês">↻ Reativar</button>`}
                 </td>
             </tr>
         `).join('');
@@ -186,7 +189,7 @@ async function carregarRecorrencias() {
 }
 
 async function executarUma(id) {
-    if (!confirm('Executar esta recorrencia para o mes atual?')) return;
+    if (!await Aviso.confirmar('Executar esta recorrencia para o mes atual?')) return;
     try {
         showAlert('Executando...', 'info');
         const resp = await fetch(`/api/recorrencias/${id}/executar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
@@ -285,7 +288,7 @@ async function acompanharLote(estado) {
 }
 
 async function executarTodas() {
-    if (!confirm('Executar TODAS as recorrencias ativas para o mes atual?')) return;
+    if (!await Aviso.confirmar('Executar TODAS as recorrencias ativas para o mes atual?')) return;
     try {
         const { status, data } = await buscarJson('/api/recorrencias/executar', { method: 'POST' });
         if (status === 409) {
@@ -312,6 +315,12 @@ async function retomarLoteEmAndamento() {
 // ==================== UTILS ====================
 function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function formatMoney(v) { return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
+// Competência vem do banco como "2026-10"; na tela ela é 10/2026.
+function fmtCompetencia(v) {
+  if (!v) return '-';
+  const m = String(v).match(/^(\d{4})-(\d{2})/);
+  return m ? `${m[2]}/${m[1]}` : String(v);
+}
 function formatDoc(d) {
     if (!d) return '';
     d = d.replace(/\D/g, '');
@@ -414,7 +423,7 @@ async function salvarRec() {
 // O DELETE do backend DESATIVA, nao apaga — e correto: a recorrencia tem
 // historico de emissao atras dela. O botao diz o que acontece de verdade.
 async function desativar(id, descricao) {
-    if (!confirm(`Desativar a recorrência "${descricao}"?\n\nEla para de emitir nos próximos meses. O histórico e as NFS-e já emitidas continuam.`)) return;
+    if (!await Aviso.confirmar(`Desativar a recorrência "${descricao}"?\n\nEla para de emitir nos próximos meses. O histórico e as NFS-e já emitidas continuam.`)) return;
     const d = await fetch('/api/recorrencias/' + id, { method: 'DELETE' }).then(r => r.json());
     if (!d.success) return showAlert(d.error, 'error');
     showAlert('Recorrência desativada — volta a emitir se você reativar');

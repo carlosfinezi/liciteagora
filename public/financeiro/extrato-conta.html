@@ -119,8 +119,8 @@
       <label>Buscar</label>
       <input type="search" id="fBusca" placeholder="descrição, origem..." style="min-width:200px;" onchange="carregar(1)">
     </div>
-    <div class="field"><label>Valor de</label><input type="number" id="fValorMin" step="0.01" style="width:110px;" onchange="carregar(1)"></div>
-    <div class="field"><label>Valor até</label><input type="number" id="fValorMax" step="0.01" style="width:110px;" onchange="carregar(1)"></div>
+    <div class="field"><label>Valor de</label><input type="text" id="fValorMin" style="width:110px;" onchange="carregar(1)" data-formato="dinheiro"></div>
+    <div class="field"><label>Valor até</label><input type="text" id="fValorMax" style="width:110px;" onchange="carregar(1)" data-formato="dinheiro"></div>
     <div class="field">
       <label>Totalizar</label>
       <select id="fAgrupar" onchange="carregar(1)">
@@ -190,7 +190,7 @@
       </div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Valor (R$) *</label><input type="number" id="lancValor" step="0.01"></div>
+      <div class="form-group"><label>Valor (R$) *</label><input type="text" id="lancValor" data-formato="dinheiro"></div>
       <div class="form-group"><label>Data</label><input type="date" id="lancData"></div>
     </div>
     <div class="form-row">
@@ -208,6 +208,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('contas-financeiras');</script>
 <script>
 let contasCache = [];

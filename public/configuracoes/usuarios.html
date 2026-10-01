@@ -124,13 +124,13 @@
         </div>
         <div class="form-group">
           <label>CPF / CNPJ</label>
-          <input type="text" id="fCpfCnpj" placeholder="Para representante PJ ou autônomo">
+          <input type="text" id="fCpfCnpj" placeholder="Para representante PJ ou autônomo" data-formato="cnpj">
         </div>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label>Telefone</label>
-          <input type="text" id="fTelefoneVendedor" placeholder="(00) 00000-0000">
+          <input type="text" id="fTelefoneVendedor" placeholder="(00) 00000-0000" data-formato="telefone">
         </div>
         <div class="form-group">
           <label>Comissão padrão (%)</label>
@@ -151,6 +151,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('usuarios');</script>
@@ -166,7 +168,7 @@ async function carregar(){
   tb.innerHTML = d.usuarios.length ? d.usuarios.map(u=>`<tr>
     <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar usuário" onclick='editar(${JSON.stringify(u)})'><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
     <td class="mono"><strong>${u.username}</strong></td>
-    <td>${u.nome||'—'}${u.ehVendedor?` <span class="badge" style="background:var(--accent);color:#fff;font-size:9px;">vendedor</span>`:''}</td>
+    <td>${u.nome||'—'}${u.ehVendedor?` <span class="badge" style="background: var(--btn-primary-bg); color: #fff;font-size:9px;">vendedor</span>`:''}</td>
     <td>${u.email||'—'}</td>
     <td><span class="badge ${u.role==='admin'?'faturado':'confirmado'}">${u.role}</span></td>
     <td><span class="badge ${u.ativo?'ativo':'inativo'}">${u.ativo?'ativo':'inativo'}</span></td>
@@ -367,7 +369,7 @@ async function desativar(id, username){
     }
   } catch { /* segue com a confirmação simples */ }
 
-  if(!confirm(`Desativar ${username}? O usuário não conseguirá mais acessar o sistema.${aviso}`)) return;
+  if(!await Aviso.confirmar(`Desativar ${username}? O usuário não conseguirá mais acessar o sistema.${aviso}`)) return;
   const r=await fetch('/api/usuarios/'+id, { method:'DELETE' });
   const d=await r.json();
   if(!d.success) return showAlert(d.error,'error');

@@ -9,13 +9,23 @@
 <style>
 /* A tela é uma caixa só: lista, conversa e ficha dividem a MESMA moldura, em vez
    de três painéis com borda dentro de uma página que já tem borda. */
-.central { display:grid; grid-template-columns: 320px 1fr 300px;
-  height:calc(100vh - 170px); min-height:460px;
+.central { display:grid; grid-template-columns: 340px 1fr 300px;
+  /* Desconta só o cabeçalho da página. Até 29/09 descontava também a faixa de
+     números do topo, que saiu, e sobrava uma faixa vazia embaixo. */
+  height:calc(100vh - 100px); height:calc(100dvh - 100px); min-height:460px;
   background:var(--bg-1); border:var(--borda); border-radius:var(--raio-md); overflow:hidden; }
-@media (max-width:1200px){ .central { grid-template-columns: 280px 1fr; } .ficha { display:none; } }
-@media (max-width:820px){ .central { grid-template-columns: 1fr; } .ficha { display:none; }
+/* Voltar para a lista: só no celular, onde a conversa ocupa a tela toda. Fica
+   ANTES das regras de tamanho de tela, para a do celular poder mostrá-lo. */
+.cab .voltar { display:none; }
+/* Nas regras de tamanho de tela, `.central .x` e não `.x`: a regra de `.coluna`,
+   mais abaixo e com o mesmo peso, vencia. Com isso a ficha nunca sumia (no
+   celular e no tablet caía embaixo da conversa) e, no celular, a conversa
+   vazia dividia a altura com a lista. */
+@media (max-width:1200px){ .central { grid-template-columns: 280px 1fr; } .central .ficha { display:none; } }
+@media (max-width:820px){ .central { grid-template-columns: 1fr; height:calc(100dvh - 130px); } .central .ficha { display:none; }
+  .central .thread { display:none; }
   .central.abriu .lista { display:none; } .central.abriu .thread { display:flex; }
-  .thread { display:none; } }
+  .cab .voltar { display:inline-flex; } }
 
 /* `min-height:0` e `overflow:hidden` NÃO são enfeite: sem eles, a coluna cresce
    com o conteúdo em vez de rolar, e as 300 conversas da lista esticam a página
@@ -25,41 +35,22 @@
 .coluna + .coluna { border-left:var(--borda); }
 .rolagem { overflow-y:auto; flex:1; }
 
-/* ---- números do topo ----
-   Cada um é o filtro correspondente. O PRIMEIRO é maior que os outros de
-   propósito: quatro números do mesmo tamanho não dizem por onde começar, e o
-   que importa nesta tela é quanta gente escreveu e nunca foi respondida. */
-.numeros { display:flex; align-items:baseline; gap:var(--space-5);
-  margin:0 0 var(--space-3); flex-wrap:wrap; }
-.numeros button { background:none; border:0; padding:0 0 2px; cursor:pointer; text-align:left;
-  border-bottom:2px solid transparent; color:inherit; }
-.numeros button:hover { border-bottom-color:var(--border-strong); }
-.numeros button.sel { border-bottom-color:var(--accent); }
-.numeros .v { display:block; font-size:var(--text-lg); font-weight:var(--peso-dado);
-  line-height:var(--lh-densa); color:var(--text-1); }
-.numeros .r { font-size:var(--text-xs); color:var(--text-3); }
-.numeros button.principal .v { font-size:var(--text-2xl); color:var(--text-0); }
-.numeros button.principal .r { font-size:var(--text-sm); color:var(--text-2); }
-.numeros button.sel .r { color:var(--accent); }
 
 /* ---- topo da lista ----
-   Eram QUATRO linhas de controle antes da primeira conversa: três de chips e
-   uma de interruptores. Agora são duas, e os avisos dividem a linha da busca —
-   som e pop-up são preferência que se ajusta uma vez, não filtro de uso diário,
-   e não devem ter o mesmo peso de quem se usa o tempo todo. */
+   A busca tem a linha dela, na largura inteira. Os seletores de número e de
+   segmento ficam na linha de baixo, lado a lado, e só existem quando há mais
+   de um número ou quando há segmentos. Em 29/09, os dois na linha da busca
+   deixaram o campo com 26 px na coluna de 320. */
 .topo { padding:var(--space-3); border-bottom:var(--borda); display:flex;
   gap:var(--space-2); flex-direction:column; }
 .busca-linha { display:flex; gap:var(--space-2); align-items:center; }
 .busca-linha input { flex:1; min-width:0; }
+.seletores { display:flex; gap:var(--space-2); }
+.seletores select { flex:1 1 0; min-width:0; padding:5px; }
 
-/* Uma linha só. Filtro que sobra rola para o lado, em vez de empurrar a lista
-   para baixo: a altura da coluna é o que mostra conversa.
-   O degradê da direita só aparece quando há o que rolar (classe posta no JS):
-   filtro escondido sem nenhum sinal é filtro que ninguém encontra. */
-.chips { display:flex; gap:var(--space-1); overflow-x:auto; scrollbar-width:none; padding-bottom:2px; }
-.chips::-webkit-scrollbar { display:none; }
-.chips.tem-mais { mask-image:linear-gradient(to right, #000 88%, transparent);
-  -webkit-mask-image:linear-gradient(to right, #000 88%, transparent); }
+/* Os filtros quebram linha. Até 29/09 rolavam para o lado, e "Campanhas" e
+   "Minhas" ficavam fora da vista: filtro escondido é filtro que ninguém usa. */
+.chips { display:flex; flex-wrap:wrap; gap:var(--space-1); }
 .chips button { padding:3px 10px; font-size:var(--text-xs); border:var(--borda); background:transparent;
   color:var(--text-2); border-radius:var(--raio-pill); cursor:pointer; white-space:nowrap; flex:0 0 auto; }
 .chips button.sel { background:var(--accent-soft); color:var(--accent); border-color:var(--accent); }
@@ -91,6 +82,7 @@
 .pil.resolvida { border-color:var(--success); color:var(--success); }
 .pil.sem-ia { border-color:var(--warn); color:var(--warn); }
 .pil.dono { border-color:var(--accent); color:var(--accent); }
+.pil.numero { border-color:var(--text-3); color:var(--text-2); }
 
 /* ---- cabeçalho da conversa ----
    Tinha dois `select` crus, "assumir" e "IA: ligada", quatro controles do mesmo
@@ -98,6 +90,12 @@
    ser a coisa maior da faixa, e os controles ficaram discretos à direita. */
 .cab { padding:var(--space-3) var(--space-4); border-bottom:var(--borda);
   display:flex; gap:var(--space-2); align-items:center; flex-wrap:wrap; }
+/* A pausa da IA, entre o cabeçalho e as mensagens: é ali que quem abre a
+   conversa procura o motivo de a IA não ter respondido. */
+.aviso-pausa { display:flex; gap:var(--space-3); align-items:center; flex-wrap:wrap;
+  padding:var(--space-2) var(--space-4); border-bottom:var(--borda);
+  background:var(--warn-bg, rgba(234,179,8,.10)); font-size:var(--text-sm); }
+.aviso-pausa button { flex-shrink:0; }
 .cab .quem { min-width:0; }
 .cab .quem strong { display:block; font-size:var(--text-md); line-height:var(--lh-densa); }
 .cab .quem span { font-size:var(--text-sm); color:var(--text-2); }
@@ -119,13 +117,24 @@
    piorar. */
 .msg { max-width:min(72%, 34em); padding:var(--space-2) var(--space-3);
   border-radius:var(--raio-md);
-  font-size:var(--text-base); line-height:var(--lh-base); white-space:pre-wrap; word-break:break-word; }
+  font-size:var(--text-base); line-height:var(--lh-base); word-break:break-word; }
+/* O pre-wrap é só do TEXTO, que pode ter várias linhas. No balão inteiro, ele
+   preservava também a quebra e o recuo do código em volta do texto, e cada
+   mensagem curta ("compra") virava um bloco com linhas vazias em cima e embaixo. */
+.msg .txt { white-space:pre-wrap; }
+.res-qualificado { color:var(--success); }
+.res-desqualificado { color:var(--text-3); }
 .msg.deles { background:var(--bg-1); border:var(--borda); align-self:flex-start; border-bottom-left-radius:3px; }
 .msg.minha { background:var(--accent-soft); border:var(--borda-acento); align-self:flex-end; border-bottom-right-radius:3px; }
 
 /* A linha de baixo juntava hora, origem e duas ações no mesmo tom e tamanho.
    A hora fica à esquerda, apagada; as ações vão para a direita, que é onde a
    mão procura. */
+.msg .midia { display:block; margin-bottom:var(--space-1); }
+.msg .midia img { display:block; max-width:100%; max-height:320px; border-radius:6px; cursor:zoom-in; }
+.msg .midia audio, .msg .midia video { display:block; max-width:100%; }
+.msg .midia video { max-height:320px; border-radius:6px; }
+.msg .midia .falhou { font-size:var(--text-xs); color:var(--text-3); }
 .msg .meta { font-size:var(--text-xs); color:var(--text-3); margin-top:var(--space-1);
   display:flex; gap:var(--space-2); align-items:center; }
 .msg .meta .quando { margin-right:auto; }
@@ -137,6 +146,11 @@
 .msg .aprovar { background:none; border:0; color:var(--success); cursor:pointer;
   font-size:var(--text-xs); padding:0; text-decoration:underline; }
 .msg .aprovar[disabled] { opacity:0.5; cursor:default; }
+/* Apagada no WhatsApp: a mensagem continua inteira e legível, e a marca diz o
+   que aconteceu. O texto esmaecido seria pior — quem lê o histórico depois
+   precisa justamente do conteúdo que o outro lado quis tirar. */
+.msg.apagada { border:var(--borda); border-color:var(--warn, #fbbf24); }
+.msg .apagada-marca { color:var(--warn, #b45309); }
 .msg .veredito.ok { color:var(--success); }
 .msg .veredito.erro { color:var(--danger); }
 .responder { border-top:var(--borda); padding:var(--space-3); display:flex;
@@ -153,10 +167,12 @@
 .vazio-centro { display:flex; align-items:center; justify-content:center; height:100%;
   color:var(--text-3); font-size:var(--text-base); padding:var(--space-5); text-align:center; }
 
-/* Som e pop-up: dois botões de ícone ao lado da busca. Eram duas barras da
-   largura inteira, com o mesmo peso dos filtros. */
-.avisos { display:flex; gap:var(--space-1); flex:0 0 auto; }
-.avisos button { width:30px; height:30px; padding:0; font-size:15px; line-height:1;
+/* Som e notificação de mensagem nova, no cabeçalho da página. Até 29/09 eram
+   dois emojis sem texto ao lado da busca, e ninguém sabia o que faziam. */
+.page-header { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); }
+.avisos { display:flex; gap:var(--space-2); flex:0 0 auto; }
+.avisos button { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 10px;
+  font-size:var(--text-sm); line-height:1; white-space:nowrap;
   border:var(--borda); background:transparent; color:var(--text-3);
   border-radius:var(--raio-md); cursor:pointer; }
 .avisos button.on { border-color:var(--success); color:var(--success); }
@@ -167,27 +183,35 @@
 <div class="layout"><main class="main-content">
   <div class="page-header">
     <div><h1>Conversas</h1></div>
-    <div class="actions"><a class="btn btn-ghost btn-sm" href="/comunicacao/ia.html">IA e campanhas</a></div>
+    <div class="avisos" id="avisos"></div>
   </div>
   <div id="alertGlobal"></div>
-
-  <div class="numeros" id="numeros"></div>
 
   <div class="central" id="central">
     <div class="coluna lista">
       <div class="topo">
         <div class="busca-linha">
           <input type="text" id="busca" placeholder="Buscar nome ou telefone…" oninput="renderLista()">
-          <div class="avisos" id="avisos"></div>
+        </div>
+        <div class="seletores" id="seletores" style="display:none;">
+          <select id="selNumero" style="display:none;" onchange="escolherNumero(this.value)"></select>
+          <select id="selSegmento" style="display:none;" onchange="escolherSegmento(this.value)"></select>
         </div>
         <div class="chips" id="filtros"></div>
-        <select id="selCampanha" style="display:none;padding:5px;" onchange="escolherCampanha(this.value)"></select>
+        <div id="linhaCampanha" style="display:none;gap:var(--space-2);">
+          <select id="selCampanha" style="padding:5px;min-width:0;flex:1;" onchange="escolherCampanha(this.value)"></select>
+          <select id="selModo" style="padding:5px;" onchange="escolherModo(this.value)">
+            <option value="responderam">Responderam</option>
+            <option value="receberam">Receberam</option>
+          </select>
+        </div>
       </div>
       <div class="rolagem" id="listaConv"><div class="vazio-centro">Carregando…</div></div>
     </div>
 
     <div class="coluna thread">
       <div class="cab" id="threadCab" style="display:none;"></div>
+      <div id="pausaIA"></div>
       <div class="msgs" id="msgs"><div class="vazio-centro">Escolha uma conversa na lista</div></div>
       <div class="responder" id="responder" style="display:none;">
         <textarea id="txtResposta" placeholder="Escreva a resposta… (Ctrl+Enter envia)"
@@ -226,12 +250,17 @@
   </div>
 </div>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('conversas');</script>
 <script>
 let CONVERSAS = [], ATUAL = null, FILTRO = '', EDITANDO = null;
 // FILTRO='campanha' recorta quem respondeu; CAMPANHA diz de qual ('todas' ou id).
-let CAMPANHA = 'todas', CAMPANHAS_WA = null;
-const RECORTES = ['naoLidas', 'aguardando', 'minhas', 'semDono', 'semResposta'];
+let CAMPANHA = 'todas', CAMPANHAS_WA = null, MODO = 'responderam';
+// NUMERO: o número de WhatsApp filtrado ('' = todos); NUMEROS vem com a lista.
+let NUMERO = '', NUMEROS = [];
+// SEGMENTO: o da ficha ligada à conversa ('' = todos).
+let SEGMENTO = '';
+const RECORTES = ['naoLidas', 'aguardando', 'minhas', 'semDono', 'semResposta', 'qualificados', 'desqualificados'];
 // Quem pode assumir conversa, e quem sou eu. Carregados uma vez: a equipe não
 // muda no meio do expediente, e a lista alimenta um select por conversa aberta.
 let ATENDENTES = [], EU_ID = null;
@@ -258,33 +287,67 @@ function quando(v){
                   : d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
 }
 
+// ---------- mídia das mensagens (wa-midia.js) ----------
+// A mídia vem do servidor quando a conversa abre; o texto, quando há, fica
+// embaixo dela. Imagem abre inteira em outra aba.
+const TIPOS_MIDIA = { imageMessage: 'img', stickerMessage: 'img', templateMessage: 'img',
+  videoMessage: 'video', ptvMessage: 'video', audioMessage: 'audio',
+  documentMessage: 'doc', documentWithCaptionMessage: 'doc' };
+function midiaDa(x){
+  const tipo = TIPOS_MIDIA[x.message_type];
+  if (!tipo) return '';
+  const url = '/api/conversas/midia/' + x.id;
+  const falha = `this.closest('.midia').innerHTML='<span class=\\'falhou\\'>Mídia indisponível</span>'`;
+  if (tipo === 'img') return `<a class="midia" href="${url}" target="_blank" rel="noopener">
+    <img src="${url}" alt="" loading="lazy" onerror="${falha}"></a>`;
+  if (tipo === 'video') return `<span class="midia"><video src="${url}" controls preload="metadata" onerror="${falha}"></video></span>`;
+  if (tipo === 'audio') return `<span class="midia"><audio src="${url}" controls preload="none" onerror="${falha}"></audio></span>`;
+  return `<a class="midia" href="${url}" target="_blank" rel="noopener">Abrir documento</a>`;
+}
+
 // ---------- lista ----------
 async function carregar(){
   // A campanha vai sempre no querystring, mesmo com o filtro desligado: é ela
   // que define a contagem do botão "Responderam".
-  const qs = FILTRO === 'campanha' ? '?campanha=' + encodeURIComponent(CAMPANHA)
-           : RECORTES.includes(FILTRO) ? '?recorte=' + FILTRO
-           : FILTRO ? '?estado=' + FILTRO : '';
-  const [d, p] = await Promise.all([
-    fetch('/api/conversas' + qs).then(r=>r.json()),
-    fetch('/api/conversas/painel/resumo').then(r=>r.json()),
-  ]);
+  const params = new URLSearchParams();
+  if (FILTRO === 'campanha') { params.set('campanha', CAMPANHA); params.set('modo', MODO); }
+  else if (RECORTES.includes(FILTRO)) params.set('recorte', FILTRO);
+  else if (FILTRO) params.set('estado', FILTRO);
+  // O número vale junto de qualquer outro filtro, e as contagens o seguem.
+  if (NUMERO) params.set('canal', NUMERO);
+  if (SEGMENTO) params.set('segmento', SEGMENTO);
+  // A partir de qual mensagem recebida contar as novas (o aviso de chegada).
+  if (ULTIMO_RECEBIDO !== null) params.set('desde', ULTIMO_RECEBIDO);
+  const qs = params.toString() ? '?' + params : '';
+  const d = await fetch('/api/conversas' + qs).then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');
   CONVERSAS = d.conversas;
+  NUMEROS = d.canais || [];
+  renderSeletorNumero();
 
   const c = d.contagem;
-  avisarSeChegou(c.naoLidas);
-  // "Todas", "não lidas" e "sem dono" saíram daqui: viraram os números do topo,
-  // e ter o mesmo filtro em dois lugares da mesma tela só divide a atenção.
+  avisarSeChegou(d.recebidas);
+  // Até 29/09 "sem nenhuma resposta", "não lidas", "sem dono" e "no total"
+  // eram números grandes no alto da tela, e eram também os filtros. Saíram a
+  // pedido, para limpar o visual, e os filtros vieram para cá. Clicar de novo
+  // no filtro marcado volta a mostrar todas, que era o papel do "no total".
   const chips = [
     ['aguardando', 'Aguardando você', c.aguardando],
-    ['campanha', 'Responderam', c.respondeuCampanha],
+    ['naoLidas', 'Não lidas', c.naoLidas],
   ];
+  if (c.semResposta !== undefined) chips.push(['semResposta', 'Sem resposta', c.semResposta]);
+  chips.push(['campanha', 'Campanhas', c.respondeuCampanha]);
   // Dono só vira filtro quando o SERVIDOR sabe recortar por dono. Esta tela é
   // estática e entra no ar ao salvar; o backend só no restart. No meio, um
   // "Minhas" que o servidor antigo ignora devolveria a fila inteira com o
   // rótulo errado — pior que não ter o filtro.
   if (c.semDono !== undefined) chips.push(['minhas', 'Minhas', c.minhas]);
+  // "Sem dono" igual ao total não filtra nada: é o caso enquanto ninguém
+  // assumiu conversa, e o chip só ocuparia lugar.
+  if (c.semDono !== undefined && c.semDono !== c.total) chips.push(['semDono', 'Sem dono', c.semDono]);
+  // Resultado do roteiro de qualificação: só aparece quando há alguém nele.
+  if (c.qualificados || FILTRO === 'qualificados') chips.push(['qualificados', 'Qualificados', c.qualificados]);
+  if (c.desqualificados || FILTRO === 'desqualificados') chips.push(['desqualificados', 'Desqualificados', c.desqualificados]);
   // O estado só vira filtro quando alguém de fato usa: enquanto tudo estiver
   // 'aberta', "Abertas" é sinônimo de "Todas" e os outros dois são sempre zero.
   if (c.pendente || c.resolvida) chips.push(
@@ -293,62 +356,67 @@ async function carregar(){
   const elChips = document.getElementById('filtros');
   elChips.innerHTML = chips
     .map(([v,rot,n]) => `<button class="${FILTRO===v?'sel':''}" onclick="filtrar('${v}')">${rot}${n?' '+n:''}</button>`).join('');
-  // O degradê só entra quando há filtro fora da vista. Sem a medida, ele
-  // apagaria a borda do último chip mesmo quando não há nada escondido.
-  elChips.classList.toggle('tem-mais', elChips.scrollWidth > elChips.clientWidth + 2);
   renderSeletorCampanha();
 
-  renderNumeros(c, p.success ? p.resumo : null);
   renderLista();
 }
 
-/**
- * Os números do topo, que agora FILTRAM.
- *
- * Antes eram quatro caixas de mesmo peso, e uma delas — "753 sem nenhuma
- * resposta" — tinha borda vermelha: gritava e não levava a lugar nenhum. Cada
- * número passou a ser o filtro correspondente, e o selecionado se marca sozinho.
- *
- * "Sem nenhuma resposta" só aparece quando o servidor sabe recortar por ele.
- * Mostrar um número que o clique não filtra seria o mesmo problema com outra
- * aparência.
- */
-function renderNumeros(c, r){
-  const itens = [];
-  if (c.semResposta !== undefined) itens.push(['semResposta', 'sem nenhuma resposta', c.semResposta]);
-  itens.push(['naoLidas', 'não lidas', c.naoLidas]);
-  // "Sem dono" some quando é igual ao total, que é o caso enquanto ninguém
-  // assumiu nada: dois números iguais lado a lado fazem duvidar dos dois, e o
-  // segundo não acrescenta informação nenhuma.
-  if (c.semDono !== undefined && c.semDono !== c.total) itens.push(['semDono', 'sem dono', c.semDono]);
-  itens.push(['', 'no total', c.total]);
-  if (r && r.resolvidasHoje) itens.push(['resolvida', 'resolvidas hoje', r.resolvidasHoje]);
-  // O primeiro é o principal e vem maior. Os outros continuam clicáveis, em
-  // corpo menor: é hierarquia, não decoração.
-  document.getElementById('numeros').innerHTML = itens.map(([v, rot, n], i) =>
-    `<button class="${i === 0 ? 'principal ' : ''}${FILTRO===v?'sel':''}" onclick="filtrar('${v}')"><span class="v">${n}</span><span class="r">${rot}</span></button>`
-  ).join('');
-}
-
-function filtrar(v){ FILTRO = v; carregar(); }
+function filtrar(v){ FILTRO = FILTRO === v ? '' : v; carregar(); }
 
 // O seletor de campanha só existe dentro do filtro "Responderam" — fora dele
 // não teria o que recortar.
+// As duas origens desde 29/09: 'wa:<id>' (legado) e 'comm:<id>' (campanha
+// nova de WhatsApp). "Receberam" só pode mostrar quem tem conversa: quem
+// recebeu e nunca escreveu não aparece na caixa, só em Campanhas › Ver envios.
 async function renderSeletorCampanha(){
-  const el = document.getElementById('selCampanha');
-  if (FILTRO !== 'campanha') { el.style.display = 'none'; return; }
+  const linha = document.getElementById('linhaCampanha');
+  if (FILTRO !== 'campanha') { linha.style.display = 'none'; return; }
   if (!CAMPANHAS_WA) {
     const d = await fetch('/api/conversas/campanhas').then(r=>r.json()).catch(()=>null);
-    CAMPANHAS_WA = ((d && d.campanhas) || []).filter(c => c.origem === 'wa');
+    CAMPANHAS_WA = ((d && d.campanhas) || []).filter(c => c.origem === 'wa' || c.canal === 'whatsapp');
   }
-  el.innerHTML = ['<option value="todas">Todas as campanhas</option>']
+  const valor = (c) => (c.origem === 'wa' ? 'wa:' : 'comm:') + c.id;
+  document.getElementById('selCampanha').innerHTML = ['<option value="todas">Todas as campanhas</option>']
     .concat(CAMPANHAS_WA.map(c =>
-      `<option value="${c.id}" ${String(CAMPANHA)===String(c.id)?'selected':''}>${esc(c.nome || ('Campanha #'+c.id))}</option>`))
+      `<option value="${valor(c)}" ${CAMPANHA===valor(c)?'selected':''}>${esc(c.nome || ('Campanha #'+c.id))}${c.origem==='wa'?' (legado)':''}</option>`))
     .join('');
-  el.style.display = '';
+  document.getElementById('selModo').value = MODO;
+  linha.style.display = 'flex';
 }
 
 function escolherCampanha(v){ CAMPANHA = v; carregar(); }
+function escolherModo(v){ MODO = v; carregar(); }
+
+// ---------- números de WhatsApp ----------
+// A caixa é uma só para todos os números (decisão de 28/09); o seletor recorta.
+function renderSeletorNumero(){
+  const sel = document.getElementById('selNumero');
+  if (NUMEROS.length < 2) { sel.style.display = 'none'; NUMERO = ''; atualizarSeletores(); return; }
+  sel.innerHTML = '<option value="">Todos os números</option>'
+    + NUMEROS.map(n => `<option value="${n.id}" ${String(NUMERO)===String(n.id)?'selected':''}>${esc(n.nome)}</option>`).join('');
+  sel.style.display = '';
+  atualizarSeletores();
+}
+function escolherNumero(v){ NUMERO = v; carregar(); }
+
+// A linha dos seletores só aparece com algum deles visível.
+function atualizarSeletores(){
+  const algum = ['selNumero', 'selSegmento'].some(id => document.getElementById(id).style.display !== 'none');
+  document.getElementById('seletores').style.display = algum ? 'flex' : 'none';
+}
+
+// Os segmentos vêm do cadastro de pessoas. Servidor sem a rota (antes do
+// restart) deixa o seletor escondido: ele ignoraria o filtro.
+async function carregarSegmentos(){
+  const d = await fetch('/api/comm/segmentos').then(r=>r.ok ? r.json() : null).catch(()=>null);
+  const sel = document.getElementById('selSegmento');
+  if (!d?.success || !d.segmentos.length) return;
+  sel.innerHTML = '<option value="">Todos os segmentos</option>'
+    + d.segmentos.map(g => `<option value="${g.id}">${esc(g.nome)}</option>`).join('');
+  sel.style.display = '';
+  atualizarSeletores();
+}
+function escolherSegmento(v){ SEGMENTO = v; carregar(); }
 
 function renderLista(){
   const q = document.getElementById('busca').value.toLowerCase().trim();
@@ -402,10 +470,14 @@ function marcas(c){
   if (c.estado && c.estado !== 'aberta') m.push(`<span class="pil ${c.estado}">${c.estado}</span>`);
   if (c.iaAtiva === 0) m.push('<span class="pil sem-ia">IA desligada</span>');
   if (c.donoNome) m.push(`<span class="pil dono">${esc(c.donoNome)}</span>`);
+  // Com vários números, cada conversa diz por qual número a pessoa escreveu.
+  if (NUMEROS.length > 1 && c.canalNome) m.push(`<span class="pil numero">${esc(c.canalNome)}</span>`);
   return m.length ? `<div class="marcas">${m.join('')}</div>` : '';
 }
 
 // ---------- conversa ----------
+function voltarLista(){ document.getElementById('central').classList.remove('abriu'); }
+
 async function abrir(id){
   ATUAL = id;
   renderLista();
@@ -413,13 +485,18 @@ async function abrir(id){
   if (!d.success) return showAlert(d.error,'error');
   const c = d.conversa;
 
+  // No celular a conversa ocupa a tela no lugar da lista (a classe `abriu`).
+  // Até 29/09 nada punha essa classe, e a conversa só aparecia no celular
+  // porque a regra que devia escondê-la perdia para outra.
+  document.getElementById('central').classList.add('abriu');
   const cab = document.getElementById('threadCab');
   cab.style.display = 'flex';
   cab.innerHTML = `
+    <button class="btn btn-ghost btn-sm voltar" onclick="voltarLista()">Voltar</button>
     <div class="ini">${esc(iniciais(c.pessoaNome || c.nome || c.telefone || ''))}</div>
     <div class="quem">
       <strong>${esc(c.pessoaNome || c.nome || c.telefone)}</strong>
-      <span>${esc(c.telefone)}</span>
+      <span>${esc(c.telefone)}${NUMEROS.length > 1 && c.canalNome ? ` · pelo ${esc(c.canalNome)}` : ''}</span>
     </div>
     <span style="flex:1;"></span>
     <select onchange="mudarEstado(${c.id}, this.value)">
@@ -435,21 +512,46 @@ async function abrir(id){
       IA ${c.iaAtiva ? 'ligada' : 'desligada'}</button>
 `;
 
-  const m = document.getElementById('msgs');
-  m.innerHTML = d.mensagens.length ? d.mensagens.map(x => `
-    <div class="msg ${x.from_me ? 'minha' : 'deles'}">
-      ${esc(x.texto || '(sem texto)')}
-      <div class="meta">
-        <span class="quando">${x.timestamp ? new Date(x.timestamp*1000).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''}</span>
-        ${x.from_bot ? '<span class="porIA">IA</span>' : ''}
-        ${x.from_me ? avaliacao(c.id, x) : ''}
-      </div>
-    </div>`).join('') : '<div class="vazio-centro">Sem mensagens nesta conversa</div>';
-  m.scrollTop = m.scrollHeight;
+  // A pausa por atendimento humano era invisível: a IA ficava calada 4 horas e
+  // nada dizia isso, nem havia como anular sem esperar.
+  const pausa = document.getElementById('pausaIA');
+  if (d.pausaIA && d.pausaIA.pausada) {
+    const ate = new Date(d.pausaIA.ate * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    pausa.innerHTML = `<div class="aviso-pausa">
+      <span>A IA não responde nesta conversa até as ${ate}, porque alguém da equipe respondeu à mão.</span>
+      <button class="btn btn-secondary btn-sm" onclick="retomarIA(${c.id})">Retomar a IA</button>
+    </div>`;
+  } else pausa.innerHTML = '';
+
   window.__msgs = d.mensagens;
+  pintarMensagens(c.id, d.mensagens, d.temMais);
 
   document.getElementById('responder').style.display = 'flex';
   renderFicha(c, d.ficha);
+}
+
+/**
+ * Pinta a lista de mensagens. Usada na abertura e ao trazer o histórico antigo,
+ * para os dois caminhos desenharem a mesma coisa.
+ */
+function pintarMensagens(convId, msgs, temMais){
+  const m = document.getElementById('msgs');
+  // Conversa longa chega cortada (400 por vez). Sem este botão o histórico
+  // antigo não existia para quem usa: no 1bit são 15 conversas assim.
+  const maisAntigas = temMais
+    ? `<button class="btn btn-ghost btn-sm" id="btnMaisAntigas" style="margin:0 auto var(--space-2);display:block;"
+         onclick="carregarAnteriores(${convId})">Carregar mensagens anteriores</button>` : '';
+  m.innerHTML = maisAntigas + (msgs.length ? msgs.map(x => `
+    <div class="msg ${x.from_me ? 'minha' : 'deles'}${x.apagadaEm ? ' apagada' : ''}">
+      ${midiaDa(x)}${x.texto ? `<div class="txt">${esc(x.texto)}</div>` : (TIPOS_MIDIA[x.message_type] ? '' : '<div class="txt">(sem texto)</div>')}
+      <div class="meta">
+        <span class="quando">${x.timestamp ? new Date(x.timestamp*1000).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''}</span>
+        ${x.apagadaEm ? `<span class="apagada-marca" title="Apagada no WhatsApp em ${esc(new Date(x.apagadaEm).toLocaleString('pt-BR'))}">${x.from_me ? 'Você apagou' : 'Apagada pelo contato'}</span>` : ''}
+        ${x.from_bot ? '<span class="porIA">IA</span>' : ''}
+        ${x.from_me ? avaliacao(convId, x) : ''}
+      </div>
+    </div>`).join('') : '<div class="vazio-centro">Sem mensagens nesta conversa</div>');
+  ancorarNoFim(m);
 }
 
 function renderFicha(c, f){
@@ -504,20 +606,30 @@ async function carregarQualificacao(conversaId){
   el.style.display = '';
   QUALIF = d;
   const resp = d.visita?.respostas || {};
-  const trechos = {};
+  const trechos = d.trechos || {};
+  // O roteiro é da campanha que o contato recebeu, e segue em etapas: a atual
+  // fica marcada, e a que um desvio pulou fica apagada (29/09).
+  const idx = d.perguntas.findIndex(p => p.chave === d.etapaAtual);
+  const situacao = d.resultado === 'qualificado' ? `Qualificado, ${d.pontos} ponto(s)`
+    : d.resultado === 'desqualificado' ? 'Desqualificado'
+    : d.visita ? `Na etapa ${idx + 1} de ${d.perguntas.length}, ${d.pontos} ponto(s)` : 'Ainda não começou';
+  const noCaminho = new Set(d.caminho || []);
   el.innerHTML = `<h4>Qualificação</h4>
-    <div class="linha"><span>${d.visita ? 'pontos' : 'ainda não apurada'}</span>
-      <strong>${d.visita ? `${d.pontos} de ${d.maximo}` : '—'}</strong></div>
-    ${d.perguntas.map(p => `
-      <div style="margin:10px 0;">
-        <div style="font-size:0.8em;color:var(--text-2);line-height:1.3;">${esc(p.texto)}</div>
+    <small class="muted">${esc(d.roteiro?.nome || '')}</small>
+    <div class="linha"><span>situação</span><strong class="${d.resultado ? 'res-' + d.resultado : ''}">${esc(situacao)}</strong></div>
+    ${d.perguntas.map(p => {
+      const atual = p.chave === d.etapaAtual, fora = d.visita && !atual && !noCaminho.has(p.chave) && !resp[p.chave];
+      return `
+      <div style="margin:10px 0;${fora ? 'opacity:0.45;' : ''}">
+        <div style="font-size:0.8em;color:var(--text-2);line-height:1.3;">${atual ? '<strong style="color:var(--accent);">Etapa atual.</strong> ' : ''}${esc(p.texto)}</div>
         <select onchange="corrigirQualificacao(${conversaId}, '${esc(p.chave)}', this.value)"
           style="width:100%;margin-top:4px;font-size:0.85em;">
           <option value="">— sem resposta —</option>
           ${p.opcoes.map(o => `<option value="${esc(o.id)}" ${resp[p.chave] === o.id ? 'selected' : ''}
             >${esc(o.rotulo)}</option>`).join('')}
         </select>
-      </div>`).join('')}
+        ${trechos[p.chave] ? `<div style="font-size:0.75em;color:var(--text-3);margin-top:3px;">“${esc(trechos[p.chave])}”</div>` : ''}
+      </div>`; }).join('')}
     <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px;"
       onclick="pedirQualificacao(${conversaId})">Ler a conversa com a IA</button>
     <div id="qualifAviso" style="margin-top:8px;"></div>`;
@@ -549,8 +661,10 @@ async function corrigirQualificacao(conversaId, chave, valor){
     body: JSON.stringify({ respostas: { [chave]: valor || null } }) })
     .then(r=>r.json()).catch(()=>null);
   if (!d?.success) return showAlert(d?.error || 'Não foi possível gravar', 'error');
-  const linha = document.querySelector('#blocoQualificacao .linha strong');
-  if (linha) linha.textContent = `${d.pontos} de ${d.maximo}`;
+  // A correção pode fechar o roteiro: a situação muda, e o qualificado ganha o
+  // card no CRM.
+  await carregarQualificacao(conversaId);
+  if (d.oportunidadeId) { carregarOportunidade(conversaId); showAlert('Qualificado: a oportunidade foi criada no CRM'); }
 }
 
 // ---------- oportunidade no CRM ----------
@@ -606,7 +720,7 @@ async function vincularOportunidade(conversaId){
 }
 
 async function desvincularOportunidade(conversaId){
-  if (!confirm('Desvincular a conversa desta oportunidade?\n\nA oportunidade continua no CRM.')) return;
+  if (!await Aviso.confirmar('Desvincular a conversa desta oportunidade?\n\nA oportunidade continua no CRM.')) return;
   const d = await fetch(`/api/conversas/${conversaId}/oportunidade`, { method:'DELETE' }).then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');
   carregarOportunidade(conversaId);
@@ -682,9 +796,10 @@ const AVISO = {
   som: localStorage.getItem('convAvisoSom') !== '0',
   popup: localStorage.getItem('convAvisoPopup') === '1',
 };
-// null = ainda não sei quantas eram. A primeira carga NUNCA avisa: abrir a tela
-// com 153 não lidas dispararia um alarme sobre mensagem que já estava lá.
-let NAO_LIDAS_ANTES = null;
+// O id da última mensagem recebida que a tela já viu. null na primeira carga,
+// que NUNCA avisa: abrir a tela com 153 não lidas dispararia um alarme sobre
+// mensagem que já estava lá.
+let ULTIMO_RECEBIDO = null;
 
 function renderAvisos(){
   const el = document.getElementById('avisos');
@@ -694,9 +809,9 @@ function renderAvisos(){
   // 3.2.1. O estado continua legível sem passar o mouse, pela cor da borda.
   el.innerHTML = `
     <button class="${AVISO.som?'on':''}" onclick="alternarAviso('som')"
-      data-dica="${AVISO.som?'Som ligado':'Som desligado'}" aria-label="${AVISO.som?'Som ligado':'Som desligado'}">${AVISO.som?'🔔':'🔕'}</button>
+      data-dica="Toca um bipe quando chega mensagem nova">🔔 Som ${AVISO.som?'ligado':'desligado'}</button>
     <button class="${AVISO.popup?'on':''}" onclick="alternarAviso('popup')"
-      data-dica="${AVISO.popup?'Pop-up ligado':'Pop-up desligado'}" aria-label="${AVISO.popup?'Pop-up ligado':'Pop-up desligado'}">💬</button>`;
+      data-dica="Mostra um aviso do computador quando chega mensagem, mesmo com outra aba aberta">🖥️ Notificação ${AVISO.popup?'ligada':'desligada'}</button>`;
 }
 
 async function alternarAviso(qual){
@@ -712,11 +827,17 @@ async function alternarAviso(qual){
   AVISO[qual] = !AVISO[qual];
   localStorage.setItem(qual === 'som' ? 'convAvisoSom' : 'convAvisoPopup', AVISO[qual] ? '1' : '0');
   renderAvisos();
+  // Ligar o som é um clique: é a hora de o navegador liberar o áudio, e o
+  // bipe de confirmação mostra que funciona.
+  if (qual === 'som' && AVISO.som) beep();
 }
 
 function beep(){
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Sem um clique dentro desta tela o navegador cria o áudio suspenso, e o
+    // bipe sairia mudo. resume() libera quando já houve clique.
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
     const osc = ctx.createOscillator(), vol = ctx.createGain();
     osc.frequency.value = 880; vol.gain.value = 0.05;
     osc.connect(vol); vol.connect(ctx.destination);
@@ -726,14 +847,18 @@ function beep(){
 }
 
 /**
- * Chamado a cada volta do ciclo, com o total de não lidas que o servidor
- * devolveu. Compara com a volta anterior e avisa só quando SUBIU.
+ * Chamado a cada volta do ciclo com `recebidas` do servidor: o id da última
+ * mensagem recebida e quantas chegaram depois da que a tela já tinha visto.
+ * Até 29/09 comparava o número de conversas não lidas, e não avisava a
+ * mensagem nova numa conversa que já estava não lida, nem a que chegava
+ * enquanto outra era lida.
  */
-function avisarSeChegou(total){
-  const antes = NAO_LIDAS_ANTES;
-  NAO_LIDAS_ANTES = total;
-  if (antes === null || total <= antes) return;
-  const novas = total - antes;
+function avisarSeChegou(recebidas){
+  if (!recebidas) return;                         // servidor antigo, sem o campo
+  const primeira = ULTIMO_RECEBIDO === null;
+  ULTIMO_RECEBIDO = recebidas.ultimoId || 0;
+  if (primeira || !recebidas.novas) return;
+  const novas = recebidas.novas;
   if (AVISO.som) beep();
   if (AVISO.popup && 'Notification' in window && Notification.permission === 'granted') {
     try {
@@ -768,6 +893,64 @@ async function alternarIA(id, valor){
   const d = await fetch('/api/conversas/'+id, { method:'PUT', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ iaAtiva: !!valor }) }).then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');
+  await abrir(id); await carregar();
+}
+
+/**
+ * Mantém a conversa no fim enquanto a altura ainda muda.
+ *
+ * Um `scrollTop = scrollHeight` logo depois do innerHTML não basta: a imagem tem
+ * `loading="lazy"` e o vídeo carrega metadados depois, então o conteúdo cresce em
+ * seguida e a conversa "sobe" — era por isso que ela abria no meio do histórico,
+ * com o fim fora da vista. O observador acompanha a mudança de altura e desliga
+ * assim que a pessoa rola para trás, para não arrastá-la de volta ao pé enquanto
+ * ela lê o histórico.
+ */
+function ancorarNoFim(m){
+  m.scrollTop = m.scrollHeight;
+  if (m.__obs) m.__obs.disconnect();
+  let ancorado = true;
+  const perto = () => m.scrollHeight - m.scrollTop - m.clientHeight < 80;
+  const aoRolar = () => { ancorado = perto(); };
+  m.removeEventListener('scroll', m.__aoRolar || (()=>{}));
+  m.__aoRolar = aoRolar;
+  m.addEventListener('scroll', aoRolar);
+  const obs = new ResizeObserver(() => { if (ancorado) m.scrollTop = m.scrollHeight; });
+  for (const el of m.children) obs.observe(el);
+  m.__obs = obs;
+  // Rede de segurança para mídia que só muda de tamanho ao carregar de fato.
+  for (const el of m.querySelectorAll('img, video')) {
+    el.addEventListener('load', () => { if (ancorado) m.scrollTop = m.scrollHeight; }, { once: true });
+    el.addEventListener('loadedmetadata', () => { if (ancorado) m.scrollTop = m.scrollHeight; }, { once: true });
+  }
+}
+
+/**
+ * O pedaço anterior do histórico. A posição de leitura é preservada: crescer a
+ * lista por cima sem isso jogaria a pessoa para outro ponto da conversa.
+ */
+async function carregarAnteriores(id){
+  const m = document.getElementById('msgs');
+  const btn = document.getElementById('btnMaisAntigas');
+  const primeira = (window.__msgs || [])[0];
+  if (!primeira) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Carregando…'; }
+  const d = await fetch(`/api/conversas/${id}/mensagens?antesDe=${primeira.id}`)
+    .then(r=>r.json()).catch(()=>null);
+  if (!d?.success) { if (btn) { btn.disabled = false; btn.textContent = 'Carregar mensagens anteriores'; } return showAlert(d?.error || 'Não foi possível carregar','error'); }
+  const alturaAntes = m.scrollHeight, posAntes = m.scrollTop;
+  window.__msgs = [...d.mensagens, ...(window.__msgs || [])];
+  pintarMensagens(id, window.__msgs, d.temMais);
+  m.scrollTop = posAntes + (m.scrollHeight - alturaAntes);
+}
+
+// Anula a pausa de 4 horas que começa quando alguém responde à mão. A próxima
+// mensagem do contato volta a ser atendida pela IA.
+async function retomarIA(id){
+  const d = await fetch('/api/conversas/'+id+'/retomar-ia', { method:'POST' })
+    .then(r=>r.json()).catch(()=>null);
+  if (!d?.success) return showAlert(d?.error || 'Não foi possível retomar','error');
+  showAlert('A IA volta a responder nesta conversa');
   await abrir(id); await carregar();
 }
 
@@ -836,6 +1019,7 @@ async function salvarCorrecao(){
 document.addEventListener('keydown', e => { if (e.key==='Escape') fechar('modalCorrigir'); });
 renderAvisos();
 carregarAtendentes();
+carregarSegmentos();
 carregar();
 setInterval(carregar, 30000);
 </script>

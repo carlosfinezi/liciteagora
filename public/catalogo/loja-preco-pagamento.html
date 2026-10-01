@@ -30,6 +30,28 @@
 .linha-check span { font-size: .92em; }
 
 .aviso { font-size: .82em; color: var(--text-3); margin: 0; }
+
+/* Um método por linha: o nome à esquerda, e à direita onde ele vale. A
+   marcação de atendimento fica ao lado do nome, e não numa tabela à parte,
+   porque "aceito cartão" e "aceito cartão na entrega" são a mesma decisão. */
+.metodos { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+.metodo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 0; border-top: 1px solid var(--border); min-height: 44px; }
+.metodo:first-child { border-top: 0; }
+.metodo .nome { flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; }
+.metodo .nome strong { font-size: .95em; }
+/* `--text-2`, e não `--text-3`: este é texto de apoio que se lê, e o
+   `--text-3` do tema não alcança 4.5:1 sobre o fundo escuro. */
+.metodo .nome span { font-size: .82em; color: var(--text-2); }
+.metodo .onde { display: flex; gap: 14px; }
+.metodo label { display: flex; align-items: center; gap: 6px; font-size: .86em;
+  color: var(--text-2); min-height: 44px; }
+.metodo input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--primary); }
+/* Desligado ou indisponível: o texto continua legível, só o controle é que
+   não responde. Apagar o nome esconderia a informação de que ele existe. */
+.metodo.off .onde { opacity: .45; }
+.metodo .tag { font-size: .72em; padding: 2px 8px; border-radius: 999px;
+  background: var(--bg-2); color: var(--text-2); align-self: center; }
 @media (max-width: 640px) {
   .grade-form { grid-template-columns: 1fr; }
   /* Os botões do cabeçalho herdam 40px do `.btn` global. No celular o alvo
@@ -71,25 +93,24 @@
   </div>
 
   <div class="card">
-    <h3 class="card-title">Cobrança no fechamento do pedido</h3>
-    <div class="grade-form">
-      <div class="campo largo">
-        <label for="pagamentoModo">Como cobrar</label>
-        <select id="pagamentoModo" onchange="pintarVencimento()">
-          <option value="nenhum">Não cobrar — a loja confere e cobra depois</option>
-          <option value="pix">Pix na hora</option>
-          <option value="boleto">Boleto na hora</option>
-          <option value="pix-ou-boleto">Pix ou boleto, o comprador escolhe</option>
-        </select>
-        <span class="dica">Estas são as opções que o ERP já emite hoje. Pagamento
-          online com cartão e gateway não está neste módulo.</span>
-      </div>
-      <div class="campo" id="campoVencimento">
+    <h3 class="card-title">Receber pelo catálogo</h3>
+    <p class="aviso">O cliente paga na hora de fechar o pedido, e a cobrança
+      sai pelo provedor configurado em Financeiro › Contas financeiras.</p>
+    <div id="grupoOnline" class="metodos"></div>
+    <div class="grade-form" id="campoVencimento" style="margin-top:14px;">
+      <div class="campo">
         <label for="pagamentoVencimentoDias">Vencimento em (dias)</label>
         <input type="number" id="pagamentoVencimentoDias" min="0" max="60" step="1">
         <span class="dica">Contados a partir da data do pedido.</span>
       </div>
     </div>
+  </div>
+
+  <div class="card">
+    <h3 class="card-title">Receber na entrega ou na retirada</h3>
+    <p class="aviso">Combinado entre a loja e o cliente. O pedido registra a
+      forma escolhida, e o dinheiro entra quando a loja confirmar.</p>
+    <div id="grupoManual" class="metodos"></div>
   </div>
 
   <p class="aviso">A publicação do catálogo fica no selo do cabeçalho da tela
@@ -99,6 +120,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('loja');</script>
 <script>
 /**
@@ -134,11 +156,80 @@ async function api(url, opts) {
   return d;
 }
 
-/* Sem cobrança na hora não há vencimento a definir. O campo some em vez de
-   ficar ali pedindo um número que não vai a lugar nenhum. */
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+let METODOS = [];
+let SERVICOS = { entrega: false, retirada: false };
+
+/* Sem nenhuma cobrança pelo site não há vencimento a definir. O campo some em
+   vez de ficar ali pedindo um número que não vai a lugar nenhum. */
 function pintarVencimento() {
-  $('campoVencimento').style.display = $('pagamentoModo').value === 'nenhum' ? 'none' : '';
+  const algum = METODOS.some((m) => m.modalidade === 'online' && m.ativo);
+  $('campoVencimento').style.display = algum ? '' : 'none';
 }
+
+/**
+ * Uma linha por método: o nome, e onde ele vale.
+ *
+ * O que NÃO se pode marcar aparece igual, desabilitado e com o motivo ao
+ * lado. Esconder seria pior: o lojista procuraria a opção que ouviu falar e
+ * concluiria que o sistema não tem, em vez de saber que falta configurar o
+ * provedor ou que ela ainda não existe.
+ */
+function linhaDoMetodo(m) {
+  const motivo = m.indisponivel ? 'Em breve'
+    : (m.modalidade === 'online' && !m.provedorPronto) ? 'Configure o provedor de cobrança'
+    : null;
+  const travado = !!motivo;
+  const caixa = (campo, rotulo, servico) => {
+    /* Serviço que a loja não faz não recebe marcação: marcar "entrega" numa
+       loja que só retira guardaria uma escolha que o checkout nunca usa. */
+    const off = travado || !servico;
+    return `<label><input type="checkbox" data-metodo="${esc(m.metodo)}" data-campo="${campo}"
+      ${m[campo] ? 'checked' : ''} ${off ? 'disabled' : ''}> ${rotulo}</label>`;
+  };
+  return `<div class="metodo ${travado ? 'off' : ''}">
+    <div class="nome">
+      <strong>${esc(m.rotulo)}</strong>
+      <span>${esc(m.descricao || '')}</span>
+    </div>
+    ${motivo ? `<span class="tag">${esc(motivo)}</span>` : ''}
+    <div class="onde">
+      <label><input type="checkbox" data-metodo="${esc(m.metodo)}" data-campo="ativo"
+        ${m.ativo ? 'checked' : ''} ${travado ? 'disabled' : ''}> Aceitar</label>
+      ${caixa('entrega', 'Entrega', SERVICOS.entrega)}
+      ${caixa('retirada', 'Retirada', SERVICOS.retirada)}
+    </div>
+  </div>`;
+}
+
+function pintarMetodos() {
+  const monta = (lista) => lista.length
+    ? lista.map(linhaDoMetodo).join('')
+    : '<p class="aviso">Nenhuma forma neste grupo.</p>';
+  $('grupoOnline').innerHTML = monta(METODOS.filter((m) => m.modalidade === 'online'));
+  $('grupoManual').innerHTML = monta(METODOS.filter((m) => m.modalidade === 'manual'));
+  pintarVencimento();
+}
+
+/* Marcar "Aceitar" sem dizer onde deixaria o método ativo e invisível no
+   checkout. A primeira marcação liga os atendimentos que a loja faz, e o
+   lojista desmarca o que não quiser. */
+document.addEventListener('change', (ev) => {
+  const el = ev.target.closest('[data-metodo]');
+  if (!el) return;
+  const m = METODOS.find((x) => x.metodo === el.dataset.metodo);
+  if (!m) return;
+  m[el.dataset.campo] = el.checked;
+  if (el.dataset.campo === 'ativo' && el.checked && !m.entrega && !m.retirada) {
+    m.entrega = SERVICOS.entrega;
+    m.retirada = SERVICOS.retirada;
+    pintarMetodos();
+    return;
+  }
+  pintarVencimento();
+});
 
 async function carregar() {
   try {
@@ -146,9 +237,12 @@ async function carregar() {
     const c = d.config || {};
     $('mostrarPreco').checked = !!c.mostrarPreco;
     $('mostrarEstoque').checked = !!c.mostrarEstoque;
-    $('pagamentoModo').value = c.pagamentoModo || 'nenhum';
     $('pagamentoVencimentoDias').value = c.pagamentoVencimentoDias == null ? 3 : c.pagamentoVencimentoDias;
-    pintarVencimento();
+
+    const p = await api('/api/loja/metodos-pagamento');
+    METODOS = p.metodos || [];
+    SERVICOS = p.servicos || SERVICOS;
+    pintarMetodos();
   } catch (e) { showAlert(e.message, 'error'); }
 }
 
@@ -156,15 +250,26 @@ async function salvar() {
   const bt = $('btSalvar');
   bt.disabled = true;
   try {
+    /* Duas chamadas porque são dois recursos, e não por comodidade: os
+       métodos têm rota própria, e o que aparece na vitrine continua sendo
+       `loja_config`. `pagamentoModo` NÃO é mais enviado — quem responde o
+       que a loja aceita é a tabela de métodos, e mandar os dois deixaria
+       duas fontes discordando. A coluna fica no banco, sem esta tela. */
     await api('/api/loja/config', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         mostrarPreco: $('mostrarPreco').checked,
         mostrarEstoque: $('mostrarEstoque').checked,
-        pagamentoModo: $('pagamentoModo').value,
         pagamentoVencimentoDias: Number($('pagamentoVencimentoDias').value) || 0,
       }),
     });
+    const p = await api('/api/loja/metodos-pagamento', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ metodos: METODOS }),
+    });
+    METODOS = p.metodos || METODOS;
+    SERVICOS = p.servicos || SERVICOS;
+    pintarMetodos();
     showAlert('Preço e pagamento salvos. O catálogo público já reflete a mudança.');
   } catch (e) { showAlert(e.message, 'error'); }
   finally { bt.disabled = false; }

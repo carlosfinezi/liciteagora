@@ -50,6 +50,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/producao-vocab.js"></script>
 <script>initSidebar('producao-expedicao');</script>
@@ -144,7 +146,7 @@ async function abrirNovo() {
         <input type="date" id="rData" value="${new Date().toISOString().slice(0, 10)}"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Placa</label><input type="text" id="rPlaca"></div>
+      <div class="form-group"><label>Placa</label><input type="text" id="rPlaca" data-formato="placa"></div>
       <div class="form-group"><label>Tipo de veículo</label><input type="text" id="rTipo" placeholder="Prancha 3 eixos"></div>
       <div class="form-group"><label>Motorista</label><input type="text" id="rMot"></div>
       <div class="form-group"><label>Capacidade (kg)</label><input type="number" id="rCap" min="0" step="1"></div>

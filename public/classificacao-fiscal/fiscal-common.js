@@ -142,8 +142,6 @@ async function verNcm(codigo) {
 
 const errCard = (m) => `<div class="card" style="padding:18px;color:var(--danger)">${esc(m || 'Erro')}</div>`;
 function render(html) { $('saida').innerHTML = html; }
-function toast(msg, tipo) {
-  const box = $('toasts'); const el = document.createElement('div');
-  el.className = 'toast ' + (tipo || 'success'); el.textContent = msg;
-  box.appendChild(el); setTimeout(() => el.remove(), 3500);
-}
+/* O `toast()` local saiu em 01/10/2026: quem avisa agora é o
+   `window.toast` de `/js/aviso-sistema.js`, que é um só no sistema, aceita as
+   mesmas palavras de tipo e acompanha o tema. */

@@ -110,6 +110,17 @@
             <small class="muted" style="margin-left:30px;">Quando uma venda/NFSe não especifica conta para boleto, o sistema usa esta. Só uma conta pode ser padrão por tenant.</small>
           </div>
         </div>
+        <div class="form-row" id="bpExtratoRow" style="display:none;">
+          <div class="form-group full-width">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="bpExtratoAuto" style="width:auto;transform:scale(1.15);">
+              <span>Buscar o extrato automaticamente</span>
+            </label>
+            <small class="muted" style="margin-left:30px;">O sistema importa os lançamentos desta conta a cada
+              seis horas, e a conciliação deixa de precisar do arquivo OFX. Desligado, o extrato vem quando
+              você clicar em Importar do banco, na tela de Conciliação Bancária.</small>
+          </div>
+        </div>
         <div id="bpCamposContainer"></div>
         <div id="bpCertificadoRow" class="form-row" style="display:none;">
           <div class="form-group full-width">
@@ -152,7 +163,7 @@
       <div class="form-group"><label>Conta Destino *</label><select id="trfDestino"></select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Valor (R$) *</label><input type="number" id="trfValor" step="0.01"></div>
+      <div class="form-group"><label>Valor (R$) *</label><input type="text" id="trfValor" data-formato="dinheiro"></div>
       <div class="form-group"><label>Data</label><input type="date" id="trfData"></div>
     </div>
     <div class="form-row">
@@ -167,6 +178,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('contas-financeiras');</script>
 <script>
 let contasCache = [];
@@ -331,6 +344,8 @@ async function bpCarregarConfig(contaId){
   document.getElementById('bpCertFile').value = '';
   document.getElementById('bpCertSenha').value = '';
   document.getElementById('bpCertStatus').textContent = 'Nenhum certificado carregado';
+  document.getElementById('bpExtratoAuto').checked = false;
+  document.getElementById('bpExtratoRow').style.display = 'none';
   bpCertBase64 = null;
   document.getElementById('bpBloco').style.display = 'none';
   document.getElementById('bpCamposContainer').innerHTML = '';
@@ -346,6 +361,7 @@ async function bpCarregarConfig(contaId){
       document.getElementById('bpProxNN').value = c.proximoNossoNumero || 1;
       document.getElementById('bpTarifa').value = c.tarifaBoleto || 0;
       document.getElementById('bpEhPadrao').checked = !!c.ehPadrao;
+      document.getElementById('bpExtratoAuto').checked = !!c.extratoAuto;
       if (c.temCertificado) document.getElementById('bpCertStatus').textContent = 'Certificado já carregado (deixe vazio para não alterar)';
       bpRenderCampos(c.campos || {});
       bpToggleAtivo();
@@ -364,8 +380,15 @@ function bpRenderCampos(valores = {}){
   const nome = document.getElementById('bpProvedor').value;
   const prov = BP_PROVEDORES.find(p => p.nome === nome);
   const box = document.getElementById('bpCamposContainer');
-  if (!prov) { box.innerHTML = ''; document.getElementById('bpCertificadoRow').style.display = 'none'; return; }
+  if (!prov) {
+    box.innerHTML = '';
+    document.getElementById('bpCertificadoRow').style.display = 'none';
+    document.getElementById('bpExtratoRow').style.display = 'none';
+    return;
+  }
   document.getElementById('bpCertificadoRow').style.display = prov.requerCertificado ? 'flex' : 'none';
+  // Só os provedores com extrato por API têm o que ligar aqui.
+  document.getElementById('bpExtratoRow').style.display = prov.temExtrato ? 'flex' : 'none';
   box.innerHTML = `<div class="form-row">` + (prov.camposConfig || []).map(c => {
     const v = valores[c.name] != null ? String(valores[c.name]) : '';
     const type = c.type === 'password' ? 'password' : c.type === 'select' ? 'select' : 'text';
@@ -415,6 +438,7 @@ async function bpSalvarConfig(contaId){
     campos,
     proximoNossoNumero: Number(document.getElementById('bpProxNN').value) || 1,
     tarifaBoleto: Number(document.getElementById('bpTarifa').value) || 0,
+    extratoAuto: document.getElementById('bpExtratoAuto').checked,
   };
   if (bpCertBase64) body.certificadoBase64 = bpCertBase64;
   const senha = document.getElementById('bpCertSenha').value;
@@ -446,7 +470,7 @@ async function bpTestar(){
 async function excluirConta(){
   const id = val('mcId');
   if (!id) return;
-  if (!confirm('Desativar esta conta? (movimentações existentes serão preservadas)')) return;
+  if (!await Aviso.confirmar('Desativar esta conta? (movimentações existentes serão preservadas)')) return;
   try {
     const r = await fetch('/api/contas-financeiras/'+id,{method:'DELETE'});
     const d = await r.json();

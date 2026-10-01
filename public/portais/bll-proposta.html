@@ -70,6 +70,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('bll-proposta');</script>
 <script>
@@ -226,7 +227,7 @@ async function previa() {
   try {
     const r = await fetch(API + '/api/bll/proposta/preview', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ urlOuToken: urlInput(), valores: valoresArray(), isMe: isMeSelecionado() }),
+      body: JSON.stringify({ urlOuToken: urlInput(), valores: valoresArray(), isMe: isMeSelecionado(), pncp: currentPncp }),
     });
     const d = await r.json();
     if (!d.success) return mostrarResultado('err', '⚠️ <strong>Erro ao gerar a prévia.</strong><br>' + escapeHtml(d.error || ''), d);
@@ -238,7 +239,7 @@ async function enviar() {
   const vals = valoresArray();
   if (vals.some((v) => !(v > 0))) return alerta('Informe um valor válido (> 0) para todos os itens.', 'warn');
   const total = vals.reduce((a, b) => a + (b || 0), 0);
-  if (!confirm('ENVIAR proposta ao BLL agora?\n\nItens: ' + itensCarregados.length +
+  if (!await Aviso.confirmar('ENVIAR proposta ao BLL agora?\n\nItens: ' + itensCarregados.length +
     '\nSoma dos valores unitários: R$ ' + total.toFixed(2).replace('.', ',') +
     '\n\nEsta ação é REAL e irreversível.')) return;
   const btn = document.getElementById('btnEnviar');
@@ -246,7 +247,7 @@ async function enviar() {
   try {
     const r = await fetch(API + '/api/bll/proposta/enviar', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ urlOuToken: urlInput(), valores: vals, isMe: isMeSelecionado(), confirmar: true }),
+      body: JSON.stringify({ urlOuToken: urlInput(), valores: vals, isMe: isMeSelecionado(), confirmar: true, pncp: currentPncp }),
     });
     const d = await r.json();
     if (d.success && (d.enviada || d.jaEnviada)) {

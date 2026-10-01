@@ -197,14 +197,15 @@ function construirParticipacoes(allParticipacoes) {
     });
 }
 
+// Conta participações, e não mais interesses: desde 25/09/2026 a licitação de
+// interesse se compõe na aba Proposta do card, em /licitacoes/interesse.html.
+// Anunciar aqui um número de interesses que esta página não mostra mais faria
+// procurar nela o que está na outra.
 function atualizarStats() {
-    // BNC/BLL/PCP não contam aqui (têm tela própria no módulo Portais).
-    const base = interessesData.filter(l => !ehPortalProprio(l));
-    const comCompraId = base.filter(l => l.compraId && !l.compraId.startsWith('NAO_COMPRASNET:')).length;
-    const naoComprasnet = base.filter(l => l.compraId?.startsWith('NAO_COMPRASNET:')).length;
-    const pendentesCompraId = base.length - comCompraId - naoComprasnet;
+    const total = participacoesData.length;
+    const enviadas = participacoesData.filter(p => p.propostaEnviadaEm).length;
     document.getElementById('statsInfo').innerHTML =
-        `${base.length} interesses | ${comCompraId} Comprasnet | ${naoComprasnet ? naoComprasnet + ' estadual/municipal | ' : ''}${pendentesCompraId} pendentes`;
+        `${total} ${total === 1 ? 'participação' : 'participações'} | ${enviadas} com proposta enviada`;
 }
 
 function renderizarTudo(allParticipacoes) {
@@ -860,7 +861,7 @@ function atualizarResumo() {
 // ==================== EXCLUSÃO ====================
 
 async function excluirProposta(compraId) {
-    if (!confirm(`Tem certeza que deseja EXCLUIR a proposta da compra ${compraId}?\n\nIsso remove a participação e todas as propostas de itens.`)) {
+    if (!await Aviso.confirmar(`Tem certeza que deseja EXCLUIR a proposta da compra ${compraId}?\n\nIsso remove a participação e todas as propostas de itens.`)) {
         return;
     }
 
@@ -873,16 +874,16 @@ async function excluirProposta(compraId) {
         const result = await resp.json();
 
         if (result.success) {
-            alert(`Proposta excluída com sucesso.\n\n${result.message || ''}`);
+            Aviso.ok(`Proposta excluída com sucesso.\n\n${result.message || ''}`);
             // Recarregar a página para refletir o estado atualizado
             location.reload();
         } else {
-            alert(`Erro ao excluir: ${result.error || 'Erro desconhecido'}`);
+            Aviso.erro(`Erro ao excluir: ${result.error || 'Erro desconhecido'}`);
             btn.disabled = false;
             btn.textContent = 'Excluir Proposta';
         }
     } catch (error) {
-        alert(`Erro de conexão: ${error.message}`);
+        Aviso.erro(`Erro de conexão: ${error.message}`);
         btn.disabled = false;
         btn.textContent = 'Excluir Proposta';
     }
@@ -893,7 +894,7 @@ async function excluirProposta(compraId) {
 async function enviarProposta(compraId) {
     const disputa = disputasData.get(compraId);
     if (!disputa) {
-        alert('Carregue os itens primeiro.');
+        Aviso.erro('Carregue os itens primeiro.');
         return;
     }
 
@@ -913,7 +914,7 @@ async function enviarProposta(compraId) {
     });
 
     if (itensSelecionados.length === 0) {
-        alert('Selecione ao menos um item com valor definido.');
+        Aviso.erro('Selecione ao menos um item com valor definido.');
         return;
     }
 
@@ -1407,13 +1408,13 @@ function formatarValorPDF(valor) {
 async function gerarPDFParticipacao(compraId, assinar = false) {
     const disputa = disputasData.get(compraId);
     if (!disputa || !disputa.itens?.length) {
-        alert('Carregue os itens antes de gerar o PDF.');
+        Aviso.erro('Carregue os itens antes de gerar o PDF.');
         return;
     }
 
     const p = participacoesData.find(x => x.compraId === compraId);
     if (!p) {
-        alert('Participação não encontrada.');
+        Aviso.erro('Participação não encontrada.');
         return;
     }
 
@@ -1438,7 +1439,7 @@ async function gerarPDFParticipacao(compraId, assinar = false) {
     });
 
     if (itensPDF.length === 0) {
-        alert('Selecione ao menos um item com valor para gerar o PDF.');
+        Aviso.erro('Selecione ao menos um item com valor para gerar o PDF.');
         return;
     }
 
@@ -1625,18 +1626,18 @@ async function gerarPDFIndividual(licitacao, assinar = false) {
                 link.href = 'data:application/pdf;base64,' + result.pdfAssinado;
                 link.download = nomeArquivo;
                 link.click();
-                alert('PDF assinado gerado com sucesso!');
+                Aviso.ok('PDF assinado gerado com sucesso!');
             } else {
-                alert('Erro ao assinar: ' + result.error + '\nGerando PDF sem assinatura.');
+                Aviso.erro(Aviso.mensagemDeErro(result.error + '\nGerando PDF sem assinatura.'));
                 doc.save(nomeArquivo.replace('_assinado', ''));
             }
         } catch (error) {
-            alert('Erro ao assinar PDF. Gerando versão sem assinatura.');
+            Aviso.erro('Erro ao assinar PDF. Gerando versão sem assinatura.');
             doc.save(nomeArquivo.replace('_assinado', ''));
         }
     } else {
         doc.save(nomeArquivo);
-        alert('PDF gerado com sucesso!');
+        Aviso.ok('PDF gerado com sucesso!');
     }
 }
 
@@ -1812,7 +1813,7 @@ async function salvarNovoProdutoMatch() {
         observacoes: document.getElementById('formProd_obs').value.trim() || null,
     };
     if (!payload.sku || !payload.descricao) {
-        alert('SKU e Descrição são obrigatórios.');
+        Aviso.erro('SKU e Descrição são obrigatórios.');
         return;
     }
     try {
@@ -1823,7 +1824,7 @@ async function salvarNovoProdutoMatch() {
         });
         const data = await r.json();
         if (!data.success) {
-            alert('Falha: ' + (data.error || 'erro desconhecido'));
+            Aviso.erro('Falha: ' + (data.error || 'erro desconhecido'));
             return;
         }
         const { scopeId, num } = _cadastroContext;
@@ -1838,7 +1839,7 @@ async function salvarNovoProdutoMatch() {
         aplicarMatchProduto(scopeId, num, novoProduto.id);
         fecharCadastroProduto();
     } catch (e) {
-        alert('Erro: ' + e.message);
+        Aviso.erro(Aviso.mensagemDeErro(e));
     }
 }
 
@@ -1899,6 +1900,19 @@ async function carregarDadosIaParaInteresse(compraIdOrPrefix) {
 document.addEventListener('DOMContentLoaded', () => {
     carregarFornecedorConfig();
     atualizarTokenStatus();
-    carregarParticipacoes().then(() => mostrarInteresses());
+    // A seção "Licitações de Interesse" saiu daqui em 25/09/2026: era a MESMA
+    // lista de /licitacoes/interesse.html, montada uma segunda vez com um
+    // segundo conjunto de filtros. Compor e enviar agora vivem na aba Proposta
+    // do card de interesse; esta página ficou com as Participações Comprasnet,
+    // que são compras em que estamos e que não têm card de interesse onde morar.
+    //
+    // O código da seção continua no arquivo, sem chamador — `mostrarInteresses`,
+    // `renderizarInteresses`, `renderizarItensInteresse`, `toggleInteresses`,
+    // `autoResolverCompraId` e `verificarCompraId`. Não foi apagado porque
+    // `interessesData` segue em uso pela metade das participações
+    // (`resolveIdsLicitacao`, `carregarValoresDoBanco`, `carregarItens`), e
+    // separar as duas metades numa página de 1.900 linhas sem suíte que a cubra
+    // é trabalho para uma passada própria, com teste antes.
+    carregarParticipacoes();
     setInterval(atualizarTokenStatus, 30000);
 });

@@ -171,7 +171,7 @@
           </div>
           <div class="form-group" id="grpValorHora" style="display:none;">
             <label>Valor hora padrão (R$)</label>
-            <input type="number" id="fValorHoraPadrao" step="0.01" min="0" placeholder="ex: 120,00">
+            <input type="text" id="fValorHoraPadrao" placeholder="ex: 120,00" data-formato="dinheiro">
             <small class="muted" style="font-size:11px;">Usado quando a linha não traz valor hora próprio.</small>
           </div>
           <div class="form-group" id="grpAlterarCalc" style="display:none;">
@@ -201,11 +201,11 @@
           </div>
           <div class="form-group" id="grpDeslocKm" style="display:none;">
             <label>Valor por km (R$)</label>
-            <input type="number" id="fDeslocValorKm" step="0.01" min="0" placeholder="ex: 2,50">
+            <input type="text" id="fDeslocValorKm" placeholder="ex: 2,50" data-formato="dinheiro">
           </div>
           <div class="form-group" id="grpDeslocFixo" style="display:none;">
             <label>Valor fixo (R$)</label>
-            <input type="number" id="fDeslocValorFixo" step="0.01" min="0" placeholder="ex: 80,00">
+            <input type="text" id="fDeslocValorFixo" placeholder="ex: 80,00" data-formato="dinheiro">
           </div>
         </div>
         <small class="muted">
@@ -337,6 +337,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/campo-formato.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('cadastro-os-tipos');</script>
@@ -651,7 +653,7 @@ async function salvar(){
 async function inativar(){
   const id = document.getElementById('fId').value;
   if (!id) return;
-  if (!confirm('Inativar este tipo? OS já criadas não são afetadas, mas ele não aparecerá em novas OS.')) return;
+  if (!await Aviso.confirmar('Inativar este tipo? OS já criadas não são afetadas, mas ele não aparecerá em novas OS.')) return;
   try {
     const r = await fetch('/api/os-tipos/'+id, { method:'DELETE' });
     const d = await r.json();

@@ -101,6 +101,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('posto-recebimento');</script>
 <script>
@@ -151,7 +152,7 @@ async function carregarEstoque() {
       <td class="muted">${esc(t.ultimaMedicaoEm || '—')}</td>
       <td style="text-align:right;">${nL(t.entradasDesdeL)} L</td>
       <td style="text-align:right;">${nL(t.saidasDesdeL)} L</td>
-      <td style="text-align:right;font-weight:600;${t.abaixoDoMinimo ? 'color:#c0392b;' : ''}">${nL(t.estoqueEstimadoL)} L</td>
+      <td style="text-align:right;font-weight:600;${t.abaixoDoMinimo ? 'color: var(--danger);' : ''}">${nL(t.estoqueEstimadoL)} L</td>
       <td style="text-align:right;">${t.ocupacaoPct != null ? nL(t.ocupacaoPct, 1) + '%' : '—'}</td>
     </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum tanque ativo</td></tr>';
   } catch (e) { showAlert(e.message, 'error'); }
@@ -167,9 +168,9 @@ async function carregarDescargas() {
       <td>${esc(x.notaFiscal || '—')}</td>
       <td style="text-align:right;">${nL(x.litrosNota)} L</td>
       <td style="text-align:right;">${nL(x.litrosRecebidos)} L</td>
-      <td style="text-align:right;${x.diferencaLitros != null && Math.abs(x.diferencaLitros) > 0.001 ? 'color:#c0392b;font-weight:600;' : ''}">${x.diferencaLitros != null ? nL(x.diferencaLitros) + ' L' : '<span class="muted">não conferido</span>'}</td>
-      <td>${x.lacreConferido ? 'OK' : '<span style="color:#c0392b;">não</span>'}</td>
-      <td>${x.amostraTestemunha ? 'OK' : '<span style="color:#c0392b;">não</span>'}</td>
+      <td style="text-align:right;${x.diferencaLitros != null && Math.abs(x.diferencaLitros) > 0.001 ? 'color: var(--danger);font-weight:600;' : ''}">${x.diferencaLitros != null ? nL(x.diferencaLitros) + ' L' : '<span class="muted">não conferido</span>'}</td>
+      <td>${x.lacreConferido ? 'OK' : '<span style="color: var(--danger);">não</span>'}</td>
+      <td>${x.amostraTestemunha ? 'OK' : '<span style="color: var(--danger);">não</span>'}</td>
     </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhuma descarga registrada</td></tr>';
   } catch (e) { showAlert(e.message, 'error'); }
 }
@@ -210,7 +211,7 @@ async function carregarMedicoes() {
       <td>${esc(m.tipo)}</td>
       <td style="text-align:right;">${nL(m.litrosFisico)} L</td>
       <td style="text-align:right;">${m.alturaCm != null ? nL(m.alturaCm, 1) + ' cm' : '—'}</td>
-      <td style="text-align:right;${m.aguaCm > 2.5 ? 'color:#c0392b;font-weight:600;' : ''}">${m.aguaCm != null ? nL(m.aguaCm, 1) + ' cm' : '—'}</td>
+      <td style="text-align:right;${m.aguaCm > 2.5 ? 'color: var(--danger);font-weight:600;' : ''}">${m.aguaCm != null ? nL(m.aguaCm, 1) + ' cm' : '—'}</td>
       <td>${m.origem === 'sonda' ? 'Sonda' : 'Régua'}</td>
     </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhuma medição registrada</td></tr>';
   } catch (e) { showAlert(e.message, 'error'); }

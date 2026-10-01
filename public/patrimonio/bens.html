@@ -136,7 +136,7 @@
       <div class="form-group"><label>Nº de série</label><input type="text" id="fSerie"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Valor de aquisição (R$) *</label><input type="number" id="fValor" step="0.01" min="0"></div>
+      <div class="form-group"><label>Valor de aquisição (R$) *</label><input type="text" id="fValor" data-formato="dinheiro"></div>
       <div class="form-group"><label>Valor residual (R$)</label><input type="number" id="fResidual" step="0.01" min="0" value="0"></div>
       <div class="form-group"><label>Vida útil (meses)</label><input type="number" id="fVida" min="1" value="60"></div>
       <div class="form-group"><label>Data de aquisição *</label><input type="date" id="fData"></div>
@@ -156,6 +156,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('patrimonio-bens');</script>
@@ -366,7 +368,7 @@ function abrirDepreciacao(){
 async function apurarDepr(simular){
   const competencia = document.getElementById('dpComp').value;
   if (!competencia) return showAlert('Escolha a competência','error');
-  if (!simular && !confirm(`Lançar a depreciação de ${competencia} na contabilidade?`)) return;
+  if (!simular && !await Aviso.confirmar(`Lançar a depreciação de ${competencia} na contabilidade?`)) return;
   const d = await fetch('/api/patrimonio/depreciacao/apurar', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ competencia, simular })
@@ -395,7 +397,7 @@ async function apurarDepr(simular){
 async function estornarDepr(){
   const competencia = document.getElementById('dpComp').value;
   if (!competencia) return showAlert('Escolha a competência','error');
-  if (!confirm(`Estornar a depreciação de ${competencia}?\n\nGera contra-lançamento e libera a competência para nova apuração.`)) return;
+  if (!await Aviso.confirmar(`Estornar a depreciação de ${competencia}?\n\nGera contra-lançamento e libera a competência para nova apuração.`)) return;
   const d = await fetch(`/api/patrimonio/depreciacao/${competencia}/estornar`, { method:'POST' }).then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');
   showAlert(`${d.estornadas} linha(s) estornada(s)` + (d.lancamentoEstornoId ? ` · contra-lançamento #${d.lancamentoEstornoId}` : ''));

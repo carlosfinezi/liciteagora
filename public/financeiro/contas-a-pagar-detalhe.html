@@ -136,7 +136,7 @@
     <h2>Editar conta</h2>
     <div class="row"><label>Descrição</label><input type="text" id="eDesc"></div>
     <div class="row-2">
-      <div class="row"><label>Valor</label><input type="number" step="0.01" id="eValor"></div>
+      <div class="row"><label>Valor</label><input type="text" id="eValor" data-formato="dinheiro"></div>
       <div class="row"><label>Vencimento</label><input type="date" id="eVenc"></div>
     </div>
     <div class="row-2">
@@ -168,6 +168,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('contas-a-pagar');</script>
 <script>
@@ -352,8 +354,8 @@ async function confirmarPagar(){
     formaPagamento: document.getElementById('pForma').value || null,
     observacoes: document.getElementById('pObs').value || null
   };
-  if (!body.contaFinanceiraId) { alert('Selecione conta financeira'); return; }
-  if (!body.valorBase || body.valorBase <= 0) { alert('Valor base inválido'); return; }
+  if (!body.contaFinanceiraId) { Aviso.erro('Selecione conta financeira'); return; }
+  if (!body.valorBase || body.valorBase <= 0) { Aviso.erro('Valor base inválido'); return; }
   try {
     const r = await fetch('/api/contas-a-pagar/'+CP_ID+'/baixar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     const d = await r.json();
@@ -362,7 +364,7 @@ async function confirmarPagar(){
     if (!d.success && d.aprovacaoId) { avisarAlcada(d); return; }
     if (!d.success) throw new Error(d.error);
     fecharPagar(); carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 // Bloqueio por alçada: mostra o que aconteceu e leva até a decisão.
@@ -378,20 +380,20 @@ function avisarAlcada(d) {
     + `<a href="/aprovacoes/aprovacoes.html">Ver solicitação #${d.aprovacaoId}</a>`;
   const alvo = document.querySelector('.main-content');
   if (alvo) { alvo.insertBefore(box, alvo.firstChild); window.scrollTo(0, 0); }
-  else alert(d.error);
+  else Aviso.erro(Aviso.mensagemDeErro(d));
   fecharPagar();
 }
 
 // ===== Estorno =====
 async function estornar(pagamentoId){
-  if (!confirm('Estornar este pagamento?\n\nO registro fica marcado como estornado (histórico preservado) e a movimentação financeira é anulada por um lançamento reverso.')) return;
+  if (!await Aviso.confirmar('Estornar este pagamento?\n\nO registro fica marcado como estornado (histórico preservado) e a movimentação financeira é anulada por um lançamento reverso.')) return;
   const motivo = prompt('Motivo do estorno (fica no histórico):') || '';
   try {
     const r = await fetch('/api/contas-a-pagar/'+CP_ID+'/estornar-baixa', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pagamentoId, motivo: motivo.trim() || null }) });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 // ===== Retificar pagamento (estorno + relançamento) =====
@@ -433,7 +435,7 @@ function recalcRetif(){
 }
 async function confirmarRetificar(){
   const motivo = (document.getElementById('rMotivo').value || '').trim();
-  if (motivo.length < 5) { alert('Informe o motivo da correção (mín. 5 caracteres)'); return; }
+  if (motivo.length < 5) { Aviso.erro('Informe o motivo da correção (mín. 5 caracteres)'); return; }
   const body = {
     pagamentoId: RETIF_ID, motivo,
     contaFinanceiraId: Number(document.getElementById('rContaFin').value) || null,
@@ -445,13 +447,13 @@ async function confirmarRetificar(){
     formaPagamento: document.getElementById('rForma').value || null,
     observacoes: document.getElementById('rObs').value || null
   };
-  if (!body.valorBase || body.valorBase <= 0) { alert('Valor base inválido'); return; }
+  if (!body.valorBase || body.valorBase <= 0) { Aviso.erro('Valor base inválido'); return; }
   try {
     const r = await fetch('/api/contas-a-pagar/'+CP_ID+'/retificar-baixa', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     fecharRetificar(); carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 // ===== Editar =====
@@ -495,28 +497,28 @@ async function salvarEdicao(){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     fecharEditar(); carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 // ===== Duplicar =====
 async function duplicar(){
-  if (!confirm('Duplicar esta conta? Será criada uma nova aberta com vencimento para daqui 30 dias.')) return;
+  if (!await Aviso.confirmar('Duplicar esta conta? Será criada uma nova aberta com vencimento para daqui 30 dias.')) return;
   try {
     const r = await fetch('/api/contas-a-pagar/'+CP_ID+'/duplicar', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     location.href = '/financeiro/contas-a-pagar-detalhe.html?id=' + d.id;
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function cancelar(){
-  if (!confirm('Cancelar esta conta?')) return;
+  if (!await Aviso.confirmar('Cancelar esta conta?')) return;
   try {
     const r = await fetch('/api/contas-a-pagar/'+CP_ID+'/cancelar', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 // ===== Anexos =====
@@ -532,10 +534,10 @@ async function enviarAnexo(file){
     if (!d.success) throw new Error(d.error);
     document.getElementById('fileInput').value = '';
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 async function excluirAnexo(id){
-  if (!confirm('Excluir este anexo?')) return;
+  if (!await Aviso.confirmar('Excluir este anexo?')) return;
   await fetch('/api/contas-a-pagar/anexos/'+id, { method:'DELETE' });
   carregar();
 }
@@ -568,16 +570,16 @@ async function verSaldoAdiantamento(){
 }
 
 async function abaterAdiantamento(){
-  if (!confirm('Abater este título com o saldo de adiantamento? O caixa não se move — o dinheiro já entrou quando o adiantamento foi lançado.')) return;
+  if (!await Aviso.confirmar('Abater este título com o saldo de adiantamento? O caixa não se move — o dinheiro já entrou quando o adiantamento foi lançado.')) return;
   const r = await fetch(`/api/contas-a-pagar/${CP_ID}/abater-adiantamento`,
     { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
   const d = await r.json();
   if (!d.success) return (typeof showAlert === 'function'
-    ? showAlert(d.error, 'error') : alert('Erro: ' + d.error));
+    ? showAlert(d.error, 'error') : Aviso.erro(Aviso.mensagemDeErro(d)));
   const msg = `Abatido R$ ${Number(d.abatido).toLocaleString('pt-BR',{minimumFractionDigits:2})}`
     + ` — título ${d.statusTitulo}`
     + (d.saldoRestanteTitulo > 0 ? `, restam R$ ${Number(d.saldoRestanteTitulo).toLocaleString('pt-BR',{minimumFractionDigits:2})}` : '');
-  if (typeof showAlert === 'function') showAlert(msg); else alert(msg);
+  if (typeof showAlert === 'function') showAlert(msg); else Aviso.erro(Aviso.mensagemDeErro(msg));
   location.reload();
 }
 

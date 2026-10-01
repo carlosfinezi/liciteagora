@@ -38,7 +38,7 @@
   <h2 style="margin:14px 0 8px;">Simular</h2>
   <div class="toolbar">
     <select id="simTipo" onchange="aplicarUnidade()"></select>
-    <input type="number" id="simValor" placeholder="Valor (R$)" step="0.01" style="width:160px;" oninput="debounceSim()">
+    <input type="text" id="simValor" placeholder="Valor (R$)" style="width:160px;" oninput="debounceSim()" data-formato="dinheiro">
     <button class="btn btn-ghost btn-sm" onclick="simular()">Ver o que aconteceria</button>
   </div>
   <div id="simResultado" style="margin-bottom:16px;"></div>
@@ -86,6 +86,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('config-alcadas');</script>

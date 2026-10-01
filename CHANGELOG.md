@@ -4,6 +4,206 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-01, o campo de dado com um padrão só, e o aviso que para de travar a tela
+
+Saiu de um levantamento das 259 telas (relatório em `/tmp/revisao-liciteagora-2026-09-30.md`,
+506 achados). A obra seguiu a ordem dali, do que atinge mais gente para o
+acabamento.
+
+**O documento na fronteira do servidor.** `pessoas.cpfCnpj` é a chave única do
+cadastro e nada conferia: um `"1"` entrava como PF. `pessoa-sem-documento.js`
+ganhou `cpfValido`, `cnpjValido` e `erroDeDocumento`, e o `POST /api/pessoas`
+passou a recusar dígito errado. A metade que importa é a outra: identificador
+interno do próprio sistema (`SD-` dos leads, `EX-` de fornecedor de fora,
+`UASG-` de órgão, `TARIFA-`) continua aceito, porque tem letra. Medido nos 20
+tenants antes de decidir: 28.096 documentos gravados, **8 com dígito errado** e
+**9.783 com tamanho irregular DE PROPÓSITO** — uma validação ingênua recusaria
+esses 9.783. As 8 fichas estão listadas por
+`scripts/listar-documentos-invalidos.js` (leitura pura), para correção à mão. O
+`loja-routes.documentoValido` passou a usar a mesma conferência, em vez da cópia
+que tinha.
+
+**A peça de campo saiu da loja para o sistema.** Ela vivia dentro de
+`public/loja/catalogo.js` e era a ÚNICA coisa do sistema que formatava campo,
+conferia dígito verificador e marcava o erro no próprio campo — o ERP tinha 16
+máscaras caseiras, uma por tela, e 323 `alert()`. Agora é
+`public/js/campo-formato.js`, ligada por atributo (`data-formato="telefone"`).
+Formatos novos: **data, hora,
+placa, inscrição estadual** (que aceita ISENTO), e `cpf`/`cnpj` separados para
+campo que só admite um dos dois. O CSS do campo com erro foi para
+`app-modern.css`, que não tinha uma única regra disso. A busca de CEP deixou de
+gravar nos ids fixos do checkout e recebe os destinos por `data-cep-*`.
+
+**135 campos declaram o formato**, em 62 telas, começando por `pessoas.html`,
+`minha-empresa.html` e `estabelecimentos.html`. O `#celular` de `pessoas.html`
+estava sem máscara ao lado de um `#telefone` que já formatava.
+
+**O dinheiro mostra "R$ 1.234,56" e entrega o número ao JavaScript.** As 48
+telas de dinheiro leem `.value` em **152 lugares**; se o campo passasse a
+devolver o texto mascarado, todas receberiam `NaN`. O acessor definido na
+instância resolve isso sem tocar nenhuma das 152.
+
+**323 `alert()` viraram 6 e 283 `confirm()` viraram 3** (os que restam são
+menções em comentário). Quem avisa é `public/js/aviso-sistema.js`, com o toast e
+o modal que já estavam na folha comum. A confirmação de ação destrutiva continua
+existindo, agora na caixa do sistema: o foco começa no Cancelar, Escape e
+clique fora respondem "não", e duas caixas não se empilham. Seis `function
+toast()` caseiras viraram uma.
+
+**A frase de erro nunca mais sai vazia.** Seis telas mostravam uma caixa dizendo
+literalmente "Erro: ", sem nada depois dos dois pontos, e uma dizia "undefined"
+— `e.message` de exceção sem mensagem. Medido no navegador, com a API fora do
+ar. O `Aviso.mensagemDeErro` trata isso, e "Failed to fetch" virou frase de
+gente.
+
+**As peças de interface ficaram alcançáveis antes do login.** O static de
+`public/` vive atrás do `requireAuth`, e o checkout da loja pública passou a
+depender do `campo-formato.js`: sem liberar os dois arquivos em
+`pre-auth-routes.js`, a vitrine de todo tenant quebraria por inteiro. Liberados
+um a um; `menu-config.js` e `sidebar.js` seguem atrás do login.
+
+**Contraste.** O `--text-3` do tema escuro estava em 3,73:1 sobre `--bg-2` e
+2,74:1 no hover, contra os 4,5:1 de AA, no texto secundário de 171 telas. A
+suíte nova encontrou o mesmo no tema CLARO (4,37:1), onde o comentário do CSS
+afirmava 4,6:1 — o erro estava no comentário. Os dois foram recalculados contra
+o pior fundo de cada tema. Resultado: o detector caiu de **171 para 13 telas**
+com contraste baixo, e dessas 13 sobraram as paletas próprias, também
+corrigidas.
+
+**22 telas acompanham o tema claro.** Elas tinham cor cravada em fundo e texto
+(a `operacional/lances.html` tinha 106) e ficavam com pedaços escuros no tema
+claro. 207 cores foram para os tokens. A medição no navegador achou o que a
+busca por cor fixa não pegava: branco sobre `var(--accent)` (2,54:1 no escuro),
+texto do tema sobre `.card` branco no portal (1,3:1), e o recibo do PDV saindo
+claro no papel.
+
+**Quatro links que não levavam a lugar nenhum.** `fiscal/fatura-detalhe.html`
+apontava `/financeiro/fatura-detalhe.html` (a tela vive em `fiscal/`) e
+`/pedido.html` (é `comercial/pedido.html`), e era o único link que levava ao
+detalhe da fatura — ninguém alcançava aquela tela. O "Histórico" do PDV
+apontava `/nfce.html`, que nunca existiu.
+
+**Cinco telas que ninguém alcançava foram apagadas:**
+`comercial/proposta-template.html`, `comunicacao/wa-campanhas.html`,
+`comunicacao/wa-agenda.html`, `compras/fornecedores.html` e
+`operacional/monitoramento-chat.html`. A primeira estava QUEBRADA desde maio: um
+`</script>` literal dentro de um comentário fechava o bloco, e as 285 linhas
+seguintes deixavam de ser script — `esc`, `escHtml` e `render` não existiam, o
+código-fonte aparecia como texto na página, e a sanitização anti-XSS era a
+função cortada no meio. Duas que estavam na lista NÃO foram apagadas, e a
+conferência é que disse: `operacional/electron-monitor.html` tem redirect 301
+ativo e é alcançada por URL de propósito, e `comercial/visita.html` é usada pela
+suíte `test-visita-campo`.
+
+**A etapa 3 do verify passou a olhar todas as telas.** Ela pulava quem não
+carrega `/js/sidebar.js`, e isso deixava 30 telas sem nenhuma checagem de
+sintaxe — foi o que escondeu a `proposta-template` por cinco meses. Agora são
+254 telas e 476 blocos, com as de fora do ERP contadas à parte na saída.
+
+**Acabamento.** 20 rótulos que eram frases viraram rótulo curto mais
+`<small class="muted">` (o CSS põe rótulo em CAIXA ALTA, e frase em caixa alta
+não se lê). 17 emendas de travessão foram reescritas inteiras.
+
+**Oito suítes novas** (157 a 164 no verify), cada uma com sabotagem provando que
+reprova quando o defeito existe.
+
+**A loja pública ficou de fora, e continua com a cópia própria das máscaras.**
+A extração chegou a ser feita, e a sessão que trabalha na loja do Cantinho Verde
+a desfez poucas horas depois, reescrevendo o `catalogo.js` por inteiro. Decisão
+do usuário: a loja espera aquela frente terminar. O que sobrou de ruim foi
+consertado — as duas leituras do troco tinham sido ajustadas para o campo que
+entrega número e, com a máscara própria de volta, passaram a ler `"R$ 50,00"`,
+cujo `Number` é `NaN`: o checkout acusava falta de troco com o campo
+preenchido. A suíte 161 passou a cobrar COERÊNCIA em vez da extração, e reprova
+se alguém voltar a misturar as duas. Os três passos para reaplicar estão no
+CLAUDE.md.
+
+## 2026-09-30, o inventário que não abria, a unidade como o balcão fala, e a busca que trazia "fornecimento"
+
+Treze correções saídas do retrato de loja de material de construção, onde cada
+uma foi vista na tela antes de existir como defeito.
+
+**Inventário**
+
+- **"+ Novo inventário" respondia 500 em todo tenant** (`inventario-routes.js`,
+  `db-schema.js`). A rota de abertura fazia `INSERT ... depositoId`, e a coluna
+  não existia em banco nenhum — nem no sandbox, nem no 1bit, e não havia
+  migração que a criasse. O inventário é por depósito de ponta a ponta (a
+  abertura fotografa o saldo daquele depósito, a tela diz isso ao usuário, o
+  ajuste do fechamento sai nele), então o conserto foi criar a coluna, e não
+  tirá-la do INSERT. A migração vive no `migrarInventarioDB`, mas quem a
+  alcança é o `db-schema.js`: o registro de rotas recebe o proxy de boot e não
+  chega a banco de tenant nenhum. Conferida nos 20 tenants.
+- **A divergência tinha duas definições e nenhum nome.** O mesmo inventário
+  aparecia como R$ -4.126,64 na tela dele e R$ 4.557,72 na lista: uma somava as
+  diferenças com sinal, a outra somava o módulo delas. Agora são três, com
+  rótulo: **Faltas (R$)**, **Sobras (R$)** e **Resultado líquido (R$)**, saindo
+  da mesma função (`divergenciaDosItens`) nas duas rotas. A coluna
+  `inventarios.valorDivergencia` passou a guardar o líquido, que é o que o
+  ajuste faz com o valor do estoque.
+- **A lista de inventários cortava tudo** — "INV-202…", "Contagem g…",
+  "R$ 4.5…" — com uma coluna vazia larga à direita. A causa era geral, no
+  `public/js/grid.js`: ele media a largura das colunas com a linha de
+  "Carregando…" ainda na tabela e nunca remedia. Agora a medição só acontece
+  com linha de verdade, o que conserta toda tela que usa `data-grid` com
+  placeholder.
+- **Inventário fechado parecia contagem em aberto**: o botão "Finalizar
+  inventário" continuava azul de botão primário (só a opacidade o distinguia),
+  e o campo "Saldo contado" e os botões de navegação seguiam na tela. O botão
+  agora é cinza, e no lugar da contagem aparece a linha que diz quando o
+  inventário foi finalizado.
+
+**Pedido e estoque**
+
+- **O aviso de falta chamava o produto pelo código**: "Sem saldo para 2 itens:
+  MC-1001 (faltam 172,00)". Agora vem o nome, com o código entre parênteses, e
+  o mesmo vale para o "já há compra a caminho".
+- **A unidade do cadastro chegava crua na tela** ('SC', 'M3', 'MLH'). Nasceu o
+  `unidades.js`, que traduz a sigla para o nome do balcão (saco, m³, barra,
+  milheiro, lata 18 L, galão, rolo, kg, m²) e diz o que fraciona. Ele absorveu
+  a lista `UNIDADES_INTEIRAS` que vivia no `pedidos-routes.js` — eram duas
+  verdades, uma decidindo o que fraciona e outra nenhuma. O nome e a regra
+  viajam prontos do servidor em `/api/estoque`, `/api/inventarios/:id`,
+  `/api/pedidos/:id/falta` e no próprio pedido, e aparecem em toda coluna "UN"
+  e ao lado de cada quantidade do modal de falta.
+- **Saco de cimento saía com duas casas decimais.** Quantidade em unidade que
+  não se parte passou a ser inteira; m³, kg e metro continuam com a fração.
+- **A frase do modal de falta saía partida em blocos** com folga entre eles:
+  `.card-info` está definida duas vezes no `app-modern.css`, e a do kanban
+  (`display:flex`) vencia. Ela foi escopada para `.kanban-card .card-info`, o
+  que devolve o cartão comum a ~25 telas. E o fornecedor do modal passou a
+  aparecer pelo nome fantasia, não pela razão social gritada.
+- **O aviso de estoque abaixo do mínimo era a lista inteira em parágrafo
+  corrido** — com 139 produtos, tomava a tela e empurrava a tabela para baixo
+  de 13 mil pixels. Virou uma linha com a contagem, um link que filtra a lista
+  por eles e um botão para a Sugestão de Compra.
+
+**Busca de editais**
+
+- **Escolher o grupo de palavras disparava a pesquisa sozinho**, antes de o
+  usuário escolher o estado: quem fazia na ordem natural recebia o Brasil
+  inteiro. Agora o grupo só preenche as palavras, e quem busca é o botão.
+- **Uma palavra só casava pedaço de palavra**: "cimento" trazia 718 editais do
+  Pará em 60 dias, quase todos de "fornecimento", "estabelecimento" e
+  "aquecimento". No Postgres ela passou a ir pelo mesmo FTS das demais, que
+  casa palavra inteira — 4 resultados, todos de cimento.
+- **O estado entrava depois da varredura dos itens.** A consulta lia os itens
+  de todas as licitações do período (o Brasil inteiro) e só depois aplicava o
+  filtro da tela: com as 12 palavras de uma loja de material de construção, ela
+  estourava os 30 s e a tela respondia "Query read timeout". Os filtros agora
+  restringem o universo antes, e as mesmas 12 palavras com o Pará respondem em
+  **8 segundos**. O `LIMIT 300` da busca por objeto também passou a filtrar
+  antes, senão podia gastar as 300 linhas fora do estado pedido.
+- **Edital que entrou pela descrição de um item não dizia por quê** — o objeto
+  na tela não tem nenhuma das palavras procuradas, e a lista parecia aleatória.
+  O card passou a mostrar o trecho da descrição em volta do termo, com ele
+  destacado.
+
+Suítes novas: 154 (`test-inventario-divergencia`, 19 checagens, quatro
+sabotagens reprovadas), 155 (`test-unidades-balcao`, 17 checagens, três
+sabotagens reprovadas) e 156 (`test-busca-editais`, 14 checagens, das quais
+duas falam com o catálogo Postgres de verdade e medem o tempo das 12 palavras).
+
 ## 2026-09-30, vídeo no modelo de mensagem, e a campanha que já saiu volta a ser editável
 
 **Vídeo MP4 no conjunto do modelo** (`comm-imagens.js`, `whatsapp-adapter.js`,

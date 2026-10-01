@@ -43,7 +43,7 @@
     <div class="toolbar">
       <select id="addProduto" style="flex:1;min-width:280px;" onchange="sugerirPreco()"></select>
       <input type="number" id="addMarkup" placeholder="Markup %" step="0.1" title="Sugere Preço = custo × (1 + markup%)" oninput="sugerirPreco()" style="width:100px;">
-      <input type="number" id="addPreco" placeholder="Preço" step="0.01" style="width:120px;">
+      <input type="text" id="addPreco" placeholder="Preço" style="width:120px;" data-formato="dinheiro">
       <input type="number" id="addQtdMin" placeholder="Qtd mín (0)" step="any" style="width:110px;">
       <button class="btn btn-primary btn-sm" onclick="addItem()">+ Incluir</button>
     </div>
@@ -119,6 +119,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('comercial-tabelas-preco');</script>

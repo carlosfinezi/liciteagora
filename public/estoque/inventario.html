@@ -6,6 +6,12 @@
 <script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* Onze colunas em 1128 px: com o padding padrão (14 px de cada lado) a
+     tabela passava de 1199 px e a coluna de ações saía da vista. Células mais
+     estreitas fazem tudo caber, sem cortar nada. */
+  .tbl-wrap th, .tbl-wrap td { padding-left: 8px; padding-right: 8px; }
+</style>
 </head>
 <body>
 <div class="layout"><main class="main-content">
@@ -34,7 +40,12 @@
     </select>
   </div>
 
-  <div class="tbl-wrap" data-grid="estoque-inventario">
+  <!-- Sem `data-grid`: ele impõe largura fixa por coluna com corte por
+       reticências, e com onze colunas (as três da divergência entraram em
+       30/09) nada cabia — "INV-202…", "Contage…", "R$ 4.34…". Sem ele a
+       tabela quebra a linha e mostra o texto inteiro, que é o que importa
+       aqui; o ajuste de largura pelo arraste ninguém usava nesta tela. -->
+  <div class="tbl-wrap">
     <table>
       <thead><tr>
         <th>Código</th>
@@ -44,10 +55,12 @@
         <th>Status</th>
         <th style="text-align:right;">Progresso</th>
         <th style="text-align:right;">Divergências</th>
-        <th style="text-align:right;">Valor</th>
+        <th style="text-align:right;">Faltas (R$)</th>
+        <th style="text-align:right;">Sobras (R$)</th>
+        <th style="text-align:right;" title="Sobras menos faltas">Líquido (R$)</th>
         <th></th>
       </tr></thead>
-      <tbody id="tb"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+      <tbody id="tb"><tr><td colspan="11" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
@@ -106,6 +119,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('estoque-inventario');</script>
@@ -125,12 +139,21 @@ async function carregar(){
   const invs=d.inventarios;
   const abertos = invs.filter(i=>i.status==='aberto' || i.status==='em_contagem').length;
   const finalizados = invs.filter(i=>i.status==='finalizado').length;
-  const valorDivTotal = invs.filter(i=>i.status==='finalizado').reduce((s,i)=>s+(i.valorDivergencia||0),0);
+  // Faltas, sobras e resultado líquido: as mesmas três contas da tela do
+  // inventário, vindas da mesma rota. Um número só, chamado "divergência",
+  // não dizia se o estoque tinha sumido ou sobrado.
+  const fin = invs.filter(i=>i.status==='finalizado');
+  const faltas = fin.reduce((s,i)=>s+(i.faltas||0),0);
+  const sobras = fin.reduce((s,i)=>s+(i.sobras||0),0);
+  const liquido = sobras - faltas;
   document.getElementById('kpis').innerHTML = `
     <div class="kpi"><div class="label">Total</div><div class="value">${invs.length}</div></div>
     <div class="kpi warn"><div class="label">Em andamento</div><div class="value">${abertos}</div></div>
     <div class="kpi success"><div class="label">Finalizados</div><div class="value">${finalizados}</div></div>
-    <div class="kpi danger"><div class="label">Valor divergência total</div><div class="value">R$ ${fmt(valorDivTotal)}</div></div>
+    <div class="kpi danger"><div class="label">Faltas (R$)</div><div class="value">R$ ${fmt(faltas)}</div></div>
+    <div class="kpi success"><div class="label">Sobras (R$)</div><div class="value">R$ ${fmt(sobras)}</div></div>
+    <div class="kpi ${liquido < 0 ? 'danger' : 'success'}"><div class="label">Resultado líquido (R$)</div>
+      <div class="value">${liquido < 0 ? '−' : ''}R$ ${fmt(Math.abs(liquido))}</div></div>
   `;
 
   const tb=document.getElementById('tb');
@@ -141,21 +164,24 @@ async function carregar(){
     const podeContar = ['aberto','em_contagem'].includes(i.status);
     const podeCancelar = i.status !== 'finalizado' && i.status !== 'cancelado';
     return `<tr>
-      <td class="mono"><strong>${i.codigo}</strong></td>
+      <td class="mono" style="white-space:nowrap;"><strong>${i.codigo}</strong></td>
       <td>${i.descricao||'—'}</td>
       <td>${fmtData(i.dataAbertura)}</td>
       <td>${i.usuarioResponsavel||'—'}</td>
       <td><span class="badge ${statusClass}">${i.status.replace('_',' ')}</span></td>
       <td style="text-align:right;">${progresso} ${i.totalItens>0?`<small class="muted">(${pctContado}%)</small>`:''}</td>
       <td style="text-align:right;${i.totalDivergencias>0?'color:var(--warn);font-weight:600':'color:var(--text-3);'}">${i.totalDivergencias||0}</td>
-      <td style="text-align:right;">${i.valorDivergencia>0?'R$ '+fmt(i.valorDivergencia):'—'}</td>
+      <td style="text-align:right;${i.faltas>0?'color:var(--danger);':'color:var(--text-3);'}">${i.faltas>0?'R$ '+fmt(i.faltas):'—'}</td>
+      <td style="text-align:right;${i.sobras>0?'color:var(--success);':'color:var(--text-3);'}">${i.sobras>0?'R$ '+fmt(i.sobras):'—'}</td>
+      <td style="text-align:right;font-weight:600;${(i.liquido||0)<0?'color:var(--danger);':(i.liquido||0)>0?'color:var(--success);':'color:var(--text-3);'}">${
+        (i.faltas||i.sobras) ? ((i.liquido||0)<0?'−':'') + 'R$ ' + fmt(Math.abs(i.liquido||0)) : '—'}</td>
       <td style="text-align:right;white-space:nowrap;">
         ${podeContar?`<a href="/estoque/inventario-contagem.html?id=${i.id}" class="btn btn-primary btn-sm" style="text-decoration:none;">Contar →</a>`:''}
         ${i.status==='finalizado'?`<a href="/estoque/inventario-contagem.html?id=${i.id}" class="btn btn-ghost btn-sm" style="text-decoration:none;">Ver →</a>`:''}
         ${podeCancelar?`<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="cancelar(${i.id})">Cancelar</button>`:''}
       </td>
     </tr>`;
-  }).join('') : '<tr><td colspan="9" class="empty">Nenhum inventário</td></tr>';
+  }).join('') : '<tr><td colspan="11" class="empty">Nenhum inventário</td></tr>';
 }
 
 function abrirNovo(){
@@ -201,7 +227,7 @@ async function criar(){
 }
 
 async function cancelar(id){
-  if(!confirm('Cancelar este inventário? (nada será ajustado no estoque)')) return;
+  if(!await Aviso.confirmar('Cancelar este inventário? (nada será ajustado no estoque)')) return;
   const r = await fetch('/api/inventarios/'+id+'/cancelar', { method:'POST' });
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');

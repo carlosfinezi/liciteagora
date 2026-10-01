@@ -7,6 +7,427 @@
     <script src="/js/theme-boot.js"></script>
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* Filtro de órgão: busca com autocomplete (.autocomplete-* vem do
+           app-modern.css). Largura fixa para a barra de filtros não dançar
+           conforme o nome do órgão escolhido. */
+        .filtro-orgao { display: inline-block; }
+        .filtro-orgao input[type="text"] { width: 210px; padding-right: 26px; }
+        #filtroOrgaoLimpar {
+            position: absolute;
+            right: 6px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: none;
+            width: 18px;
+            height: 18px;
+            padding: 0;
+            border: 0;
+            border-radius: 50%;
+            background: var(--bg-hover);
+            color: var(--text-2);
+            font-size: 13px;
+            line-height: 18px;
+            cursor: pointer;
+        }
+        #filtroOrgaoLimpar:hover { color: var(--text-0); }
+        .filtro-orgao.escolhido #filtroOrgaoLimpar { display: block; }
+        .filtro-orgao.escolhido input[type="text"] { border-color: var(--accent); }
+        .orgao-qtd { color: var(--text-3); }
+        /* Unidade compradora: só aparece quando foi ela que casou a busca, para
+           explicar por que aquele órgão entrou no resultado. */
+        .orgao-unidade { color: var(--text-3); font-size: 0.85em; }
+        .orgao-vazio { padding: 10px 12px; font-size: 0.9em; color: var(--text-3); }
+
+        /* Aba "Mensagens" do card: mensagens do Comprasnet desta licitação.
+           Fica aqui, e não no app-modern.css, porque só esta tela a tem — a
+           busca não sabe se a licitação está sendo acompanhada. */
+        .secao-contador {
+            display: inline-block;
+            min-width: 18px;
+            padding: 0 5px;
+            margin-left: 4px;
+            border-radius: 9px;
+            background: var(--btn-primary-bg); color: #fff;
+            font-size: 11px;
+            line-height: 17px;
+            text-align: center;
+        }
+        .card-secao-btn.ativo .secao-contador { background: var(--btn-primary-bg); color: #fff; }
+
+        /* Teto de altura de propósito: uma licitação do 1bit tem 161 mensagens,
+           e sem isto o card empurraria o resto da lista para fora da tela.
+           O respiro lateral é do CONTEÚDO, e não do painel: o painel já dá 14px,
+           mas mensagem e anexo ocupam a largura toda e encostam nas bordas — ao
+           contrário do grid de detalhes, cujos campos deixam folga sozinhos. */
+        .msg-lista { max-height: 320px; overflow-y: auto; padding: 0 4px; }
+
+        .msg-item { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+        .msg-item:last-child { border-bottom: 0; }
+        .msg-cab { display: flex; align-items: baseline; gap: 10px; margin-bottom: 3px; }
+        .msg-cab strong { color: var(--text-0); font-size: 12.5px; }
+        .msg-quando { color: var(--text-3); font-size: 11.5px; margin-left: auto; white-space: nowrap; }
+        .msg-texto { color: var(--text-1); font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+        .msg-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+        .msg-tag {
+            font-size: 11px;
+            padding: 1px 7px;
+            border-radius: 9px;
+            background: var(--bg-hover);
+            color: var(--text-2);
+        }
+        .msg-tag.alerta { background: var(--warn-soft, rgba(234,179,8,0.15)); color: var(--warn); }
+        .msg-tag.meu { background: var(--accent-soft); color: var(--accent); }
+        .msg-resto { margin-top: 8px; font-size: 11.5px; color: var(--text-3); }
+
+        /* Mensagem que NÓS enviamos: vem do registro local, não da caixa de
+           entrada do portal, e precisa se distinguir do que o órgão escreveu. */
+        .msg-item.minha { border-left: 2px solid var(--accent); padding-left: 8px; }
+        .msg-item.minha .msg-cab strong { color: var(--accent); }
+
+        .msg-responder { margin: 10px 10px 0; padding-top: 10px; border-top: 1px solid var(--border); }
+        .msg-responder textarea {
+            width: 100%;
+            resize: vertical;
+            font-family: inherit;
+            font-size: 13px;
+        }
+        .msg-responder-linha { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+        .msg-responder-linha input { width: 130px; flex: none; }
+        .msg-aviso { flex: 1; font-size: 11.5px; color: var(--warn); }
+        .msg-retorno { margin-top: 6px; font-size: 12px; }
+        .msg-retorno.ok { color: var(--success); }
+        .msg-retorno.erro { color: var(--danger); }
+
+        /* Aba "Andamento": as etapas da licitação no Comprasnet, com o
+           resultado fundido como desfecho da última. A barra à esquerda diz o
+           estado; só as datas e os dois booleanos do portal a decidem. */
+        .etapas { padding: 0 10px; }
+        .etapa { padding: 8px 0 8px 10px; border-left: 2px solid var(--border); margin-bottom: 2px; }
+        .etapa.concluida { border-left-color: var(--success); }
+        .etapa.em-curso { border-left-color: var(--accent); }
+        .etapa.futura, .etapa.indefinida { border-left-color: var(--border); }
+        .etapa-cab { display: flex; align-items: baseline; gap: 8px; }
+        .etapa-cab strong { font-size: 12.5px; color: var(--text-0); }
+        .etapa-estado {
+            font-size: 10.5px; padding: 1px 7px; border-radius: 9px;
+            background: var(--bg-hover); color: var(--text-2); text-transform: uppercase;
+        }
+        .etapa.concluida .etapa-estado { background: var(--success); color: #fff; }
+        .etapa.em-curso .etapa-estado { background: var(--btn-primary-bg); color: #fff; }
+        .etapa-link { margin-left: auto; font-size: 11.5px; color: var(--accent); text-decoration: none; white-space: nowrap; }
+        .etapa-link:hover { text-decoration: underline; }
+        .etapa-janela { font-size: 11.5px; color: var(--text-3); }
+        .etapa-detalhe { font-size: 12.5px; color: var(--text-1); }
+        /* Itens de interesse em sanfona. Fechada por padrão: as descrições vêm
+           do edital e são longas, e abertas empurravam as abas do card para
+           fora da tela. O resumo (quantidade, valor, prazo) fica no cabeçalho,
+           então nada do que se lê na triagem se perde com ela fechada. */
+        .itens-sanfona > summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 6px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .itens-sanfona > summary::-webkit-details-marker { display: none; }
+        /* Seta própria: a nativa varia entre navegadores e não acompanha o tema. */
+        .itens-sanfona > summary::before {
+            content: '▸';
+            color: var(--text-3);
+            font-size: 11px;
+            transition: transform 0.15s ease;
+        }
+        .itens-sanfona[open] > summary::before { transform: rotate(90deg); }
+        .itens-sanfona > summary:hover .itens-resumo { color: var(--text-0); }
+        .itens-resumo {
+            font-size: 0.82em; color: var(--text-2); text-transform: uppercase;
+            letter-spacing: 0.06em; font-weight: 600;
+        }
+
+        /* Sub-abas do Andamento: uma etapa por vez, em vez das três empilhadas. */
+        .and-subabas {
+            display: flex; gap: 4px; padding: 0 10px 8px;
+            border-bottom: 1px solid var(--border); margin-bottom: 10px;
+        }
+        .and-suba {
+            display: flex; align-items: center; gap: 6px;
+            background: transparent; border: 0; border-bottom: 2px solid transparent;
+            padding: 6px 10px; margin-bottom: -9px;
+            color: var(--text-2); font-family: inherit; font-size: 12.5px; cursor: pointer;
+        }
+        .and-suba:hover { color: var(--text-0); }
+        .and-suba.ativa { color: var(--text-0); border-bottom-color: var(--accent); font-weight: 600; }
+        /* O ponto diz o estado da etapa sem ocupar palavra. */
+        .and-ponto { width: 7px; height: 7px; border-radius: 50%; background: var(--border); flex: none; }
+        .and-ponto.concluida { background: var(--success); }
+        .and-ponto.em-curso { background: var(--accent); }
+
+        .and-conteudo { padding: 0 10px; }
+        .and-cab { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+        .and-estado {
+            font-size: 10.5px; padding: 1px 8px; border-radius: 9px; text-transform: uppercase;
+            background: var(--bg-hover); color: var(--text-2);
+        }
+        .and-estado.concluida { background: var(--success); color: #fff; }
+        .and-estado.em-curso { background: var(--btn-primary-bg); color: #fff; }
+        .and-janela { font-size: 11.5px; color: var(--text-3); }
+        .and-linha-forte { font-size: 13px; color: var(--text-0); margin-bottom: 8px; }
+        .and-sub-titulo {
+            margin: 12px 0 4px; font-size: 11px; text-transform: uppercase;
+            letter-spacing: 0.5px; color: var(--text-3);
+        }
+
+        /* Fluxo da disputa (as caixas do portal) e os números dela. */
+        .disputa-fluxo { display: flex; flex-wrap: wrap; gap: 6px; margin: 5px 0 10px; }
+        .disputa-caixa {
+            font-size: 11px; padding: 2px 8px; border-radius: 9px;
+            background: var(--bg-hover); color: var(--text-2);
+        }
+        .disputa-caixa strong { color: var(--text-0); }
+
+        /* Os três valores lado a lado: é a comparação que decide a disputa. */
+        .disputa-valores { display: flex; flex-wrap: wrap; gap: 8px; }
+        .disputa-valor {
+            flex: 1 1 150px; padding: 8px 10px; border-radius: var(--r-md);
+            background: var(--bg-2); border: 1px solid var(--border);
+        }
+        .disputa-valor-rot {
+            display: block; font-size: 10.5px; text-transform: uppercase;
+            letter-spacing: 0.5px; color: var(--text-3); margin-bottom: 2px;
+        }
+        .disputa-valor strong { font-size: 15px; color: var(--text-0); }
+        .disputa-valor.melhor strong { color: var(--success); }
+        .disputa-valor.nosso { border-color: var(--accent); }
+        .disputa-valor.nosso strong { color: var(--accent); }
+        .disputa-valor.melhor.nosso { border-color: var(--success); }
+        .disputa-valor.melhor.nosso strong { color: var(--success); }
+
+        /* Texto de aviso/esclarecimento: vem do órgão com quebras de linha
+           próprias, e cortar em uma linha esconderia a resposta. */
+        .quadro-texto { white-space: pre-wrap; font-size: 12.5px; line-height: 1.55; color: var(--text-1); margin-top: 4px; }
+        /* A resposta do órgão recuada: no esclarecimento, `mensagem` é a
+           pergunta de quem questionou e `resposta` é o que o órgão respondeu —
+           sem separação visual, parece tudo escrito pela mesma pessoa. */
+        .quadro-resposta {
+            margin-top: 8px; padding-left: 10px;
+            border-left: 2px solid var(--accent);
+        }
+        .quadro-resposta strong {
+            font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+            color: var(--accent);
+        }
+
+        .disputa-tab thead th {
+            text-align: left; font-size: 11px; text-transform: uppercase;
+            letter-spacing: 0.04em; color: var(--text-3); font-weight: 600;
+            padding: 4px 8px; border-bottom: 1px solid var(--border);
+        }
+        .disputa-tab thead th:nth-child(3), .disputa-tab thead th:nth-child(4) { text-align: right; }
+        .disputa-tab td:nth-child(3), .disputa-tab td:nth-child(4) {
+            text-align: right; white-space: nowrap; font-weight: 600;
+        }
+        .disputa-pos { width: 28px; color: var(--text-3); text-align: center; }
+        .disputa-uf { color: var(--text-3); font-size: 0.85em; }
+        .disputa-selo {
+            font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px;
+            background: var(--bg-3); color: var(--text-2); text-transform: uppercase;
+        }
+        .disputa-selo.nosso { background: var(--accent-soft); color: var(--accent); }
+        .disputa-nosso td { background: var(--accent-soft); }
+        /* Desclassificado continua na tabela: sumir com ele esconderia por que a
+           ordem é a que é. O title diz o motivo. */
+        .disputa-fora td { opacity: 0.55; text-decoration: line-through; }
+        .disputa-fora { cursor: help; }
+
+        /* Propostas iniciais e lances, coletados pela ponte do Electron. */
+        .disputa-tab { width: 100%; font-size: 12.5px; border-collapse: collapse; }
+        .disputa-tab tr + tr td { border-top: 1px solid var(--border); }
+        .disputa-tab td { padding: 5px 0; color: var(--text-1); }
+        .disputa-tab td:nth-child(2) { text-align: right; font-weight: 600; color: var(--text-0); white-space: nowrap; }
+        .disputa-tab td:nth-child(3) { text-align: right; color: var(--text-3); padding-left: 14px; width: 90px; }
+
+        .disputa-veredito { margin-top: 8px; font-size: 12.5px; }
+        .disputa-veredito.ok { color: var(--success); }
+        .disputa-veredito.nao { color: var(--text-2); }
+        .disputa-notas { margin-top: 10px; font-size: 12.5px; color: var(--text-2); line-height: 1.7; }
+        .disputa-notas strong { color: var(--text-0); }
+        .disputa-alerta { color: var(--danger); }
+
+        /* Envios da proposta: um bloco por envio, com os itens em linhas
+           espaçadas. Antes eram linhas coladas, que é o que deixava seco. */
+        .etapa-envios { margin-top: 6px; }
+        .envio {
+            border: 1px solid var(--border); border-radius: var(--r-md);
+            padding: 10px 12px; margin-bottom: 8px; background: var(--bg-2);
+        }
+        .envio-cab { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+        .envio-cab strong { font-size: 12.5px; color: var(--text-0); }
+        .envio-selo { font-size: 10px; padding: 1px 7px; border-radius: 8px; text-transform: uppercase; }
+        .envio-selo.ok { background: var(--success); color: #fff; }
+        .envio-selo.previa { background: var(--bg-hover); color: var(--text-2); }
+        .envio-itens { width: 100%; font-size: 12.5px; margin-top: 6px; border-collapse: collapse; }
+        .envio-itens tr + tr td { border-top: 1px solid var(--border); }
+        .envio-itens td { padding: 5px 0; color: var(--text-1); }
+        /* Largura suficiente para "1º da proposta" numa linha: o rótulo dos
+           portais que não guardam o número do edital é mais longo que "Item 7". */
+        .envio-itens td:first-child { color: var(--text-2); width: 130px; white-space: nowrap; }
+        /* Rótulo que é posição, e não número do edital: pontilhado convida ao
+           title, que explica a diferença. */
+        .envio-item-pos { border-bottom: 1px dotted var(--text-3); cursor: help; }
+        .envio-itens td:nth-child(2) { text-align: right; white-space: nowrap; font-weight: 600; color: var(--text-0); }
+        .envio-itens td:nth-child(3) { text-align: right; color: var(--text-3); padding-left: 14px; font-size: 11.5px; }
+
+        .etapa-res-titulo {
+            margin: 10px 10px 4px; padding-top: 8px; border-top: 1px solid var(--border);
+            font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-3);
+        }
+
+        /* Resultado por item. A linha em que somos o vencedor é destacada —
+           é a informação que se procura primeiro. */
+        .res-lista { max-height: 340px; overflow-y: auto; padding: 0 4px; }
+        .res-item { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+        .res-item:last-child { border-bottom: 0; }
+        .res-item.nosso { border-left: 2px solid var(--success); }
+        .res-cab { display: flex; align-items: baseline; gap: 8px; }
+        .res-cab strong { font-size: 12.5px; color: var(--text-0); }
+        .res-valor { margin-left: auto; font-weight: 600; color: var(--success); white-space: nowrap; }
+        .res-selo {
+            font-size: 10.5px; padding: 1px 7px; border-radius: 9px;
+            background: var(--success); color: #fff; text-transform: uppercase;
+        }
+        .res-forn { font-size: 13px; color: var(--text-1); margin-top: 2px; }
+        .res-doc { color: var(--text-3); font-size: 11.5px; margin-left: 6px; }
+        .res-marca { font-size: 11.5px; color: var(--text-3); }
+        .res-outros { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+
+        /* Aba "Meus anexos": documentos da NOSSA participação, por item. Não
+           confundir com "Arquivos", que é o edital publicado pelo órgão. */
+        /* Mesmo respiro lateral das mensagens — ver o comentário em .msg-lista. */
+        .anexo-item { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+        .anexo-item:last-child { border-bottom: 0; }
+        .anexo-item-cab { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+        .anexo-item-cab strong { font-size: 12.5px; color: var(--text-0); }
+        .anexo-item-desc { font-size: 12px; color: var(--text-3); }
+        .anexo-lista { margin-bottom: 6px; }
+        .anexo-linha { display: flex; align-items: center; gap: 10px; font-size: 12.5px; padding: 2px 0; }
+        .anexo-linha > span:first-child { flex: 1; color: var(--text-1); }
+        .anexo-quando { color: var(--text-3); font-size: 11.5px; white-space: nowrap; }
+        .anexo-envio { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .anexo-envio select { min-width: 260px; }
+        .anexo-ou { color: var(--text-3); font-size: 12px; }
+        .anexo-envio input[type=file] { font-size: 12px; color: var(--text-2); max-width: 260px; }
+        .anexo-erro { color: var(--danger); font-size: 12.5px; }
+
+        /* Compor e enviar a proposta, na aba Proposta (interesse-proposta.js). */
+        .prop-aviso {
+            background: var(--warn-soft);
+            color: var(--warn);
+            border: 1px solid rgba(251,191,36,0.35);
+            border-radius: var(--r-md);
+            padding: 9px 12px;
+            font-size: 0.86em;
+            line-height: 1.5;
+            margin-bottom: 12px;
+        }
+
+        .prop-barra {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 10px;
+            background: var(--bg-3);
+            border-radius: var(--r-sm);
+            margin-bottom: 6px;
+        }
+        /* O label precisa ser flex: o CSS do tema deixa label em bloco, e sem
+           isto o checkbox cai numa linha acima do texto. */
+        .prop-barra label { display: flex; align-items: center; gap: 6px; flex: none; white-space: nowrap; color: var(--text-2); font-size: 0.85em; cursor: pointer; }
+        .prop-barra label input { margin: 0; }
+        .prop-contador { margin-left: auto; color: var(--text-3); font-size: 0.82em; }
+
+        .prop-grid { font-size: 0.85em; }
+        .prop-cab, .prop-linha {
+            display: grid;
+            grid-template-columns: 30px 1fr 100px 90px 120px 0.9fr 0.9fr;
+            gap: 8px;
+            padding: 7px 8px;
+            align-items: center;
+        }
+        .prop-cab {
+            color: var(--text-3);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-size: 0.86em;
+            border-bottom: 1px solid var(--border);
+        }
+        .prop-linha { border-bottom: 1px solid var(--border); }
+        .prop-linha.marcada { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+
+        .prop-desc { min-width: 0; }
+        .prop-num { font-weight: 600; color: var(--accent); margin-right: 6px; }
+        .prop-ref, .prop-qtd { color: var(--text-3); white-space: nowrap; }
+        .prop-ref { text-align: right; }
+        .prop-input-valor { width: 100%; padding: 5px 6px; text-align: right; }
+        .prop-extras { display: flex; flex-direction: column; gap: 3px; }
+        .prop-extras input { padding: 3px 6px; font-size: 0.92em; }
+
+        .prop-match { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+        .prop-match-carregando { color: var(--text-3); font-style: italic; }
+        .prop-match-badge {
+            background: var(--success-soft);
+            color: var(--success);
+            border: 1px solid rgba(52,211,153,0.35);
+            border-radius: var(--r-sm);
+            padding: 3px 8px;
+            cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .prop-match-badge.forte { background: rgba(250,204,21,0.18); color: var(--warn); border-color: rgba(250,204,21,0.35); }
+        .prop-match-preco { color: var(--text-3); font-size: 0.88em; }
+        .prop-match-select { width: 100%; padding: 3px 6px; font-size: 0.92em; }
+        .prop-cadastrar {
+            background: var(--accent-soft);
+            color: var(--accent);
+            border: 1px dashed rgba(96,165,250,0.4);
+            border-radius: var(--r-sm);
+            padding: 3px 8px;
+            font-family: inherit;
+            font-size: 0.9em;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .prop-total { text-align: right; padding: 10px 8px; font-size: 0.95em; }
+        .prop-acoes { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--border); }
+
+        .prop-log:not(:empty) {
+            margin-top: 10px;
+            padding: 10px;
+            background: var(--bg-0);
+            border: 1px solid var(--border);
+            border-radius: var(--r-sm);
+            font-size: 0.85em;
+        }
+        .prop-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+        .prop-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85em; color: var(--text-2); }
+        .prop-form label.full { grid-column: 1 / -1; }
+        .prop-form input, .prop-form textarea { padding: 6px 10px; font-size: 0.95em; }
+        .prop-form textarea { min-height: 60px; font-family: inherit; resize: vertical; }
+
+        .prop-log-info { color: var(--accent); }
+        .prop-log-ok   { color: var(--success); }
+        .prop-log-err  { color: var(--danger); }
+
+        @media (max-width: 900px) {
+            .prop-cab, .prop-linha { grid-template-columns: 30px 1fr 120px; }
+            .prop-cab > div:nth-child(n+4), .prop-linha > div:nth-child(n+4) { display: none; }
+        }
+    </style>
 </head>
 <body>
 <div class="layout">
@@ -46,9 +467,13 @@
         <input type="checkbox" id="masterCheck" onchange="toggleSelecionarTodos(this.checked)" style="width:16px;height:16px;cursor:pointer;">
         Selecionar filtrados
       </label>
+      <!-- Abre em "Todos os prazos" (25/09/2026, a pedido). O padrão era "Em
+           aberto", que escondia tudo que já venceu — e é justamente aí que o
+           acompanhamento acontece: mensagem do agente, anexo de habilitação e
+           resultado da disputa só existem depois do prazo de propostas. -->
       <select id="filtroPeriodo" onchange="aplicarFiltro()">
-        <option value="ativas" selected>Em aberto</option>
-        <option value="todas">Todos os prazos</option>
+        <option value="ativas">Em aberto</option>
+        <option value="todas" selected>Todos os prazos</option>
         <option value="hoje">Hoje</option>
         <option value="semana">Próximos 7 dias</option>
         <option value="mes">Próximos 30 dias</option>
@@ -58,7 +483,18 @@
       <input type="date" id="filtroDataDe" style="display:none;width:auto;" onchange="aplicarFiltro()">
       <span id="filtroAte" style="display:none;color:var(--text-3);">até</span>
       <input type="date" id="filtroDataAte" style="display:none;width:auto;" onchange="aplicarFiltro()">
-      <select id="filtroOrgao" onchange="aplicarFiltro()"><option value="">Todos os órgãos</option></select>
+      <select id="filtroFase" onchange="aplicarFiltro()"><option value="">Todas as fases</option></select>
+      <!-- Órgão é busca, e não lista: são 149 órgãos distintos para 172
+           licitações, 140 deles com uma licitação só. O valor escolhido fica no
+           campo oculto `filtroOrgao`, que é o que aplicarFiltro e o relatório
+           leem — trocar o select por input não mudou esse contrato. -->
+      <span class="autocomplete-wrapper filtro-orgao">
+        <input type="text" id="filtroOrgaoBusca" placeholder="Todos os órgãos" autocomplete="off"
+               oninput="buscarOrgao(this.value)" onfocus="buscarOrgao(this.value)">
+        <input type="hidden" id="filtroOrgao">
+        <button type="button" id="filtroOrgaoLimpar" onclick="limparOrgao()" title="Limpar o filtro de órgão">×</button>
+        <div id="filtroOrgaoLista" class="autocomplete-list"></div>
+      </span>
       <select id="filtroGrupo" onchange="aplicarFiltro()"><option value="">Todos os grupos</option></select>
       <select id="ordenacao" onchange="aplicarFiltro()">
         <option value="encerramento-asc">Encerramento ↑</option>
@@ -147,6 +583,53 @@
   </div>
 </div>
 
+<!-- Cadastro rápido de produto, a partir de um item sem match no catálogo.
+     Os campos chegam preenchidos com a descrição do item e a sugestão de
+     marca/modelo da análise IA; salvo, o produto vira match automático. -->
+<div class="modal-bg" id="modalProdutoProposta">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Cadastrar produto no catálogo</h3>
+        <small class="muted">O produto passa a casar sozinho com itens semelhantes</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="propFecharCadastro()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <form id="formProdutoProposta" onsubmit="event.preventDefault(); propSalvarProduto();">
+      <div class="prop-form">
+        <label class="full">Descrição
+          <input type="text" id="propProd_descricao" required maxlength="200">
+        </label>
+        <label>SKU
+          <input type="text" id="propProd_sku" required maxlength="40">
+        </label>
+        <label>Unidade
+          <input type="text" id="propProd_unidade" value="UN" maxlength="8">
+        </label>
+        <label>Marca
+          <input type="text" id="propProd_marca" maxlength="80">
+        </label>
+        <label>Modelo
+          <input type="text" id="propProd_modelo" maxlength="80">
+        </label>
+        <label>Preço de custo (R$)
+          <input type="text" id="propProd_custo" value="0" data-formato="dinheiro">
+        </label>
+        <label>Preço de venda (R$)
+          <input type="number" id="propProd_venda" step="0.01" min="0" value="0">
+        </label>
+        <label class="full">Especificações técnicas
+          <textarea id="propProd_obs"></textarea>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick="propFecharCadastro()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar produto</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div id="toasts"></div>
 
 <div id="selectionBar" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--bg-1);border:1px solid var(--border);border-radius:8px;padding:10px 18px;box-shadow:0 4px 16px rgba(0,0,0,0.18);z-index:1000;display:none;align-items:center;gap:14px;">
@@ -161,25 +644,28 @@
 <script src="interesse.js"></script>
 <script src="interesse-relatorio.js"></script>
 <script src="interesse-analise.js"></script>
+<script src="interesse-proposta.js"></script>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('interesse');</script>
 <script>
 async function sincronizarAgora() {
-    if (!confirm('Iniciar sincronização?')) return;
+    if (!await Aviso.confirmar('Iniciar sincronização?')) return;
     try {
         const r = await fetch('/api/sync/start', { method: 'POST' });
         const d = await r.json();
-        alert(d.message || 'Sincronização iniciada!');
-    } catch (e) { alert('Erro ao iniciar sincronização'); }
+        Aviso.erro(d.message || 'Sincronização iniciada!');
+    } catch (e) { Aviso.erro('Erro ao iniciar sincronização'); }
 }
 
 async function verStatus() {
     try {
         const r = await fetch('/api/sync/status');
         const d = await r.json();
-        alert('Última sync: ' + (d.ultimaSync || 'Nunca') + '\nLicitações: ' + (d.totalLicitacoes || 0) + '\nItens: ' + (d.totalItens || 0));
-    } catch (e) { alert('Erro ao obter status'); }
+        Aviso.erro('Última sync: ' + (d.ultimaSync || 'Nunca') + '\nLicitações: ' + (d.totalLicitacoes || 0) + '\nItens: ' + (d.totalItens || 0));
+    } catch (e) { Aviso.erro('Erro ao obter status'); }
 }
 </script>
 </body>

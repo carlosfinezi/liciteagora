@@ -71,6 +71,32 @@
     </div>
   </div>
 
+  <div class="panel" id="painelRobo" style="display:none;">
+    <h2>Robô de lances</h2>
+    <div class="tbl-wrap">
+      <table id="tblRobo">
+        <thead><tr>
+          <th style="width:50px;">Item</th>
+          <th style="width:115px;" title="Contínuo cobre o melhor sempre que perdemos. Sniper espera o encerramento e dispara a rajada.">Modo</th>
+          <th style="width:110px;" title="O robô nunca lança abaixo deste valor.">Mín (piso)</th>
+          <th style="width:95px;" title="Quanto da folga até o piso cada lance consome. 0% cobre o melhor pelo menor degrau. 100% vai direto ao piso.">Mergulho %</th>
+          <th style="width:150px;" title="Menor diferença aceita entre um lance e o melhor.">Variação mínima</th>
+          <th style="width:80px;" title="Quantos lances a rajada do sniper pode dar.">Rajada</th>
+          <th style="width:160px;" title="Sniper: horário em que o último lance da rajada deve chegar ao portal, no relógio do portal, com segundos e milissegundos. Em branco, o robô calcula pelo encerramento.">Horário</th>
+          <th style="width:115px;">Envio</th>
+          <th style="width:110px;">Robô</th>
+          <th>Situação</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="roboRodape" style="font-size:0.8em; color:var(--text-3); margin-top:8px;"></div>
+    <details style="margin-top:10px;">
+      <summary style="cursor:pointer; font-size:0.85em;">Histórico do robô</summary>
+      <div id="roboHistorico" style="font-size:0.8em; margin-top:6px;"></div>
+    </details>
+  </div>
+
   <div class="panel" id="painelResultado" style="display:none;">
     <div id="outResultado"></div>
     <details style="margin-top:10px;">
@@ -82,6 +108,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/grid.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('pcp-salas');</script>
@@ -161,8 +188,9 @@ function abrirSala(chave) {
   currentChave = chave;
   document.getElementById('painelSala').style.display = '';
   document.getElementById('salaChave').textContent = chave;
+  roboItens = []; roboCfg = {}; roboAssinatura = '';
   renderAbas();
-  atualizarSala();
+  carregarRobo().then(atualizarSala);
   agendarPoll();
 }
 
@@ -194,7 +222,193 @@ async function atualizarSala() {
       '<br>Processo ' + escapeHtml(c.processo || '—') + ' · Modo de disputa: ' + escapeHtml(c.modoDisputa || '—') +
       ' · <a href="https://operacao.portaldecompraspublicas.com.br/4/SessaoPublica/?ttCD_CHAVE=' + encodeURIComponent(currentChave) + '" target="_blank" rel="noopener">abrir no portal ↗</a>';
     renderItens(d.itens || []);
+    if (abaAtual === 'todos') {
+      roboItens = (d.itens || []).map((i) => ({ idItem: i.idItem, numero: i.numero, descricao: i.descricao }));
+      renderRobo(false);
+    }
+    atualizarStatusRobo();
   } catch (e) { alerta('Erro ao ler a sala: ' + escapeHtml(e.message), 'warn'); }
+}
+
+// ── Robô de lances ──
+let roboItens = [];     // itens da aba "Todos"
+let roboCfg = {};       // idItem -> linha de pcp_auto_lance
+let roboAssinatura = '';
+
+async function carregarRobo() {
+  const painel = document.getElementById('painelRobo');
+  try {
+    const r = await fetch(API + '/api/pcp/robo/config?chave=' + encodeURIComponent(currentChave));
+    const d = await r.json().catch(() => null);
+    // Sem a rota (servidor ainda sem o robô), o painel fica fora da tela.
+    if (!r.ok || !d || !d.success) { painel.style.display = 'none'; return; }
+    roboCfg = {};
+    (d.configs || []).forEach((c) => { roboCfg[c.id_item] = c; });
+    painel.style.display = '';
+  } catch (e) { painel.style.display = 'none'; return; }
+  renderRobo(true);
+}
+
+function roboLinhaItens() {
+  const itens = roboItens.slice();
+  Object.values(roboCfg).forEach((c) => {
+    if (!itens.some((i) => i.idItem === c.id_item)) itens.push({ idItem: c.id_item, numero: c.numero, descricao: c.descricao });
+  });
+  return itens;
+}
+
+// Redesenha só quando muda o conjunto de itens: o poll de 10s não pode apagar
+// o que está sendo digitado.
+function renderRobo(forcar) {
+  const itens = roboLinhaItens();
+  const assinatura = itens.map((i) => i.idItem).join(',');
+  if (!forcar && assinatura === roboAssinatura) return;
+  roboAssinatura = assinatura;
+  const tb = document.querySelector('#tblRobo tbody');
+  if (!itens.length) { tb.innerHTML = '<tr><td colspan="10" style="color:var(--text-3)">Nenhum item.</td></tr>'; return; }
+  const sel = (v, a) => (v === a ? ' selected' : '');
+  tb.innerHTML = itens.map((i) => {
+    const c = roboCfg[i.idItem] || {};
+    const id = escapeHtml(i.idItem);
+    const modo = c.modo || 'continuo';
+    const sim = c.simulacao == null ? 1 : c.simulacao;
+    const tipo = c.tipo_variacao || 'V';
+    return '<tr>' +
+      '<td title="' + escapeHtml(i.descricao) + '">' + escapeHtml(i.numero) + '</td>' +
+      '<td><select class="form-control" style="min-width:110px;" data-item="' + id + '" data-campo="modo">' +
+        '<option value="continuo"' + sel(modo, 'continuo') + '>Contínuo</option>' +
+        '<option value="sniper"' + sel(modo, 'sniper') + '>Sniper</option></select></td>' +
+      '<td><input class="form-control" type="number" step="0.01" min="0" style="width:100px;" data-item="' + id + '" data-campo="valorMinimo" value="' + (c.valor_minimo ?? '') + '" placeholder="Mín"></td>' +
+      '<td><input class="form-control" type="number" step="5" min="0" max="100" style="width:80px;" data-item="' + id + '" data-campo="agressividade" value="' + (c.agressividade ?? 20) + '"></td>' +
+      '<td style="white-space:nowrap;"><input class="form-control" type="number" step="0.01" min="0" style="width:80px; display:inline-block;" data-item="' + id + '" data-campo="variacaoMinima" value="' + (c.variacao_minima ?? 0.01) + '">' +
+        ' <select class="form-control" style="width:auto; min-width:64px; display:inline-block;" data-item="' + id + '" data-campo="tipoVariacao">' +
+        '<option value="V"' + sel(tipo, 'V') + '>R$</option><option value="P"' + sel(tipo, 'P') + '>%</option></select></td>' +
+      '<td><input class="form-control" type="number" step="1" min="1" max="12" style="width:64px;" data-item="' + id + '" data-campo="maxLances" value="' + (c.max_lances ?? 1) + '"></td>' +
+      '<td><input class="form-control" type="time" step="0.001" style="min-width:150px;" data-item="' + id + '" data-campo="horarioAlvo" value="' + escapeHtml(c.horario_alvo || '') + '"></td>' +
+      '<td><select class="form-control" style="min-width:120px;" data-item="' + id + '" data-campo="simulacao">' +
+        '<option value="1"' + sel(sim, 1) + '>Simulação</option>' +
+        '<option value="0"' + sel(sim, 0) + '>Real</option></select></td>' +
+      '<td><button class="btn btn-sm ' + (c.ativo ? 'btn-primary' : 'btn-ghost') + '" data-item="' + id + '" data-acao="ligar">' + (c.ativo ? 'Ligado' : 'Desligado') + '</button></td>' +
+      '<td data-situacao="' + id + '" style="font-size:0.85em;"></td>' +
+    '</tr>';
+  }).join('');
+}
+
+async function salvarRobo(idItem, campos) {
+  const it = roboLinhaItens().find((i) => i.idItem === idItem) || {};
+  try {
+    const r = await fetch(API + '/api/pcp/robo/config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({ chave: currentChave, idItem, numero: it.numero, descricao: it.descricao }, campos)),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    // Servidor anterior ao horário marcado: gravaria o resto e descartaria o
+    // horário sem dizer nada.
+    if ('horarioAlvo' in campos && !('horario_alvo' in d.config)) {
+      roboCfg[idItem] = d.config;
+      throw new Error('O servidor ainda não aceita horário marcado. Falta reiniciar o serviço.');
+    }
+    roboCfg[idItem] = d.config;
+    return true;
+  } catch (e) {
+    alerta(escapeHtml(e.message), 'warn');
+    return false;
+  } finally {
+    renderRobo(true);
+    atualizarStatusRobo();
+  }
+}
+
+async function confirmarReal(idItem, piso) {
+  const it = roboLinhaItens().find((i) => i.idItem === idItem) || {};
+  return await Aviso.confirmar('Com envio real, o robô dá lances de verdade no item ' + (it.numero || idItem) +
+    ', até o piso de ' + moeda(piso) + '.\n\nConfirma?');
+}
+
+document.getElementById('tblRobo').addEventListener('change', async (ev) => {
+  const el = ev.target;
+  const idItem = el.dataset.item, campo = el.dataset.campo;
+  if (!idItem || !campo) return;
+  const c = roboCfg[idItem] || {};
+  let valor = el.value;
+  // O campo de horário devolve "15:00" quando segundos e milissegundos são zero.
+  if (campo === 'horarioAlvo' && /^\d{2}:\d{2}$/.test(valor)) valor += ':00';
+  if (campo === 'simulacao') {
+    valor = valor === '1';
+    if (!valor && c.ativo && !await confirmarReal(idItem, c.valor_minimo)) { renderRobo(true); return; }
+  }
+  salvarRobo(idItem, { [campo]: valor });
+});
+
+document.getElementById('tblRobo').addEventListener('click', async (ev) => {
+  const bt = ev.target.closest('[data-acao="ligar"]');
+  if (!bt) return;
+  const idItem = bt.dataset.item;
+  const c = roboCfg[idItem] || {};
+  const ligar = !c.ativo;
+  const sim = c.simulacao == null ? 1 : c.simulacao;
+  if (ligar && !sim && !await confirmarReal(idItem, c.valor_minimo)) return;
+  salvarRobo(idItem, { ativo: ligar });
+});
+
+function horaBR(ms) {
+  const d = new Date(ms);
+  return d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+}
+function duracao(ms) {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+  return (h ? h + 'h' : '') + String(m).padStart(h ? 2 : 1, '0') + 'min' + String(ss).padStart(2, '0') + 's';
+}
+function textoSituacao(c, s) {
+  if (!c || !c.ativo) return 'Desligado';
+  if (!s || !s.decisao) return 'Aguardando a primeira leitura';
+  const dec = s.decisao;
+  // Escada: o líder está abaixo do piso, e o lance mira a melhor posição que cabe.
+  const lance = (d) => moeda(d.valor) + (d.escada ? ' para passar o lance de ' + moeda(d.escada.valor) : '');
+  let t = dec.acao === 'lancar' ? 'Lance de ' + lance(dec) : dec.motivo;
+  t = t.charAt(0).toUpperCase() + t.slice(1);
+  if (dec.previa && dec.previa.acao === 'lancar') t += '. Lance previsto: ' + lance(dec.previa);
+  if (s.restanteMs != null && s.restanteMs > 0) t += '. Fecha em ' + duracao(s.restanteMs);
+  if (c.modo === 'sniper' && s.alvoFonte === 'marcado') t += '. Chegada marcada para ' + c.horario_alvo;
+  if (c.modo === 'sniper' && s.inicioRajadaMs) t += '. Largada às ' + horaBR(s.inicioRajadaMs);
+  return t;
+}
+
+async function atualizarStatusRobo() {
+  if (!currentChave) return;
+  try {
+    const q = '?chave=' + encodeURIComponent(currentChave);
+    const [rs, rh] = await Promise.all([
+      fetch(API + '/api/pcp/robo/status' + q).then((r) => r.json()),
+      fetch(API + '/api/pcp/robo/historico' + q + '&limit=20').then((r) => r.json()),
+    ]);
+    document.querySelectorAll('#tblRobo [data-situacao]').forEach((td) => {
+      const id = td.dataset.situacao;
+      td.textContent = textoSituacao(roboCfg[id], (rs.itens || {})[id]);
+    });
+    document.getElementById('roboRodape').textContent = rs.ativo
+      ? 'Tempo de lance: ' + rs.tempoLanceMs + ' ms (' + rs.tempoLanceFonte + '). Leitura da sala: ' + rs.tempoLeituraMs +
+        ' ms. Relógio do portal: ' + (rs.relogio && rs.relogio.calibrado ? '±' + rs.relogio.incertezaMs + ' ms' : 'ainda não medido') + '.'
+      : 'O robô não está rodando neste servidor.';
+    const hist = rh.historico || [];
+    const numero = (id) => (roboCfg[id] && roboCfg[id].numero) || id;
+    const rotulo = { lance: 'Lance', simulado: 'Simulado', erro: 'Erro' };
+    document.getElementById('roboHistorico').innerHTML = hist.length
+      ? '<table><thead><tr><th>Hora</th><th>Item</th><th>Decisão</th><th>Valor</th><th>Melhor antes</th><th>Tempo</th><th>Confirmado</th><th>Portal</th></tr></thead><tbody>' +
+        hist.map((h) => '<tr>' +
+          '<td>' + escapeHtml(horaBR(Date.parse(h.criado_em))) + '</td>' +
+          '<td>' + escapeHtml(numero(h.id_item)) + '</td>' +
+          '<td>' + escapeHtml(rotulo[h.decisao] || h.decisao) + '</td>' +
+          '<td>' + moeda(h.valor) + '</td>' +
+          '<td>' + moeda(h.melhor_antes) + '</td>' +
+          '<td>' + (h.tempo_ms != null ? h.tempo_ms + ' ms' : '—') + '</td>' +
+          '<td>' + (h.confirmado == null ? '—' : (h.confirmado ? 'sim' : 'não')) + '</td>' +
+          '<td>' + escapeHtml(h.mensagem || '') + '</td>' +
+        '</tr>').join('') + '</tbody></table>'
+      : '<em style="color:var(--text-3)">Nada registrado nesta sala.</em>';
+  } catch (e) { /* a sala continua funcionando sem o painel do robô */ }
 }
 
 function renderItens(itens) {
@@ -232,7 +446,7 @@ async function lancar(idItem, real, fechado) {
   const valor = Number(bruto.replace(/\./g, '').replace(',', '.'));
   if (!isFinite(valor) || valor <= 0) return alerta('Valor de lance inválido: ' + escapeHtml(bruto), 'warn');
 
-  if (real && !confirm((fechado ? 'Enviar LANCE FECHADO de R$ ' : 'Enviar lance de R$ ') +
+  if (real && !await Aviso.confirmar((fechado ? 'Enviar LANCE FECHADO de R$ ' : 'Enviar lance de R$ ') +
       valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) +
       ' no item ' + idItem + '?\n\nO lance é IRREVERSÍVEL e vinculante.' +
       (fechado ? '\nNa fase fechada o portal aceita UM lance por item.' : ''))) return;

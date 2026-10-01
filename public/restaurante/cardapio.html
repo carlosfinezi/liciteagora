@@ -39,13 +39,13 @@
     <div class="toolbar">
       <select id="addProduto" style="flex:1;min-width:280px;"></select>
       <input type="text" id="addCategoria" placeholder="Categoria (Lanches, Bebidas)" style="width:200px;">
-      <input type="number" id="addPreco" placeholder="Preço (vazio = do cadastro)" step="0.01" style="width:200px;">
+      <input type="text" id="addPreco" placeholder="Preço (vazio = do cadastro)" style="width:200px;" data-formato="dinheiro">
       <button class="btn btn-primary btn-sm" onclick="addItem()">+ Incluir no cardápio</button>
     </div>
 
     <div class="toolbar" style="margin-top:0;">
-      <input type="text" id="hIni" placeholder="Início HH:MM" style="width:130px;">
-      <input type="text" id="hFim" placeholder="Fim HH:MM" style="width:130px;">
+      <input type="text" id="hIni" placeholder="Início HH:MM" style="width:130px;" data-formato="hora">
+      <input type="text" id="hFim" placeholder="Fim HH:MM" style="width:130px;" data-formato="hora">
       <select id="hDia" style="width:180px;">
         <option value="">Todos os dias</option>
         <option value="0">Domingo</option><option value="1">Segunda</option><option value="2">Terça</option>
@@ -129,7 +129,7 @@
           <option value="servico">Serviço</option>
         </select>
       </div>
-      <div class="form-group"><label>Preço por kg (item pesável)</label><input type="number" id="miPrecoKg" step="0.01" placeholder="vazio = não pesável"></div>
+      <div class="form-group"><label>Preço por kg (item pesável)</label><input type="text" id="miPrecoKg" placeholder="vazio = não pesável" data-formato="dinheiro"></div>
     </div>
     <div class="form-group full-width">
       <label>Grupos de opção deste item</label>
@@ -146,6 +146,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('restaurante-cardapio');</script>
 <script>

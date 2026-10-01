@@ -90,6 +90,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('cadastro-categorias');</script>
 <script>
 function showAlert(m, t = 'success') {
@@ -280,7 +281,7 @@ async function salvar() {
 // ==================== ATIVAR / INATIVAR ====================
 
 async function inativar(valor) {
-  if (!confirm(`Inativar "${valor}"?\n\nOs produtos que já a usam continuam como estão. Ela deixa de ser sugerida em novos cadastros.`)) return;
+  if (!await Aviso.confirmar(`Inativar "${valor}"?\n\nOs produtos que já a usam continuam como estão. Ela deixa de ser sugerida em novos cadastros.`)) return;
   try {
     await api('/api/produto-lookup/categoria/' + encodeURIComponent(valor), { method: 'DELETE' });
     showAlert('Categoria inativada.');

@@ -68,7 +68,7 @@
     </div>
     <div class="row"><label>Descrição base *</label><input type="text" id="rDesc" placeholder="ex: Aluguel escritório"></div>
     <div class="row-2">
-      <div class="row"><label>Valor *</label><input type="number" step="0.01" id="rValor"></div>
+      <div class="row"><label>Valor *</label><input type="text" id="rValor" data-formato="dinheiro"></div>
       <div class="row">
         <label>Frequência *</label>
         <select id="rFreq">
@@ -99,7 +99,7 @@
           <div class="row"><label>Teto por pagamento (R$) *</label>
             <input type="number" id="rLimite" step="0.01" min="0.01" placeholder="ex: 500,00"></div>
         </div>
-        <div class="row"><label>Pagar até quantos dias antes do vencimento</label>
+        <div class="row"><label>Pagar antes do vencimento</label><small class="muted">Em quantos dias</small>
           <input type="number" id="rDiasAntes" min="0" max="30" value="0">
           <small class="muted">0 = paga no dia do vencimento.</small></div>
         <p class="muted" style="font-size:0.85em;margin:8px 0 0;">
@@ -118,6 +118,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('contas-a-pagar');</script>
 <script>
 function fmt(v){ return (v==null||isNaN(v))?'0,00':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -137,7 +139,7 @@ async function carregar(){
     const cats = r2.categorias || [];
     document.getElementById('rCategoria').innerHTML = '<option value="">— sem —</option>' + cats.map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('');
     render();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 function render(){
@@ -234,7 +236,7 @@ function selFornec(id, nome){
 }
 
 async function salvar(){
-  if (!FORNEC_SEL) { alert('Selecione fornecedor'); return; }
+  if (!FORNEC_SEL) { Aviso.erro('Selecione fornecedor'); return; }
   const body = {
     fornecedorId: FORNEC_SEL.id,
     categoriaId: document.getElementById('rCategoria').value || null,
@@ -250,11 +252,11 @@ async function salvar(){
     limiteValorAuto: document.getElementById('rLimite').value || null,
     diasAntesVencimento: Number(document.getElementById('rDiasAntes').value) || 0
   };
-  if (!body.descricao || !body.valor || !body.proximaGeracao) { alert('Descrição, valor e próxima geração obrigatórios'); return; }
+  if (!body.descricao || !body.valor || !body.proximaGeracao) { Aviso.erro('Descrição, valor e próxima geração obrigatórios'); return; }
   // Mesma exigência do backend, dita antes de o servidor recusar.
   if (body.pagarAutomatico === 1) {
-    if (!body.contaFinanceiraId) { alert('Pagamento automático exige a conta de origem'); return; }
-    if (!(Number(body.limiteValorAuto) > 0)) { alert('Pagamento automático exige um teto de valor'); return; }
+    if (!body.contaFinanceiraId) { Aviso.erro('Pagamento automático exige a conta de origem'); return; }
+    if (!(Number(body.limiteValorAuto) > 0)) { Aviso.erro('Pagamento automático exige um teto de valor'); return; }
   }
   try {
     const url = EDITANDO ? '/api/cp-recorrencias/'+EDITANDO : '/api/cp-recorrencias';
@@ -263,24 +265,24 @@ async function salvar(){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     fechar(); carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function desativar(id){
-  if (!confirm('Desativar esta recorrência? (não gerará mais contas automaticamente)')) return;
+  if (!await Aviso.confirmar('Desativar esta recorrência? (não gerará mais contas automaticamente)')) return;
   await fetch('/api/cp-recorrencias/'+id, { method:'DELETE' });
   carregar();
 }
 
 async function gerarAgora(id){
-  if (!confirm('Gerar uma conta a pagar agora a partir desta recorrência?')) return;
+  if (!await Aviso.confirmar('Gerar uma conta a pagar agora a partir desta recorrência?')) return;
   try {
     const r = await fetch('/api/cp-recorrencias/'+id+'/gerar-agora', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
-    alert(`Conta criada (id ${d.contaPagarId}). Próxima geração: ${fmtData(d.proximaGeracao)}`);
+    Aviso.ok(`Conta criada (id ${d.contaPagarId}). Próxima geração: ${fmtData(d.proximaGeracao)}`);
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 document.getElementById('modal').addEventListener('click', e => {
@@ -314,24 +316,24 @@ async function carregarContasFin(){
 // Mostra o que sairia ANTES de sair. Dinheiro saindo sozinho merece ensaio.
 async function simularPix(){
   const d = await fetch('/api/cp-recorrencias/pagamento-automatico/simular').then(r => r.json());
-  if (!d.success) return alert('Erro: ' + d.error);
+  if (!d.success) return Aviso.erro(Aviso.mensagemDeErro(d));
   const linhas = (d.simulacao || []).map(x => `• CP #${x.contaPagarId} — R$ ${Number(x.valor).toFixed(2)} → ${x.chavePix}`);
   const pulados = (d.recusados || []).map(x => `• ${x.descricao || 'CP #' + x.contaPagarId}: ${x.motivo}`);
-  alert(`Sairiam agora: ${d.elegiveis}\n${linhas.join('\n') || '(nenhum)'}`
+  Aviso.erro(`Sairiam agora: ${d.elegiveis}\n${linhas.join('\n') || '(nenhum)'}`
     + (pulados.length ? `\n\nNão sairiam (${pulados.length}):\n${pulados.join('\n')}` : ''));
 }
 
 async function executarPix(){
   const d0 = await fetch('/api/cp-recorrencias/pagamento-automatico/simular').then(r => r.json());
-  if (!d0.success) return alert('Erro: ' + d0.error);
-  if (!d0.elegiveis) return alert('Nenhum título elegível agora.'
+  if (!d0.success) return Aviso.erro(Aviso.mensagemDeErro(d0));
+  if (!d0.elegiveis) return Aviso.erro('Nenhum título elegível agora.'
     + ((d0.recusados || []).length ? `\n\n${d0.recusados.length} pulado(s) — use Simular para ver o motivo.` : ''));
   const total = (d0.simulacao || []).reduce((t, x) => t + Number(x.valor), 0);
   // Confirmacao diz quanto e para quantos: e a ultima barreira antes do PIX.
-  if (!confirm(`Enviar PIX de ${d0.elegiveis} título(s), total R$ ${total.toFixed(2)}?\n\nO dinheiro sai da conta agora.`)) return;
+  if (!await Aviso.confirmar(`Enviar PIX de ${d0.elegiveis} título(s), total R$ ${total.toFixed(2)}?\n\nO dinheiro sai da conta agora.`)) return;
   const d = await fetch('/api/cp-recorrencias/pagamento-automatico/executar', { method: 'POST' }).then(r => r.json());
-  if (!d.success) return alert('Erro: ' + d.error);
-  alert(`${d.pagos} pagamento(s) enviado(s).`
+  if (!d.success) return Aviso.erro(Aviso.mensagemDeErro(d));
+  Aviso.info(`${d.pagos} pagamento(s) enviado(s).`
     + ((d.erros || []).length ? `\n${d.erros.length} com erro: ${d.erros.map(e => e.erro).join('; ')}` : '')
     + ((d.recusados || []).length ? `\n${d.recusados.length} pulado(s).` : ''));
   carregar();

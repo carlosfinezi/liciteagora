@@ -172,6 +172,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('conexoes');</script>
 
 <script>
@@ -564,19 +565,19 @@ async function carregarUploads() {
 }
 
 async function deletarUpload(nomeEnc) {
-    if (!confirm('Excluir este arquivo do servidor?')) return;
+    if (!await Aviso.confirmar('Excluir este arquivo do servidor?')) return;
     try {
         const r = await fetch(`/api/config/uploads/${nomeEnc}`, { method: 'DELETE' });
         const d = await r.json();
         if (!d.success) throw new Error(d.error || 'Falha');
         carregarUploads();
     } catch (e) {
-        alert('Erro ao excluir: ' + e.message);
+        Aviso.erro(Aviso.mensagemDeErro(e));
     }
 }
 
 async function rotacionarApiKey() {
-    const ok = confirm('Gerar uma nova API Key?\n\nO Electron que está usando a chave antiga será DESCONECTADO. Você terá que abrir o setup dialog dele e colar a nova chave.\n\nConfirmar?');
+    const ok = await Aviso.confirmar('Gerar uma nova API Key?\n\nO Electron que está usando a chave antiga será DESCONECTADO. Você terá que abrir o setup dialog dele e colar a nova chave.\n\nConfirmar?');
     if (!ok) return;
     try {
         const r = await fetch('/api/config/api-key/rotate', { method: 'POST' });

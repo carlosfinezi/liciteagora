@@ -12,7 +12,7 @@
   <div class="page-header">
     <div>
       <h1>Vendas Perdidas</h1>
-      <small>Demanda não atendida — alimenta a sugestão de compra e mostra onde o estoque/preço está custando venda</small>
+      <small>Demanda não atendida. Alimenta a sugestão de compra e mostra onde o estoque ou o preço está custando venda</small>
     </div>
     <div class="actions">
       <button class="btn btn-primary btn-sm" onclick="abrirNova()">+ Registrar perda</button>
@@ -87,7 +87,7 @@
     </div>
     <div class="form-row">
       <div class="form-group"><label>Quantidade *</label><input type="number" id="nQtd" min="0.001" step="any"></div>
-      <div class="form-group"><label>Preço alvo (R$)</label><input type="number" id="nPreco" step="0.01"></div>
+      <div class="form-group"><label>Preço alvo (R$)</label><input type="text" id="nPreco" data-formato="dinheiro"></div>
       <div class="form-group"><label>Motivo</label>
         <select id="nMotivo" onchange="toggleConcorrente()"></select>
       </div>
@@ -110,6 +110,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('comercial-vendas-perdidas');</script>
@@ -302,7 +304,7 @@ async function salvar(){
 }
 
 async function excluir(id){
-  if (!confirm('Excluir este registro?')) return;
+  if (!await Aviso.confirmar('Excluir este registro?')) return;
   const r = await fetch('/api/vendas-perdidas/'+id, { method:'DELETE' }); const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
   carregar();

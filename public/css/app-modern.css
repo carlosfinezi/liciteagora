@@ -40,7 +40,17 @@ svg.ic-xl { width: 32px; height: 32px; vertical-align: -6px; }
   --text-0: #f1f5f9;
   --text-1: #cbd5e1;
   --text-2: #94a3b8;
-  --text-3: #64748b;
+  /* Era #64748b, que dava 3,73:1 sobre --bg-2 e 2,74:1 sobre --bg-hover —
+     abaixo dos 4,5:1 de AA, no texto secundário de 171 telas. O tema claro
+     logo abaixo tinha esse cálculo feito (4,6:1 sobre branco) e o escuro não.
+     #849ab8 passa em TODOS os fundos do tema: 6,16:1 em --bg-2, 5,08:1 em
+     --bg-3 e 4,53:1 no hover de linha, que é o pior caso.
+
+     Custo assumido: a distância para o --text-2 encurtou (6,16 contra 6,92 em
+     --bg-2), então os dois níveis ficaram mais parecidos. Separá-los de novo é
+     clarear o --text-2, e isso mexeria em rótulo, cabeçalho de tabela e legenda
+     de todas as telas de uma vez — decisão à parte desta. */
+  --text-3: #849ab8;
 
   /* Accents */
   --accent: #60a5fa;
@@ -206,12 +216,18 @@ svg.ic-xl { width: 32px; height: 32px; vertical-align: -6px; }
   --border: #dbe2ea;
   --border-strong: #b9c4d2;
 
-  /* Texto: quatro níveis, todos acima de 4.5:1 sobre #ffffff, exceto o --text-3
-     que é decorativo (placeholder, legenda) e fica em 4.6:1 sobre branco. */
-  --text-0: #0f172a;   /* 16.9:1 */
-  --text-1: #334155;   /* 10.4:1 */
-  --text-2: #52627a;   /*  6.5:1 */
-  --text-3: #6b7a8f;   /*  4.6:1 */
+  /* Texto: quatro níveis, todos acima de 4.5:1 sobre #ffffff. As razões abaixo
+     são as medidas por `scripts/test-contraste-tema.js`, contra o PIOR fundo do
+     tema (o --bg-hover, #e2e8f0) e não só contra o branco.
+
+     O --text-3 era #6b7a8f, anotado aqui como "4.6:1 sobre branco". A conta
+     real dá 4,37:1 sobre branco e 3,54:1 sobre o hover — abaixo de AA nos dois.
+     O erro estava no comentário, e foi a suíte que o encontrou, em 30/09/2026,
+     ao conferir os dois temas de uma vez. */
+  --text-0: #0f172a;   /* 14.5:1 no pior fundo */
+  --text-1: #334155;   /*  8.4:1 */
+  --text-2: #52627a;   /*  5.0:1 */
+  --text-3: #5c697c;   /*  4.5:1 */
 
   /* Ação e estados. Os `-soft` são fundos de badge/alerta e ficam bem claros,
      sempre com o texto na cor forte por cima. */
@@ -337,11 +353,11 @@ p { color: var(--text-1); }
 .subtitle, .description { color: var(--text-2) !important; }
 
 h1,h2,h3,h4 { font-weight:600; letter-spacing:-0.01em; color:var(--text-0); }
-h1 { font-size:1.35rem; }
-h2 { font-size:1.15rem; }
-h3 { font-size:1rem; }
-h4 { font-size:0.92rem; }
-small { color:var(--text-2); font-size:0.82em; }
+h1 { font-size: var(--text-xl); line-height: var(--lh-densa); }
+h2 { font-size: var(--text-lg); line-height: var(--lh-densa); }
+h3 { font-size: var(--text-md); line-height: var(--lh-densa); }
+h4 { font-size: var(--text-base); line-height: var(--lh-densa); }
+small { color:var(--text-2); font-size: var(--text-sm); line-height: var(--lh-solta); }
 
 /* ==================== BOTÕES ==================== */
 .btn {
@@ -349,8 +365,8 @@ small { color:var(--text-2); font-size:0.82em; }
   padding: 8px 14px;
   border-radius: var(--r-md);
   cursor: pointer;
-  font-weight: 500;
-  font-size: 0.88em;
+  font-weight: var(--peso-medio);
+  font-size: var(--text-base);
   font-family: inherit;
   display: inline-flex;
   align-items: center;
@@ -390,8 +406,10 @@ small { color:var(--text-2); font-size:0.82em; }
 .btn-warning { background: var(--warn); color: #000; }
 .btn-warning:hover { background: #ffa726; color: #000; }
 
-.btn-sm { padding: 6px 10px; font-size: 0.8em; }
-.btn-lg { padding: 10px 18px; font-size: 0.95em; }
+/* `em` aqui multiplicava o `em` do `.btn` e chegava a 9,86px de texto: o botão
+   pequeno dentro do botão. Valor absoluto corta a cascata (relatório 40). */
+.btn-sm { padding: 6px 10px; font-size: var(--text-sm); }
+.btn-lg { padding: 10px 18px; font-size: var(--text-md); }
 
 .btn[disabled] { opacity: 0.5; cursor: not-allowed; transform:none; }
 
@@ -402,7 +420,7 @@ input, select, textarea {
   border-radius: var(--r-md);
   padding: 9px 12px;
   color: var(--text-0);
-  font-size: 0.9em;
+  font-size: var(--text-base);
   font-family: inherit;
   transition: border-color 0.15s;
   width: 100%;
@@ -419,7 +437,7 @@ input[disabled], select[disabled], textarea[disabled] {
 
 .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 14px; }
 .form-group { display: flex; flex-direction: column; gap: 5px; position: relative; }
-.form-group label { color: var(--text-2); font-size: 0.82em; font-weight: 500; letter-spacing: 0.02em; text-transform: uppercase; }
+.form-group label { color: var(--text-2); font-size: var(--text-sm); font-weight: var(--peso-medio); letter-spacing: 0.02em; text-transform: uppercase; }
 .form-group.full-width { grid-column: 1 / -1; }
 
 /* ==================== CARDS E PAINÉIS ==================== */
@@ -446,8 +464,8 @@ thead th {
   color: var(--text-2);
   padding: 10px 14px;
   text-align: left;
-  font-size: 0.72em;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--peso-forte);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   border-bottom: 1px solid var(--border);
@@ -456,7 +474,8 @@ thead th {
 tbody td {
   padding: 11px 14px;
   border-bottom: 1px solid var(--border);
-  font-size: 0.88em;
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
   color: var(--text-1);
 }
 tbody tr:last-child td { border-bottom: none; }
@@ -468,9 +487,9 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
   display: inline-flex;
   align-items: center;
   padding: 3px 9px;
-  border-radius: 999px;
-  font-size: 0.72em;
-  font-weight: 600;
+  border-radius: var(--raio-pill);
+  font-size: var(--text-xs);
+  font-weight: var(--peso-medio);
   letter-spacing: 0.02em;
   text-transform: uppercase;
   border: 1px solid transparent;
@@ -515,7 +534,8 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
   text-align: center;
   padding: 50px 20px;
   color: var(--text-3);
-  font-size: 0.9em;
+  font-size: var(--text-base);
+  line-height: var(--lh-solta);
 }
 
 /* Form row helpers */
@@ -557,8 +577,8 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
 .kpi.success { border-left-color: var(--success); }
 .kpi.warn { border-left-color: var(--warn); }
 .kpi.danger { border-left-color: var(--danger); }
-.kpi .label { color: var(--text-2); font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
-.kpi .value { color: var(--text-0); font-size: 1.4em; font-weight: 700; margin-top: 4px; letter-spacing: -0.02em; }
+.kpi .label { color: var(--text-2); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; font-weight: var(--peso-medio); }
+.kpi .value { color: var(--text-0); font-size: var(--text-2xl); font-weight: var(--peso-dado); margin-top: 4px; letter-spacing: -0.02em; line-height: var(--lh-densa); }
 
 /* ==================== FILTROS ==================== */
 .toolbar {
@@ -732,8 +752,8 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
   border: none;
   background: none;
   border-bottom: 2px solid transparent;
-  font-weight: 500;
-  font-size: 0.9em;
+  font-weight: var(--peso-medio);
+  font-size: var(--text-base);
   font-family: inherit;
 }
 .tab:hover { color: var(--text-0); }
@@ -1052,7 +1072,11 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.card-info {
+/* Escopada ao kanban desde 30/09. Solta, ela vencia a `.card-info` das
+   linhas 441 (o cartão de fundo destacado que ~25 telas usam) e transformava
+   o cartão inteiro em flex: a frase do modal de falta saía partida em blocos
+   espaçados, como se tivesse sido montada por encaixe. */
+.kanban-card .card-info {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1060,7 +1084,7 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
   color: var(--text-2);
   font-size: 0.78em;
 }
-.card-date { color: var(--accent); }
+.kanban-card .card-date { color: var(--accent); }
 .card-date.urgente { color: var(--danger); font-weight: 600; }
 .card-date.hoje { color: var(--warn); font-weight: 600; }
 
@@ -1394,8 +1418,8 @@ h1, h2, h3 { color: var(--text-0) !important; }
   border-bottom: none !important;
   box-shadow: none !important;
 }
-.header h1 { font-size: 1.35rem !important; font-weight: 600 !important; margin: 0 !important; }
-.header .subtitle, .header small { color: var(--text-2) !important; font-size: 0.82em !important; font-weight: 400 !important; display: block; margin-top: 2px; opacity: 1 !important; }
+.header h1 { font-size: var(--text-xl) !important; font-weight: var(--peso-forte) !important; margin: 0 !important; }
+.header .subtitle, .header small { color: var(--text-2) !important; font-size: var(--text-sm) !important; font-weight: var(--peso-normal) !important; display: block; margin-top: 2px; opacity: 1 !important; }
 .header-actions { display: flex; gap: 10px; }
 
 /* ============================================================
@@ -2148,27 +2172,30 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   border-color: var(--accent-strong);
 }
 
-/* ---- Tipografia: só o que é COMPROVADAMENTE NEUTRO ----
+/* ---- Tipografia ----
  *
- * A escala existe (no `:root`), mas os componentes ainda NÃO a consomem — e isso
- * é decisão, não pendência.
+ * A escala do `:root` PASSOU A SER CONSUMIDA pelos componentes em 2026-09-17,
+ * na Fase 3.5 (relatório 40). Até então ela existia sem consumidor, e isso era
+ * decisão: a Fase 3.1 se recusou a aplicá-la porque, na época, não havia como
+ * VER o resultado — o ambiente não abria o ERP renderizado.
  *
- * Medi cada substituição antes de aplicar, e o resultado desaconselhou:
+ * O que destravou foi a medição em Chrome headless, hoje permanente na etapa
+ * 109 do verify (`scripts/test-fase35-escala.js`). Ela mediu o que a leitura do
+ * CSS não mostra, porque `em` multiplica em cascata:
  *
- *     .btn      0.88em → 12,3px    --text-base = 14px    +13,6%
- *     .btn-sm   0.8em  → 11,2px    --text-sm   = 13px    +16,1%
- *     .badge    0.72em → 10,1px    --text-xs   = 11px     +9,1%
- *     .muted, .label, input, h1, .kpi — não tinham font-size: ganhariam um
+ *     .btn        12,32px → 14px     (a estimativa de 3.1 dizia 12,3 → 14: bateu)
+ *     .btn-sm      9,86px → 13px     (3.1 estimou 11,2: ERROU, porque o `em` do
+ *                                     .btn-sm multiplica o `em` do .btn)
+ *     .badge       8,87px → 11px     (3.1 estimou 10,1: mesmo motivo)
+ *     thead th    10,08px → 11px
+ *     tbody td    12,32px → 14px
  *
- * São 1.847 botões e 361 badges em 213 telas. Aumentar 14% pode estourar
- * toolbar apertada, e eu não tenho como VER se estoura (o ambiente não abre o
- * ERP renderizado). Fundação que muda a aparência sem verificação deixa de ser
- * fundação e vira reforma às cegas.
+ * O custo em densidade foi medido junto: a linha de tabela vai de 50px para
+ * 53,9px, mais 7,8%. A etapa 109 reprova se passar de 12% ou se o botão
+ * encolher, que seria perda de alvo de toque.
  *
- * O consumo entra nas fases 3.2 (botões, inputs, badges) e 3.3 (cards, tabelas),
- * uma família por vez, com validação visual sua entre elas.
- *
- * O que sobra aqui é o que não altera pixel nenhum:
+ * Os dois números que 3.1 errou são a razão de a regra ter sido "medir antes":
+ * a estimativa de papel não enxerga cascata.
  */
 body { font-size: var(--text-base); line-height: var(--lh-base); }   /* era 14px — idêntico */
 
@@ -2180,6 +2207,22 @@ table td, table th,
 .kpi .value, .kpi-valor, .num, .valor, .money {
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- Badge que mostra texto escrito para gente ----
+   O `.badge` do design system força uppercase, o que é bom para um rótulo de
+   uma palavra ("PAGO", "ABERTA") e ruim para uma frase: a chave do banco
+   chegava à tela como "AGUARDANDO-PECA". Quem escreve o rótulo em português
+   ("Aguardando peça") marca o badge com `badge-os` e fica de fora da caixa
+   alta — o espaçamento extra entre letras também cai, porque ele existe para
+   compensar a leitura de versal. */
+.badge.badge-os { text-transform: none; letter-spacing: 0.01em; }
+
+/* ---- Célula de dinheiro ----
+   "R$ 3.690,00" é uma coisa só. Numa coluna apertada o navegador quebrava
+   entre o "R$" e o número, e a célula virava duas linhas com o símbolo
+   sozinho em cima. O valor não quebra; se faltar espaço, a coluna é que
+   precisa ser maior. */
+.cel-valor { text-align: right; white-space: nowrap; }
 
 /* ---- Foco dentro de tabela ---- */
 .tbl-wrap tr:focus-visible { outline: var(--foco); outline-offset: -2px; }
@@ -2480,3 +2523,145 @@ table td, table th,
    Não é preciso desligar por mídia: quem decide é `estaTruncado()`, e no
    celular a descrição não fica truncada (ela quebra em várias linhas pela regra
    de `td[data-col="descricao"]` acima), então o tooltip nunca chega a abrir. */
+
+
+/* ── Card de licitação: seções, grid de detalhes, arquivos e avisos ──────────
+   Vive aqui, e não na tela, porque as duas telas de licitação usam o mesmo
+   card: /licitacoes/consulta.html e /licitacoes/interesse.html. Saiu da
+   consulta.html em 25/09/2026, quando o interesse ganhou as mesmas seções. */
+/* Seções do card: os metadados deixaram a face e ficam aninhados aqui.
+   Abre uma por vez — duas abertas devolveriam o card gigante. */
+.card-secoes {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.card-secao-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    padding: 5px 12px;
+    border-radius: var(--r-md);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.card-secao-btn:hover { color: var(--text-0); border-color: var(--text-3); }
+.card-secao-btn.ativo {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.card-secao-link {
+    margin-left: auto;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+    white-space: nowrap;
+}
+.card-secao-link:hover { text-decoration: underline; }
+
+.card-painel { display: none; }
+.card-painel.aberto {
+    display: block;
+    background: var(--bg-3);
+    border-radius: var(--r-md);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+}
+
+.det-lista {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 10px 20px;
+    margin: 0;
+}
+.det-lista dt {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-3);
+    margin-bottom: 2px;
+}
+.det-lista dd {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-0);
+}
+
+.det-vazio { font-size: 13px; color: var(--text-2); line-height: 1.6; }
+
+.arq-lista { margin: 0; padding-left: 18px; }
+.arq-lista li { font-size: 13px; margin-bottom: 6px; }
+.arq-lista a { color: var(--accent); text-decoration: none; }
+.arq-lista a:hover { text-decoration: underline; }
+.arq-data { color: var(--text-3); font-size: 11.5px; margin-left: 8px; }
+
+.avisos-lista { margin: 8px 0; padding-left: 18px; color: var(--text-3); }
+
+/* Por que o edital entrou na lista, quando foi pela descrição de um item e
+   não pelo objeto (30/09). Sem isto o usuário via um edital de material
+   odontológico numa busca de material de construção e não tinha como saber
+   que o casamento veio de um item lá dentro. */
+.licitacao-motivo-item {
+  display: block;
+  margin: 8px 0 2px;
+  padding: 8px 12px;
+  background: var(--bg-1);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-sm, 4px);
+  font-size: 0.86em;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.licitacao-motivo-item .motivo-rotulo { color: var(--text-3); margin-right: 6px; }
+.licitacao-motivo-item mark {
+  background: var(--btn-primary-bg); color: #fff;
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+/* ============================================================
+   Campo com erro — a marcação de `public/js/campo-formato.js`
+
+   Até 30/09/2026 esta folha não tinha UMA regra de campo errado: nem `.falta`,
+   nem `[aria-invalid]`, nem `:invalid`. O que existia estava dentro do
+   `<style>` de `public/loja/index.html`, e valia só na vitrine; o ERP dizia o
+   que faltava em 323 `alert()` do navegador.
+
+   As duas classes são postas pelo `campo-formato.js`, e as cores saem das
+   variáveis do tema de propósito: cor fixa aqui deixaria a marca escura no
+   tema claro, que é o defeito que 21 telas ainda têm.
+   ============================================================ */
+.falta,
+input.falta, select.falta, textarea.falta {
+  border-color: var(--danger) !important;
+}
+.falta:focus,
+input.falta:focus, select.falta:focus, textarea.falta:focus {
+  border-color: var(--danger) !important;
+  box-shadow: 0 0 0 3px var(--danger-soft) !important;
+}
+/* Grupo de opções: a borda vermelha vai nos botões de dentro, e não na caixa —
+   na caixa ela desenharia um retângulo em volta de tudo. */
+.opcoes.falta, .chk-opcoes.falta, .radio-grupo.falta { border: 0 !important; }
+.opcoes.falta > *, .chk-opcoes.falta > *, .radio-grupo.falta > * {
+  border-color: var(--danger);
+}
+.diz-falta {
+  color: var(--danger);
+  font-size: var(--text-sm);
+  font-weight: var(--peso-medio);
+  line-height: 1.4;
+  margin: 5px 0 0;
+}
+/* Dentro de `.form-group`, que é flex em coluna com gap, a frase não precisa da
+   margem de cima: o gap já a separa do campo. */
+.form-group .diz-falta { margin-top: 0; }

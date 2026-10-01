@@ -61,7 +61,7 @@
         <option>Dinheiro</option><option>PIX</option>
         <option>Cartão de Crédito</option><option>Cartão de Débito</option><option>Vale Refeição</option>
       </select>
-      <input type="number" id="fcValor" step="0.01" placeholder="Valor" style="width:130px;">
+      <input type="text" id="fcValor" placeholder="Valor" style="width:130px;" data-formato="dinheiro">
       <input type="text" id="fcPagador" placeholder="Nome (opcional)" style="width:160px;">
       <button class="btn btn-primary btn-sm" onclick="registrarPagamento()">+ Pagamento</button>
     </div>
@@ -98,6 +98,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('restaurante-caixa');</script>
 <script>
@@ -169,7 +171,7 @@ function abrirTurnoModal() {
   document.getElementById('mtTitulo').textContent = 'Abrir turno';
   document.getElementById('mtCorpo').innerHTML =
     `<div class="form-group full-width"><label>Fundo de troco (R$)</label>
-      <input type="number" id="mtValor" step="0.01" value="0"></div>`;
+      <input type="text" id="mtValor" value="0" data-formato="dinheiro"></div>`;
   document.getElementById('mtBtn').onclick = async () => {
     try {
       await api('/api/restaurante/turnos', {

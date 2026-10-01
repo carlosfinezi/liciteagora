@@ -84,7 +84,7 @@ async function reativar(id) {
 async function excluir(id) {
   const item = itens.find(x => x.id === id);
   const nome = item ? `"${item.label}"` : `#${id}`;
-  if (!confirm(`Excluir ${nome} permanentemente?\n\nIsso remove o item da base. Lentes que já usam este código continuarão exibindo o código (sem o rótulo bonito).`)) return;
+  if (!await Aviso.confirmar(`Excluir ${nome} permanentemente?\n\nIsso remove o item da base. Lentes que já usam este código continuarão exibindo o código (sem o rótulo bonito).`)) return;
   try {
     const r = await fetch(`/api/optica/lentes-lookup/${LOOKUP_TIPO}/${id}?hard=1`, { method: 'DELETE' });
     const d = await r.json();
@@ -143,7 +143,7 @@ async function salvar() {
 }
 
 async function inativar(id) {
-  if (!confirm('Inativar este item? Lentes que já o usam continuam exibindo o código.')) return;
+  if (!await Aviso.confirmar('Inativar este item? Lentes que já o usam continuam exibindo o código.')) return;
   try {
     const r = await fetch(`/api/optica/lentes-lookup/${LOOKUP_TIPO}/${id}`, { method: 'DELETE' });
     const d = await r.json();

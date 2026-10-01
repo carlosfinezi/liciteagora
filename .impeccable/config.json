@@ -20,6 +20,15 @@
         ],
         "createdAt": "2026-09-29T14:52:33.047Z",
         "reason": "Usuário confirmou em 29/09/2026: é o miolo do girassol desenhado no montador (.fl.girassol), uma flor e não um brilho de fundo"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "public/js/aviso-sistema.js"
+        ],
+        "createdAt": "2026-10-01T13:35:15.761Z",
+        "reason": "Usuario confirmou em 01/10/2026: a borda lateral do .toast e copia deliberada da regra do app-modern.css (linha 714), para o aviso da loja, do painel admin e do portal ficar IGUAL ao do ERP. A peca carrega esse estilo de reserva porque essas telas nao carregam a folha comum; mudar aqui desfaria a padronizacao."
       }
     ]
   }

@@ -76,6 +76,7 @@ require(BASE + '/ssl-certificados-routes').migrarDB(db);
 // Trocar a propriedade no objeto exportado funciona porque
 // ssl-certificados-routes guardou a referência do módulo, não das funções.
 const nicsrs = require(BASE + '/nicsrs-client');
+const { prepararAvisos } = require('./aviso-de-teste');
 let chamadasCancel = [];
 let proximoErroNicsrs = null;
 nicsrs.cancel = async (token, { certId, reason }) => {
@@ -155,6 +156,15 @@ const server = app.listen(PORTA);
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   });
   const page = await browser.newPage();
+  /* O `confirm()` do navegador era dispensado pelo puppeteer sozinho, e com
+     isso a suíte clicava em "excluir" e o fluxo seguia. Desde 01/10/2026 a
+     confirmação é a caixa do sistema (`Aviso.confirmar`), que é uma PROMESSA
+     esperando alguém clicar: sem isto, o `evaluate` fica pendurado e a suíte
+     morre com "Runtime.callFunctionOn timed out". `prepararAvisos` responde
+     SIM, que é o que o diálogo nativo fazia, e registra o que foi pedido em
+     `window.__confirmacoes`. */
+  await prepararAvisos(page);
+
   await page.setViewport({ width: 1600, height: 1000 });
 
   const errosJS = [];
@@ -179,6 +189,13 @@ const server = app.listen(PORTA);
   async function armarDialogos(frame, { confirmar = true, motivo = 'motivo de teste' } = {}) {
     await frame.evaluate((confirmar, motivo) => {
       window.__perguntas = [];
+      /* A confirmação é a caixa do sistema desde 01/10/2026 (`Aviso.confirmar`,
+         uma promessa). O `prompt` do motivo continua sendo o do navegador. */
+      window.Aviso.confirmar = (o) => {
+        const texto = typeof o === 'string' ? o : ((o && o.texto) || '');
+        window.__perguntas.push({ tipo: 'confirm', texto });
+        return Promise.resolve(confirmar);
+      };
       window.confirm = (m) => { window.__perguntas.push({ tipo: 'confirm', texto: m }); return confirmar; };
       window.prompt = (m) => { window.__perguntas.push({ tipo: 'prompt', texto: m }); return motivo; };
     }, confirmar, motivo);

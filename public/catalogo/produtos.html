@@ -65,8 +65,8 @@
       </div>
       <div class="form-group"><label>Venda mín (R$)</label><input type="number" step="0.01" id="fVendaMin" oninput="onFiltroDebounced()"></div>
       <div class="form-group"><label>Venda máx (R$)</label><input type="number" step="0.01" id="fVendaMax" oninput="onFiltroDebounced()"></div>
-      <div class="form-group"><label>Custo mín (R$)</label><input type="number" step="0.01" id="fCustoMin" oninput="onFiltroDebounced()"></div>
-      <div class="form-group"><label>Custo máx (R$)</label><input type="number" step="0.01" id="fCustoMax" oninput="onFiltroDebounced()"></div>
+      <div class="form-group"><label>Custo mín (R$)</label><input type="text" id="fCustoMin" oninput="onFiltroDebounced()" data-formato="dinheiro"></div>
+      <div class="form-group"><label>Custo máx (R$)</label><input type="text" id="fCustoMax" oninput="onFiltroDebounced()" data-formato="dinheiro"></div>
     </div>
     <div style="display:flex;justify-content:flex-end;">
       <button class="btn btn-ghost btn-sm" onclick="limparFiltros()">Limpar tudo</button>
@@ -160,6 +160,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/campo-formato.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('produtos');</script>
@@ -599,7 +601,7 @@ function novoProduto(){ location.href = '/catalogo/produto.html'; }
 function abrirProduto(id){ location.href = '/catalogo/produto.html?id=' + id; }
 
 async function excluir(id, nome){
-  if (!confirm('Desativar "'+nome+'"?')) return;
+  if (!await Aviso.confirmar('Desativar "'+nome+'"?')) return;
   try {
     const r = await fetch('/api/produtos/'+Number(id), { method:'DELETE' });
     const d = await r.json();

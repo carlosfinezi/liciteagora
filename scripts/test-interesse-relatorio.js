@@ -161,6 +161,27 @@ const MASSA = [
   await frame.evaluate(() => {
     window.__alertas = [];
     window.alert = (m) => window.__alertas.push(String(m));
+    /* Desde 01/10/2026 a tela avisa pelo `Aviso` do sistema, e não mais pelo
+       `alert()` do navegador. As duas pontas caem no mesmo registro, para as
+       checagens abaixo continuarem lendo `__alertas`: o que elas provam é o
+       TEXTO que a pessoa vê, e não quem o mostra. */
+    (function registrarAvisoDoSistema() {
+      const ligar = () => {
+        if (!window.Aviso || window.Aviso.__registrado) return false;
+        for (const tom of ['ok', 'erro', 'info']) {
+          const antes = window.Aviso[tom];
+          window.Aviso[tom] = (t, seg) => {
+            window.__alertas.push(String(t == null ? '' : t));
+            return antes(t, seg);
+          };
+        }
+        window.Aviso.__registrado = true;
+        return true;
+      };
+      if (ligar()) return;
+      const timer = setInterval(() => { if (ligar()) clearInterval(timer); }, 10);
+      window.addEventListener('load', () => { ligar(); clearInterval(timer); });
+    })();
 
     window.__blobs = [];
     const origCreate = URL.createObjectURL;
@@ -198,7 +219,29 @@ const MASSA = [
   }, [nivel, idioma]);
 
   // ── 1. a tela em si, antes do relatório ────────────────────────────────────
-  console.log('\n── tela carregada (filtro padrão "Em aberto")');
+  console.log('\n── o padrão da tela');
+  {
+    // Desde 25/09/2026 a tela abre em "Todos os prazos": mensagem, anexo e
+    // resultado só existem depois do prazo de propostas, e "Em aberto" escondia
+    // justamente essa parte. Com as três licitações da massa: 3 itens + o da
+    // vencida = 4, e 350 + 1000 + 75 = 1.425,00.
+    const padrao = await frame.evaluate(() => ({
+      periodo: document.getElementById('filtroPeriodo').value,
+      lic: document.getElementById('totalLicitacoes').textContent,
+      valor: document.getElementById('valorTotal').textContent,
+    }));
+    assert(padrao.periodo === 'todas', 'a tela abre em "Todos os prazos"', padrao);
+    assert(padrao.lic === '3', 'e mostra as 3 licitações, inclusive a vencida', padrao);
+    assert(/1\.425,00/.test(padrao.valor), 'com o total de R$ 1.425,00', padrao);
+  }
+
+  // O resto desta suíte confere o recorte "Em aberto", que é onde os números
+  // conhecidos (425,00) foram calculados à mão. O que se prova daqui em diante
+  // é que o relatório exporta O RECORTE DA TELA, qualquer que seja ele.
+  await frame.evaluate(() => { document.getElementById('filtroPeriodo').value = 'ativas'; aplicarFiltro(); });
+  await new Promise((r) => setTimeout(r, 300));
+
+  console.log('\n── tela no recorte "Em aberto"');
   {
     const kpi = await frame.evaluate(() => ({
       lic: document.getElementById('totalLicitacoes').textContent,

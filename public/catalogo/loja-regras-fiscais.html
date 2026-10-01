@@ -36,6 +36,29 @@
   margin: 12px 0 0; font-size: .85em; color: var(--text-2); line-height: 1.5; }
 .nota strong { color: var(--text-1); }
 
+/* Os dois modos. São escolha de LEITURA: o que se grava continua sendo a
+   natureza, e o modo é derivado dela ao carregar. */
+.pergunta { font-size: .92em; color: var(--text-2); margin: 0 0 10px; }
+.modos { display: grid; gap: 10px; margin-bottom: 18px; }
+.modo { display: flex; gap: 10px; align-items: flex-start; cursor: pointer;
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--bg-0); }
+.modo:hover { border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); }
+/* 20px e o alvo de 44px: o mesmo que as outras telas do catálogo usam no
+   celular, onde o dedo erra um rádio de 13px. */
+.modo input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--primary);
+  flex-shrink: 0; }
+.modo-txt { display: flex; flex-direction: column; gap: 3px; font-size: .86em;
+  color: var(--text-2); line-height: 1.45; }
+.modo-txt strong { font-size: 1.06em; color: var(--text-1); font-weight: 600; }
+.modo:has(input:checked) { border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.modo input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+@media (max-width: 640px) {
+  .modo { min-height: 44px; }
+}
+
 @media (max-width: 640px) {
   /* Os botões do cabeçalho herdam 40px do `.btn` global. No celular o alvo
      mínimo é 44px, e subir aqui não mexe no resto do ERP. */
@@ -62,19 +85,42 @@
   <div id="alertGlobal"></div>
 
   <div class="card">
-    <h3 class="card-title">Pedidos do catálogo</h3>
-    <div class="campo">
+    <h3 class="card-title">Regras fiscais dos pedidos</h3>
+    <p class="pergunta">Como tratar os pedidos que chegam pelo catálogo</p>
+
+    <div class="modos">
+      <label class="modo" for="modoSem">
+        <input type="radio" name="modoFiscal" id="modoSem" value="sem" onchange="trocarModo()">
+        <span class="modo-txt">
+          <strong>Venda sem emissão de documento fiscal</strong>
+          O pedido entra normalmente no ERP, movimenta o estoque e gera o financeiro,
+          mas não segue para emissão de nota.
+        </span>
+      </label>
+      <label class="modo" for="modoCom">
+        <input type="radio" name="modoFiscal" id="modoCom" value="com" onchange="trocarModo()">
+        <span class="modo-txt">
+          <strong>Venda com documento fiscal</strong>
+          O pedido entra normalmente no ERP, movimenta o estoque, gera o financeiro
+          e segue para o fluxo de emissão fiscal.
+        </span>
+      </label>
+    </div>
+
+    <div class="campo" id="campoNatPedido">
       <label for="natPedido">Natureza de operação</label>
       <select id="natPedido" onchange="pintarEfeitos()">
         <option value="">Selecione uma natureza</option>
       </select>
-      <span class="dica">Esta natureza determina as regras fiscais, financeiras e de
-        estoque dos pedidos recebidos pelo catálogo.</span>
+      <span class="dica" id="dicaNatPedido">Escolha primeiro como tratar os pedidos.</span>
     </div>
     <div id="efeitosPedido" class="efeitos"></div>
+
     <p class="nota">Enquanto nenhuma natureza estiver escolhida, o catálogo
       <strong>não aceita pedidos</strong>. O visitante recebe um aviso pedindo que
       entre em contato com a loja.</p>
+    <p class="nota">Mudar esta configuração vale para os <strong>próximos pedidos</strong>.
+      Os que já foram criados mantêm o tratamento que tinham quando entraram.</p>
   </div>
 
   <div class="card">
@@ -96,6 +142,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('loja');</script>
 <script>
 /**
@@ -138,6 +185,91 @@ function opcoes(select, lista, selecionado) {
 /* Mostra o que a natureza escolhida decide. Três perguntas, nesta ordem, que
    são as que mudam a vida do lojista: sai nota? entra no financeiro? mexe no
    estoque? */
+/**
+ * As naturezas que servem para uma VENDA pelo catálogo, no modo pedido.
+ *
+ * Cinco condições, e nenhuma delas é supérflua:
+ *
+ *   ativo             natureza desativada não é oferecida (o checkout a recusa)
+ *   usarEmPedido      barra devolução e OS, que não são pedido de venda
+ *   movimentaEstoque  venda de catálogo tira do estoque; sem isso o consumidor
+ *                     compra e o saldo não se mexe
+ *   geraFinanceiro    barra bonificação e transferência, que não cobram
+ *   categoriaOperacao é a que declara "isto é uma venda"
+ *
+ * Medido em 26/09 nos tenants: as quatro primeiras já bastam hoje, porque
+ * bonificação cai por `geraFinanceiro`, remessa por `movimentaEstoque`, e
+ * devolução e OS por `usarEmPedido`. A categoria entra porque isso é
+ * coincidência de flags, não garantia: uma remessa cadastrada à mão com
+ * cobrança e uso em pedido passaria pelas quatro.
+ *
+ * O `emiteNFe` fica de fora daqui — é ele que separa os dois MODOS.
+ *
+ * Nenhum código nem id aparece nesta função: ela vale em qualquer empresa,
+ * inclusive nas que renomearam ou criaram as próprias naturezas. Os ids do
+ * seed divergem entre tenants (a mesma natureza de venda sem emissão tem id 3
+ * em nove empresas e 4 em dez, medido em 26/09), e é por isso que filtrar por
+ * id seria errado.
+ */
+function vendeNoCatalogo(n) {
+  return !!n.ativo && !!n.usarEmPedido && !!n.movimentaEstoque
+    && !!n.geraFinanceiro && n.categoriaOperacao === 'venda';
+}
+
+/** O modo marcado na tela, ou null enquanto ninguém escolheu. */
+function modoEscolhido() {
+  const m = document.querySelector('input[name="modoFiscal"]:checked');
+  return m ? m.value : null;
+}
+
+/**
+ * Repinta o select conforme o modo, preservando a escolha quando ela continua
+ * válida. Trocar de modo NÃO escolhe natureza nenhuma: o lojista precisa
+ * decidir, porque a natureza é a regra real e uma escolha automática seria
+ * decidir por ele em silêncio.
+ */
+function pintarModo(manterId) {
+  const modo = modoEscolhido();
+  const sel = $('natPedido');
+  const dica = $('dicaNatPedido');
+
+  if (!modo) {
+    opcoes(sel, [], null);
+    sel.disabled = true;
+    dica.textContent = 'Escolha primeiro como tratar os pedidos.';
+    pintarEfeitos();
+    return;
+  }
+
+  const querEmissao = modo === 'com';
+  const lista = NATUREZAS.filter((n) => vendeNoCatalogo(n) && !!n.emiteNFe === querEmissao);
+  sel.disabled = false;
+
+  // Só continua selecionada se ainda estiver na lista do modo novo.
+  const manter = lista.some((n) => n.id === manterId) ? manterId : null;
+  opcoes(sel, lista, manter);
+
+  if (!lista.length) {
+    dica.textContent = querEmissao
+      ? 'Esta empresa não tem nenhuma natureza de venda com emissão fiscal. '
+        + 'Cadastre uma em Fiscal · Naturezas de operação.'
+      : 'Esta empresa não tem nenhuma natureza de venda sem emissão fiscal. '
+        + 'Cadastre uma em Fiscal · Naturezas de operação.';
+  } else if (!manter && manterId) {
+    dica.textContent = 'A natureza que estava escolhida não serve para este modo. '
+      + 'Escolha outra antes de salvar.';
+  } else {
+    dica.textContent = 'Esta natureza determina as regras fiscais, financeiras e de '
+      + 'estoque dos pedidos recebidos pelo catálogo.';
+  }
+  pintarEfeitos();
+}
+
+/** Trocar o modo mantém a natureza atual se ela couber, e a limpa se não. */
+function trocarModo() {
+  pintarModo(Number($('natPedido').value) || null);
+}
+
 function pintarEfeitos() {
   for (const [selectId, alvoId] of [['natPedido', 'efeitosPedido'], ['natNfce', 'efeitosNfce']]) {
     const alvo = $(alvoId);
@@ -148,11 +280,13 @@ function pintarEfeitos() {
       continue;
     }
     alvo.className = 'efeitos';
-    const selo = (ligado, texto) =>
-      `<span class="efeito ${ligado ? 'sim' : ''}"><b>${ligado ? 'Sim' : 'Não'}</b> ${texto}</span>`;
-    alvo.innerHTML = selo(n.emiteNFe, 'emite documento fiscal')
-      + selo(n.geraFinanceiro, 'gera conta a receber')
-      + selo(n.movimentaEstoque, 'movimenta estoque');
+    /* Em linguagem de quem vende, não de quem programa: o lojista não precisa
+       saber que existe um campo chamado `movimentaEstoque`. */
+    const selo = (ligado, sim, nao) =>
+      `<span class="efeito ${ligado ? 'sim' : ''}">${ligado ? '✓ ' + sim : '— ' + nao}</span>`;
+    alvo.innerHTML = selo(n.movimentaEstoque, 'Movimenta estoque', 'Não movimenta estoque')
+      + selo(n.geraFinanceiro, 'Gera financeiro', 'Não gera financeiro')
+      + selo(n.emiteNFe, 'Com emissão fiscal', 'Sem emissão fiscal');
   }
 }
 
@@ -165,8 +299,14 @@ async function carregar() {
       showAlert('Nenhuma natureza de operação cadastrada nesta empresa. '
         + 'Cadastre em Fiscal · Naturezas de operação antes de configurar o catálogo.', 'error');
     }
-    // O pedido aceita qualquer natureza de saída; a NFC-e só as que emitem.
-    opcoes($('natPedido'), NATUREZAS.filter((n) => n.usarEmPedido), c.tipoOperacaoPedidoId);
+    /* O MODO é derivado da natureza salva, nunca lido de um campo próprio.
+       Sem natureza configurada, nenhum rádio marcado: a tela não pode fingir
+       que existe uma escolha onde não existe, porque o checkout está
+       bloqueado nesse estado. */
+    const atual = NATUREZAS.find((n) => n.id === c.tipoOperacaoPedidoId);
+    if (atual) $(atual.emiteNFe ? 'modoCom' : 'modoSem').checked = true;
+    pintarModo(atual ? atual.id : null);
+
     opcoes($('natNfce'), NATUREZAS.filter((n) => n.emiteNFe), c.tipoOperacaoNfceId);
     pintarEfeitos();
   } catch (e) { showAlert(e.message, 'error'); }
@@ -174,10 +314,20 @@ async function carregar() {
 
 async function salvar() {
   const bt = $('btSalvar');
+  /* Modo escolhido e natureza em branco é o estado intermediário de quem
+     acabou de trocar o rádio. Salvar aqui apagaria a configuração e
+     bloquearia o catálogo sem o lojista perceber o que fez. */
+  if (modoEscolhido() && !$('natPedido').value) {
+    showAlert('Escolha a natureza de operação para o modo selecionado, '
+      + 'ou nada será salvo para os pedidos.', 'error');
+    return;
+  }
   bt.disabled = true;
   try {
     /* Manda os dois campos sempre, inclusive vazios: vazio é como o lojista
-       desfaz a escolha, e a rota preserva o que não recebe. */
+       desfaz a escolha, e a rota preserva o que não recebe.
+       O MODO não vai no corpo: ele é derivado do `emiteNFe` da natureza, e
+       mandá-lo criaria um segundo estado fiscal para o servidor conciliar. */
     await api('/api/loja/config', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

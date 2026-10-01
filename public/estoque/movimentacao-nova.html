@@ -39,7 +39,7 @@
         </select>
       </div>
       <div class="form-group"><label id="lblQtd">Quantidade *</label><input type="number" id="movQtd" step="0.01" oninput="aoMudarQuantidade()"></div>
-      <div class="form-group"><label>Custo Unitário (opcional)</label><input type="number" id="movCusto" step="0.01"></div>
+      <div class="form-group"><label>Custo Unitário (opcional)</label><input type="text" id="movCusto" data-formato="dinheiro"></div>
       <div class="form-group"><label>Data</label><input type="date" id="movData"></div>
       <div class="form-group" id="grpDeposito" style="display:none;">
         <label>Depósito</label>
@@ -99,6 +99,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/campo-formato.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('estoque');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }

@@ -138,7 +138,7 @@
         <div class="form-group">
           <label>Código CATMAT</label>
           <input type="text" id="codigoCatmat" maxlength="20">
-          <small>Material padronizado — permite casar itens de licitação com este código</small>
+          <small>Material padronizado. Casa itens de licitação por este código</small>
         </div>
         <div class="form-group">
           <label>Código CATSER</label>
@@ -177,13 +177,13 @@
     <summary>Preços e markup</summary>
     <div class="sec-body">
       <div class="form-row">
-        <div class="form-group"><label>Preço de custo (R$)</label><input type="number" id="precoCusto" value="0" step="0.01" oninput="recalcFromCusto()"></div>
+        <div class="form-group"><label>Preço de custo (R$)</label><input type="text" id="precoCusto" value="0" oninput="recalcFromCusto()" data-formato="dinheiro"></div>
         <div class="form-group"><label>Markup mínimo (%)</label><input type="number" id="markupMinimo" step="0.01" oninput="recalcMinFromMarkup()"><small>Atualiza o preço mín. automaticamente</small></div>
-        <div class="form-group"><label>Preço mínimo de venda (R$)</label><input type="number" id="precoMinimoVenda" step="0.01"><small>Trava venda abaixo deste valor</small></div>
+        <div class="form-group"><label>Preço mínimo de venda (R$)</label><input type="text" id="precoMinimoVenda" data-formato="dinheiro"><small>Trava venda abaixo deste valor</small></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Markup de venda (%)</label><input type="number" id="markupVenda" step="0.01" oninput="recalcVendaFromMarkup()"></div>
-        <div class="form-group"><label>Preço de venda (R$)</label><input type="number" id="precoVenda" value="0" step="0.01" oninput="recalcMarkupFromVenda()"></div>
+        <div class="form-group"><label>Preço de venda (R$)</label><input type="text" id="precoVenda" value="0" oninput="recalcMarkupFromVenda()" data-formato="dinheiro"></div>
       </div>
     </div>
   </details>
@@ -359,12 +359,12 @@
         <div class="form-group">
           <label>CST IBS</label>
           <input type="text" id="cstIBS" maxlength="3" placeholder="ex: 000">
-          <small>3 dígitos — situação tributária IBS</small>
+          <small>Situação tributária IBS, 3 dígitos</small>
         </div>
         <div class="form-group">
           <label>CST CBS</label>
           <input type="text" id="cstCBS" maxlength="3" placeholder="ex: 000">
-          <small>3 dígitos — situação tributária CBS</small>
+          <small>Situação tributária CBS, 3 dígitos</small>
         </div>
         <div class="form-group">
           <label>cClassTrib</label>
@@ -548,7 +548,7 @@
       <div class="form-group">
         <label>CPF/CNPJ *</label>
         <div style="display:flex;gap:8px;">
-          <input type="text" id="fCpfCnpj" style="flex:1;">
+          <input type="text" id="fCpfCnpj" style="flex:1;" data-formato="cnpj">
           <button class="btn btn-secondary btn-sm" onclick="consultarCnpjForn()" type="button">Consultar</button>
         </div>
         <small id="fCnpjStatus"></small>
@@ -561,7 +561,7 @@
     <div class="form-row"><div class="form-group full-width"><label>Razão social *</label><input type="text" id="fRazaoSocial"></div></div>
     <div class="form-row">
       <div class="form-group"><label>Nome fantasia</label><input type="text" id="fNomeFantasia"></div>
-      <div class="form-group"><label>Inscrição estadual</label><input type="text" id="fInscricaoEstadual"></div>
+      <div class="form-group"><label>Inscrição estadual</label><input type="text" id="fInscricaoEstadual" data-formato="inscricao"></div>
     </div>
     <div class="form-row">
       <div class="form-group" style="flex:3;"><label>Endereço</label><input type="text" id="fEndereco"></div>
@@ -574,7 +574,7 @@
       <div class="form-group"><label>CEP</label><input type="text" id="fCep"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Telefone</label><input type="text" id="fTelefone"></div>
+      <div class="form-group"><label>Telefone</label><input type="text" id="fTelefone" data-formato="telefone"></div>
       <div class="form-group"><label>Email</label><input type="email" id="fEmail"></div>
       <div class="form-group"><label>Contato</label><input type="text" id="fContato"></div>
     </div>
@@ -587,6 +587,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('produtos');</script>
 <script>
 const prodIdUrl = new URLSearchParams(location.search).get('id');
@@ -807,7 +809,7 @@ async function excluir(){
   const id = val('prodId');
   if (!id) return;
   const nome = val('descricao') || val('sku');
-  if (!confirm('Desativar "'+nome+'"?')) return;
+  if (!await Aviso.confirmar('Desativar "'+nome+'"?')) return;
   try {
     const r = await fetch('/api/produtos/'+id, { method:'DELETE' });
     const d = await r.json();
@@ -840,7 +842,7 @@ function preverImagem(){
 async function removerImagem(){
   const id = val('prodId');
   if (!id) return;
-  if (!confirm('Remover imagem?')) return;
+  if (!await Aviso.confirmar('Remover imagem?')) return;
   try {
     const r = await fetch('/api/produtos/'+id+'/imagem', { method:'DELETE' });
     const d = await r.json();
@@ -1235,7 +1237,7 @@ function renderKit(){
      <td style="text-align:right;">${k.custoUnitario > 0 ? brlK(k.custoUnitario) : '<span class="muted">sem custo</span>'}</td>
      <td style="text-align:right;">${brlK((k.custoUnitario || 0) * (Number(k.quantidade) || 0))}</td>
      <td><button class="btn btn-ghost btn-sm" type="button" onclick="kitItens.splice(${i},1);renderKit()">×</button></td></tr>`
-  ).join('') : '<tr><td colspan="5" class="empty">Sem componentes — produto comum</td></tr>';
+  ).join('') : '<tr><td colspan="5" class="empty">Produto comum, sem componentes</td></tr>';
   // Custo somado na hora, com as quantidades da tela; o servidor calcula o
   // mesmo ao carregar. A margem é sobre o preço de venda deste cadastro.
   const el = document.getElementById('kitCusto');

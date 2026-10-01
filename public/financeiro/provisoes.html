@@ -34,7 +34,7 @@
   </div>
   <div class="form-row">
     <div class="form-group"><label>Tipo</label><select id="nTipo"><option value="saida">Saída</option><option value="entrada">Entrada</option></select></div>
-    <div class="form-group"><label>Valor (R$) *</label><input type="number" id="nValor" step="0.01"></div>
+    <div class="form-group"><label>Valor (R$) *</label><input type="text" id="nValor" data-formato="dinheiro"></div>
     <div class="form-group"><label>Data prevista *</label><input type="date" id="nData"></div>
     <div class="form-group"><label>Repetir (meses)</label><input type="number" id="nRep" value="1" min="1" max="60" style="width:80px;"></div>
   </div>
@@ -45,6 +45,8 @@
 </div></div>
 <div id="toasts"></div>
 <script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('fin-provisoes');</script>

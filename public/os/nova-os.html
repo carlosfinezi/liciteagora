@@ -162,7 +162,7 @@
         </div>
         <div class="form-row">
           <div class="form-group"><label>Km percorrido</label><input type="number" id="fKm" step="0.1" min="0" placeholder="0"></div>
-          <div class="form-group"><label>Valor do deslocamento (R$)</label><input type="number" id="fVlrDesloc" step="0.01" min="0" placeholder="0,00"></div>
+          <div class="form-group"><label>Valor do deslocamento (R$)</label><input type="text" id="fVlrDesloc" placeholder="0,00" data-formato="dinheiro"></div>
         </div>
         <small class="muted">Registro do trajeto — não entra no total. Para cobrar, lance o deslocamento como serviço na OS.</small>
       </div>
@@ -201,6 +201,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('ordens-servico');</script>
 <script>

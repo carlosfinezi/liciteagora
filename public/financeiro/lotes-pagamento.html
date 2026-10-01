@@ -123,6 +123,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('fin-lotes-pagamento');</script>
@@ -164,8 +165,8 @@ async function verDet(id){
 }
 
 async function acao(id, verbo){
-  if (verbo==='confirmar' && !confirm('Confirmar os pagamentos deste lote? As contas serão baixadas e as saídas lançadas no caixa.')) return;
-  if (verbo==='cancelar' && !confirm('Cancelar este lote?')) return;
+  if (verbo==='confirmar' && !await Aviso.confirmar('Confirmar os pagamentos deste lote? As contas serão baixadas e as saídas lançadas no caixa.')) return;
+  if (verbo==='cancelar' && !await Aviso.confirmar('Cancelar este lote?')) return;
   const r = await fetch(`/api/lotes-pagamento/${id}/${verbo}`, { method:'POST' }); const d = await r.json();
   if(!d.success){
     let msg = d.error;
@@ -308,7 +309,7 @@ async function vincularBoleto(id){
 }
 
 async function criarTituloDoBoleto(id){
-  if (!confirm('Criar uma conta a pagar a partir deste boleto? Valor e vencimento vêm do próprio código de barras.')) return;
+  if (!await Aviso.confirmar('Criar uma conta a pagar a partir deste boleto? Valor e vencimento vêm do próprio código de barras.')) return;
   const d = await fetch(`/api/boletos/${id}/vincular`, { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ criar: {} }) }).then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');

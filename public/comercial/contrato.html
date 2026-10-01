@@ -188,7 +188,7 @@
       </div>
       <div class="form-group">
         <label id="eLblValor">Valor (R$)</label>
-        <input type="number" id="eValor" step="0.01" min="0">
+        <input type="text" id="eValor" data-formato="dinheiro">
       </div>
       <div class="form-group">
         <label>Dia de vencimento</label>
@@ -289,7 +289,7 @@
       </div>
       <div class="form-group">
         <label>Custo unitário (R$)</label>
-        <input type="number" id="iValor" step="0.01" min="0">
+        <input type="text" id="iValor" data-formato="dinheiro">
         <small class="muted">O que VOCÊ paga (ex.: NicSRS), não o que cobra do cliente.</small>
       </div>
       <div class="form-group">
@@ -311,6 +311,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('contratos');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -643,7 +645,7 @@ async function confirmarAnexo(){
 }
 
 async function removerAnexo(anexoId){
-  if (!confirm('Remover este anexo? O arquivo é apagado do disco.')) return;
+  if (!await Aviso.confirmar('Remover este anexo? O arquivo é apagado do disco.')) return;
   try {
     const d = await fetch('/api/contratos/anexos/'+anexoId, { method:'DELETE' }).then(r=>r.json());
     if (!d.success) throw new Error(d.error);
@@ -676,7 +678,7 @@ async function gerarPedidoCompra(itemId, confirmar){
   if (r.status === 409 && d.precisaDecisao) {
     const lista = (d.pedidos||[]).map(p =>
       `  • ${p.numero} — ${p.status}${p.dataEmissao ? ' em ' + fmtData(p.dataEmissao) : ''}`).join('\n');
-    if (!confirm(`Este item já tem pedido de compra:\n\n${lista}\n\nGerar outro assim mesmo?`)) return;
+    if (!await Aviso.confirmar(`Este item já tem pedido de compra:\n\n${lista}\n\nGerar outro assim mesmo?`)) return;
     return gerarPedidoCompra(itemId, true);
   }
   if (!d.success) return showAlert(d.error,'error');
@@ -740,7 +742,7 @@ async function salvarItem(){
 }
 
 async function removerItem(itemId){
-  if (!confirm('Remover este item do contrato?')) return;
+  if (!await Aviso.confirmar('Remover este item do contrato?')) return;
   const r = await fetch(`/api/contratos/${id}/itens/${itemId}`, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -770,7 +772,7 @@ function renderFaturamento(rec) {
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       ${ativoBadge}
-      <strong style="color:#69db7c;">${fmtBRL(rec.valorServico)} <small style="color:#888;font-size:11px;">/mês</small></strong>
+      <strong style="color: var(--success);">${fmtBRL(rec.valorServico)} <small style="color: var(--text-2);font-size:11px;">/mês</small></strong>
     </div>
     <table style="width:100%;font-size:13px;">
       <tr><td class="muted">Recorrência #</td><td>${rec.id}</td></tr>
@@ -849,8 +851,8 @@ function renderOsAutomatica(oa){
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <span class="badge entrada">LIGADA</span>
-      <strong style="color:#69db7c;">a cada ${oa.periodicidadeDias} dia${oa.periodicidadeDias>1?'s':''}
-        <small style="color:#888;font-size:11px;">${cadenciaTexto(oa.periodicidadeDias)}</small></strong>
+      <strong style="color: var(--success);">a cada ${oa.periodicidadeDias} dia${oa.periodicidadeDias>1?'s':''}
+        <small style="color: var(--text-2);font-size:11px;">${cadenciaTexto(oa.periodicidadeDias)}</small></strong>
     </div>
     <table style="width:100%;font-size:13px;">
       <tr><td class="muted">Tipo de OS</td><td>${escapeHtml(oa.tipoNome||'—')}</td></tr>
@@ -858,7 +860,7 @@ function renderOsAutomatica(oa){
       <tr><td class="muted">Última geração</td><td>${oa.ultimaGeracao ? fmtData(oa.ultimaGeracao) : '— (nunca gerou)'}</td></tr>
       <tr><td class="muted">Próxima</td><td>${
         oa.proximaGeracao === 'proxima-execucao'
-          ? '<strong style="color:#ffd43b;">na próxima passagem (07:00)</strong>'
+          ? '<strong style="color: var(--warn);">na próxima passagem (07:00)</strong>'
           : fmtData(oa.proximaGeracao)
       }</td></tr>
       <tr><td class="muted">OS geradas</td><td>${oa.geradas.length}${oa.geradas.length>=10?'+':''}</td></tr>
@@ -913,7 +915,7 @@ function formOsAuto(oa){
         30 = mensal · 90 = trimestral · 180 = semestral · 365 = anual.
         ${oa.ultimaGeracao
           ? `A contagem parte da última geração (${fmtData(oa.ultimaGeracao)}).`
-          : '<strong style="color:#ffd43b;">Como este contrato nunca gerou OS, a primeira sai já na próxima passagem das 07:00.</strong>'}
+          : '<strong style="color: var(--warn);">Como este contrato nunca gerou OS, a primeira sai já na próxima passagem das 07:00.</strong>'}
       </p>
       <div style="margin-top:10px;display:flex;gap:8px;">
         <button class="btn btn-primary btn-sm" onclick="salvarOsAuto()">Salvar</button>
@@ -942,7 +944,7 @@ async function salvarOsAuto(){
 }
 
 async function desligarOsAuto(){
-  if (!confirm('Desligar a geração automática de OS deste contrato?\n\nAs OS já criadas continuam como estão — só param de nascer novas.')) return;
+  if (!await Aviso.confirmar('Desligar a geração automática de OS deste contrato?\n\nAs OS já criadas continuam como estão — só param de nascer novas.')) return;
   const r = await fetch(`/api/contratos/${id}/os-automatica`, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -980,7 +982,7 @@ async function abrirVincular(){
       <input type="radio" name="vincRec" value="${x.id}" ${bloqueada?'disabled':''} style="margin-top:3px;">
       <span style="flex:1;">
         <strong>#${x.id} · ${escapeHtml(x.descricao||'sem descrição')}</strong>
-        <span style="display:block;font-size:12px;color:#888;margin-top:2px;">
+        <span style="display:block;font-size:12px;color: var(--text-2);margin-top:2px;">
           ${escapeHtml(x.clienteNome||'')} <span class="mono">${fmtDoc(x.clienteCpfCnpj)}</span>
           · ${fmtBRL(x.valorServico)}/mês · venc. dia ${x.diaVencimentoBoleto||'—'}
         </span>
@@ -1030,7 +1032,7 @@ async function confirmarVincular(){
 }
 
 async function desvincular(){
-  if (!confirm('Desvincular a recorrência deste contrato?\n\nEla continua ativa e faturando no financeiro — só deixa de ser controlada por este contrato.')) return;
+  if (!await Aviso.confirmar('Desvincular a recorrência deste contrato?\n\nEla continua ativa e faturando no financeiro — só deixa de ser controlada por este contrato.')) return;
   const r = await fetch(`/api/contratos/${id}/vincular-recorrencia`, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -1120,7 +1122,7 @@ async function abrirVincularNfse(){
       <input type="radio" name="vincNfse" value="${n.id}" style="margin-top:3px;">
       <span style="flex:1;">
         <strong>${num} · ${fmtBRL(n.valorServico)}</strong>
-        <span style="display:block;font-size:12px;color:#888;margin-top:2px;">
+        <span style="display:block;font-size:12px;color: var(--text-2);margin-top:2px;">
           ${escapeHtml(n.descricaoServico||'sem descrição')} · competência ${escapeHtml(n.dataCompetencia||'—')}
         </span>
         <span style="display:block;margin-top:4px;">${badgeStatusNfse(n.status)}</span>
@@ -1147,7 +1149,7 @@ async function confirmarVincularNfse(){
 }
 
 async function desvincularNfse(nfseId){
-  if (!confirm('Soltar esta nota do contrato?\n\nA nota segue emitida e a cobrança dela continua de pé — sai apenas a ligação com este contrato.')) return;
+  if (!await Aviso.confirmar('Soltar esta nota do contrato?\n\nA nota segue emitida e a cobrança dela continua de pé — sai apenas a ligação com este contrato.')) return;
   const r = await fetch(`/api/contratos/${id}/vincular-nfse/${nfseId}`, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -1164,7 +1166,7 @@ function renderResumo(){
   document.getElementById('resumo').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <span class="badge ${contrato.status==='ativo'?'entrada':contrato.status==='suspenso'?'pendente':'inativo'}">${contrato.status}</span>
-      <strong style="color:#69db7c;font-size:18px;">${fmtBRL(contrato.valorMensal)} <small style="color:#888;font-size:11px;">${contrato.periodicidade==='anual'?'/ano':'/mês'}</small></strong>
+      <strong style="color: var(--success);font-size:18px;">${fmtBRL(contrato.valorMensal)} <small style="color: var(--text-2);font-size:11px;">${contrato.periodicidade==='anual'?'/ano':'/mês'}</small></strong>
     </div>
     <table style="width:100%;font-size:13px;">
       <tr><td class="muted">Cliente</td><td>${contrato.clienteNome}</td></tr>
@@ -1176,7 +1178,7 @@ function renderResumo(){
       <tr><td class="muted">Índice de reajuste</td><td>${contrato.indiceReajuste||'—'} ${contrato.percentualReajuste!=null?'('+contrato.percentualReajuste+'%)':''}</td></tr>
       <tr><td class="muted">Próximo reajuste</td><td>${contrato.dataProximoReajuste||'—'}</td></tr>
     </table>
-    ${contrato.observacoes ? `<div style="margin-top:12px;padding:8px;background:#0f1a30;border-radius:6px;font-size:13px;">${escapeHtml(contrato.observacoes)}</div>` : ''}
+    ${contrato.observacoes ? `<div style="margin-top:12px;padding:8px;background: var(--bg-1);border-radius:6px;font-size:13px;">${escapeHtml(contrato.observacoes)}</div>` : ''}
   `;
 }
 
@@ -1188,7 +1190,7 @@ function renderEventos(evs){
     if (e.dataFimAntes != null && e.dataFimDepois != null) extra = ` <strong>${e.dataFimAntes||'—'} → ${e.dataFimDepois}</strong>`;
     return `<div class="evt-item ${e.tipo}">
       <div><strong>${e.tipo.toUpperCase()}</strong>${extra}</div>
-      <div style="font-size:13px;color:#bbb;">${escapeHtml(e.descricao||'')}</div>
+      <div style="font-size:13px;color: var(--border);">${escapeHtml(e.descricao||'')}</div>
       <div class="evt-meta">${fmtDataHora(e.data)} · ${e.usuario||'—'}</div>
     </div>`;
   }).join('');
@@ -1247,7 +1249,7 @@ async function suspender(){
 }
 
 async function reativar(){
-  if (!confirm('Reativar este contrato?')) return;
+  if (!await Aviso.confirmar('Reativar este contrato?')) return;
   const r = await fetch(`/api/contratos/${id}/reativar`, { method:'POST' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');

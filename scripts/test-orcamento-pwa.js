@@ -443,7 +443,11 @@ t('C4. nenhuma acao de documento fica sem tratamento de erro', () => {
 t('C5. revogar e regerar pedem confirmacao', () => {
   for (const nome of ['regerarLinkPublico', 'revogarLinkPublico']) {
     const fn = new RegExp(`async function ${nome}\\([^)]*\\)\\s*\\{[\\s\\S]*?\\n\\}`).exec(PEDIDO)[0];
-    assert(/confirm\(/.test(fn), `${nome} age sem confirmar — um toque errado derruba o link do cliente`);
+    // `confirm(` do navegador ou `Aviso.confirmar(` do sistema: o que esta
+    // checagem guarda é que a ação PEDE confirmação, não qual caixa a mostra.
+    // Em 01/10/2026 as 283 do navegador viraram a do sistema.
+    assert(/(?:^|[^.\w])confirm\(|Aviso\.confirmar\(/.test(fn),
+      `${nome} age sem confirmar — um toque errado derruba o link do cliente`);
   }
   assert(!/prompt\(\s*\n?\s*'Link público/.test(PEDIDO),
     'o painel do link voltou a ser um prompt em que se digita "REVOGAR"');

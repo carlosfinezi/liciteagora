@@ -26,6 +26,28 @@
 
   <div id="alertGlobal"></div>
 
+  <div class="upload-card" id="apiCard" style="display:none;border-style:solid;">
+    <h3 style="margin-top:0;">Importar do banco</h3>
+    <div class="form-row" style="justify-content:center;align-items:end;">
+      <div class="form-group" style="min-width:240px;">
+        <label>Conta financeira *</label>
+        <select id="apiConta" onchange="apiPeriodoPadrao()"></select>
+      </div>
+      <div class="form-group">
+        <label>De</label>
+        <input type="date" id="apiDe">
+      </div>
+      <div class="form-group">
+        <label>Até</label>
+        <input type="date" id="apiAte">
+      </div>
+      <div class="form-group">
+        <button class="btn btn-primary" id="apiBtn" onclick="importarDoBanco()">Importar</button>
+      </div>
+    </div>
+    <small class="muted" id="apiInfo"></small>
+  </div>
+
   <div class="upload-card">
     <h3 style="margin-top:0;">Importar extrato OFX</h3>
     <div class="form-row" style="justify-content:center;align-items:end;">
@@ -87,8 +109,26 @@
     <div style="font-size:0.72em;color:var(--text-2);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:8px;">Sugestões de casamento</div>
     <div id="sugList" style="margin-bottom:14px;">Buscando…</div>
 
+    <div id="baixaBox" class="card" style="display:none;margin-bottom:14px;">
+      <div id="baixaAlvo" style="margin-bottom:10px;"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Juros</label><input type="number" step="0.01" min="0" id="bJuros" value="0" oninput="recalcularBaixa()"></div>
+        <div class="form-group"><label>Multa</label><input type="number" step="0.01" min="0" id="bMulta" value="0" oninput="recalcularBaixa()"></div>
+        <div class="form-group"><label>Desconto</label><input type="number" step="0.01" min="0" id="bDesconto" value="0" oninput="recalcularBaixa()"></div>
+      </div>
+      <div id="bResumo" style="font-size:0.88em;"></div>
+      <div style="margin-top:12px;display:flex;gap:8px;">
+        <button class="btn btn-primary" id="bConfirmar" onclick="confirmarBaixa()">Confirmar baixa</button>
+        <button class="btn btn-ghost" onclick="cancelarBaixa()">Escolher outro</button>
+      </div>
+    </div>
+
     <div style="font-size:0.72em;color:var(--text-2);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:6px;">Ou marcar como avulsa</div>
-    <div class="muted" style="font-size:0.85em;margin-bottom:10px;">Sem CR/CP correspondente — marca a transação como conciliada manualmente sem efeito em CR/CP.</div>
+    <div class="muted" style="font-size:0.85em;margin-bottom:10px;">Lança direto na conta financeira, sem título. Sem a conta do plano o valor fica fora do DRE.</div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label>Conta do plano</label>
+      <select id="avPlano"><option value="">Sem classificação</option></select>
+    </div>
 
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
@@ -99,6 +139,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('conciliacao-bancaria');</script>
@@ -108,6 +149,22 @@ let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout
 function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
 
 let trxAtual = null;
+let sugAtual = null;
+
+async function carregarPlano(){
+  const sel = document.getElementById('avPlano');
+  try {
+    const d = await fetch('/api/plano-contas').then(r=>r.json());
+    const lista = d.plano || [];
+    // Só analítica: lançar num nó-pai somaria no consolidado sem dizer onde.
+    const pais = new Set(lista.map(c=>c.parentId).filter(Boolean));
+    const folhas = lista.filter(c=>!pais.has(c.id));
+    sel.innerHTML = '<option value="">Sem classificação</option>' +
+      folhas.map(c=>`<option value="${c.id}">${c.codigo} · ${c.nome}</option>`).join('');
+  } catch { /* sem permissão ou sem plano: o avulso segue sem classificação */ }
+}
+
+let CONTAS_API = [];
 
 async function carregarContas(){
   const r = await fetch('/api/contas-financeiras');
@@ -116,6 +173,60 @@ async function carregarContas(){
   const opts = lista.map(c=>`<option value="${c.id}">${c.nome}${c.banco?' ('+c.banco+')':''}</option>`).join('');
   document.getElementById('upConta').innerHTML = opts;
   document.getElementById('fConta').innerHTML = '<option value="">Todas as contas</option>' + opts;
+
+  // O bloco de importar do banco só existe para conta cujo provedor entrega
+  // extrato por API. Sem nenhuma, a tela segue como sempre foi, só com o OFX.
+  try {
+    const re = await fetch('/api/conciliacao/extrato-contas');
+    const de = await re.json();
+    CONTAS_API = de.success ? de.contas : [];
+  } catch { CONTAS_API = []; }
+  if (!CONTAS_API.length) return;
+  const nomes = new Map(lista.map(c=>[String(c.id), c.nome]));
+  document.getElementById('apiConta').innerHTML = CONTAS_API
+    .map(c=>`<option value="${c.contaFinanceiraId}">${nomes.get(String(c.contaFinanceiraId)) || c.label}</option>`).join('');
+  document.getElementById('apiCard').style.display = '';
+  apiPeriodoPadrao();
+}
+
+function apiPeriodoPadrao(){
+  const sel = CONTAS_API.find(c=>String(c.contaFinanceiraId)===document.getElementById('apiConta').value);
+  document.getElementById('apiInfo').textContent = sel
+    ? `Os lançamentos vêm direto do ${sel.label}, sem arquivo. Reimportar o mesmo período não duplica nada.` : '';
+  if (document.getElementById('apiDe').value) return;
+  const hoje = new Date();
+  const antes = new Date(hoje.getTime() - 30*86400000);
+  const iso = d => d.toISOString().slice(0,10);
+  document.getElementById('apiDe').value = iso(antes);
+  document.getElementById('apiAte').value = iso(hoje);
+}
+
+async function importarDoBanco(){
+  const contaFinanceiraId = document.getElementById('apiConta').value;
+  if (!contaFinanceiraId) return showAlert('Escolha a conta financeira','error');
+  const btn = document.getElementById('apiBtn');
+  btn.disabled = true; btn.textContent = 'Importando…';
+  try {
+    const r = await fetch('/api/conciliacao/importar', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        contaFinanceiraId: Number(contaFinanceiraId),
+        de: document.getElementById('apiDe').value || undefined,
+        ate: document.getElementById('apiAte').value || undefined,
+      })
+    });
+    const d = await r.json();
+    if (!d.success) return showAlert(d.error,'error');
+    const partes = [`${d.novas} nova(s)`, `${d.duplicadas} já existente(s)`];
+    if (d.jaNoArquivo) partes.push(`${d.jaNoArquivo} que o arquivo OFX já tinha trazido`);
+    if (d.conciliadasAuto) partes.push(`${d.conciliadasAuto} já conciliada(s) com o que o sistema baixou`);
+    showAlert(`${d.conta}: ${partes.join(', ')}`);
+    carregar();
+  } catch (e) {
+    showAlert('Falha ao importar: '+e.message,'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Importar';
+  }
 }
 
 async function enviar(){
@@ -129,7 +240,8 @@ async function enviar(){
   const r = await fetch('/api/conciliacao/upload', { method:'POST', body: fd });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
-  showAlert(`Importado: ${d.novas} nova(s), ${d.duplicadas} já existente(s) (${d.total} total) — ${d.conta}`);
+  const daApi = d.jaNaApi ? `, ${d.jaNaApi} que já tinham vindo do banco` : '';
+  showAlert(`Importado: ${d.novas} nova(s), ${d.duplicadas} já existente(s)${daApi} (${d.total} total) — ${d.conta}`);
   document.getElementById('upArquivo').value = '';
   carregar();
 }
@@ -176,48 +288,101 @@ async function abrirConciliar(trxId){
     ${t.memo ? `<div class="muted">${t.memo}</div>` : ''}
   `;
   document.getElementById('sugList').innerHTML = 'Buscando…';
+  cancelarBaixa();
+  document.getElementById('avPlano').value = '';
   document.getElementById('modal').classList.add('open');
   const r = await fetch('/api/conciliacao/sugestoes/'+trxId);
   const d = await r.json();
   if (!d.success || !d.sugestoes.length) {
-    document.getElementById('sugList').innerHTML = '<div class="muted">Nenhum CR/CP em aberto com mesmo valor</div>';
+    document.getElementById('sugList').innerHTML = '<div class="muted">Nenhum CR/CP em aberto com valor próximo</div>';
     return;
   }
-  document.getElementById('sugList').innerHTML = d.sugestoes.map(s=>`
-    <div class="sug-card" onclick="conciliarCom('${s.tipo}', ${s.id})">
+  window._sugs = d.sugestoes;
+  document.getElementById('sugList').innerHTML = d.sugestoes.map((s,i)=>{
+    const dif = Number(s.diferenca) || 0;
+    const nota = Math.abs(dif) < 0.005 ? 'Valor exato'
+      : (dif > 0 ? `${fmtBRL(dif)} acima do saldo` : `${fmtBRL(-dif)} abaixo do saldo`);
+    return `<div class="sug-card" data-idx="${i}" onclick="escolherSugestao(${i})">
       <strong>${s.tipo.toUpperCase()}</strong> · ${s.descricao} (${s.pessoa})<br>
-      <small class="muted">Vence em ${s.dataVencimento} · ${fmtBRL(s.valor)}</small>
-    </div>
-  `).join('');
+      <small class="muted">Vence em ${s.dataVencimento} · saldo ${fmtBRL(s.saldoAberto)}${s.status==='parcial'?' (parcial)':''} · ${nota}</small>
+    </div>`;
+  }).join('');
 }
-function fecharModal(){ document.getElementById('modal').classList.remove('open'); trxAtual = null; }
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); trxAtual = null; cancelarBaixa(); }
 
-async function conciliarCom(tipo, contaId){
-  if (!confirm(`Conciliar com ${tipo.toUpperCase()} #${contaId}? Isto marcará o ${tipo.toUpperCase()} como pago.`)) return;
+// A diferença entre o extrato e o saldo do título vira encargo, e quem decide
+// qual é o usuário: o mesmo valor a mais pode ser juros do banco ou multa.
+function escolherSugestao(i){
+  sugAtual = window._sugs[i];
+  const dif = Number(sugAtual.diferenca) || 0;
+  document.getElementById('bJuros').value = dif > 0.005 ? dif.toFixed(2) : '0';
+  document.getElementById('bMulta').value = '0';
+  document.getElementById('bDesconto').value = dif < -0.005 ? (-dif).toFixed(2) : '0';
+  document.getElementById('baixaAlvo').innerHTML =
+    `<strong>${sugAtual.tipo.toUpperCase()} #${sugAtual.id}</strong> · ${sugAtual.descricao} (${sugAtual.pessoa})<br>`
+    + `<small class="muted">Saldo aberto ${fmtBRL(sugAtual.saldoAberto)} · extrato ${fmtBRL(Math.abs(trxAtual.valor))}</small>`;
+  document.getElementById('baixaBox').style.display = '';
+  recalcularBaixa();
+}
+function cancelarBaixa(){ sugAtual = null; const b = document.getElementById('baixaBox'); if (b) b.style.display='none'; }
+
+function recalcularBaixa(){
+  if (!sugAtual) return;
+  const num = id => Number(document.getElementById(id).value) || 0;
+  const principal = Number((Math.abs(trxAtual.valor) - num('bJuros') - num('bMulta') + num('bDesconto')).toFixed(2));
+  const saldo = Number(sugAtual.saldoAberto);
+  const el = document.getElementById('bResumo');
+  const btn = document.getElementById('bConfirmar');
+  if (principal <= 0) {
+    el.className = 'alert error'; btn.disabled = true;
+    el.textContent = 'Os encargos informados consomem todo o valor da transação.';
+  } else if (principal > saldo + 0.01) {
+    el.className = 'alert error'; btn.disabled = true;
+    el.textContent = `Principal de ${fmtBRL(principal)} acima do saldo aberto de ${fmtBRL(saldo)}. Aumente juros ou multa, ou escolha outro título.`;
+  } else {
+    el.className = 'muted'; btn.disabled = false;
+    const resta = Number((saldo - principal).toFixed(2));
+    el.textContent = resta > 0.005
+      ? `Principal ${fmtBRL(principal)}. O título fica parcial, com ${fmtBRL(resta)} em aberto.`
+      : `Principal ${fmtBRL(principal)}. O título fica quitado.`;
+  }
+}
+
+async function confirmarBaixa(){
+  if (!sugAtual) return;
+  const num = id => Number(document.getElementById(id).value) || 0;
   const r = await fetch(`/api/conciliacao/transacoes/${trxAtual.id}/conciliar`, {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ tipo, contaId })
+    body: JSON.stringify({ tipo: sugAtual.tipo, contaId: sugAtual.id,
+      juros: num('bJuros'), multa: num('bMulta'), desconto: num('bDesconto') })
   });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
-  showAlert('Conciliada com sucesso');
+  showAlert(d.novoStatus === 'parcial' ? 'Baixa parcial registrada' : 'Conciliada e título quitado');
   fecharModal();
   carregar();
 }
-async function conciliarAvulsa(){
-  if (!confirm('Marcar transação como avulsa (sem CR/CP)?')) return;
+
+async function conciliarAvulsa(forcar){
+  const planoContaId = Number(document.getElementById('avPlano').value) || null;
+  if (!forcar && !await Aviso.confirmar('Marcar transação como avulsa (sem CR/CP)?')) return;
   const r = await fetch(`/api/conciliacao/transacoes/${trxAtual.id}/conciliar`, {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ tipo: 'avulsa' })
+    body: JSON.stringify({ tipo: 'avulsa', planoContaId, forcar: !!forcar })
   });
   const d = await r.json();
-  if (!d.success) return showAlert(d.error,'error');
+  if (!d.success) {
+    // 409: já existe movimentação igual nesta conta e data. Quem confirma é o
+    // usuário, porque a coincidência legítima existe.
+    if (r.status === 409 && await Aviso.confirmar(d.error + '\n\nLançar mesmo assim?')) return conciliarAvulsa(true);
+    return showAlert(d.error,'error');
+  }
   showAlert('Marcada como avulsa');
   fecharModal();
   carregar();
 }
 async function desconciliar(id){
-  if (!confirm('Desfazer conciliação? Se for CR/CP, voltará a status aberta.')) return;
+  if (!await Aviso.confirmar('Desfazer conciliação? Se for CR/CP, voltará a status aberta.')) return;
   const r = await fetch(`/api/conciliacao/transacoes/${id}/desconciliar`, { method:'POST' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -229,6 +394,6 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.getElementById('modal').classList.contains('open')) fecharModal();
 });
 
-carregarContas().then(carregar);
+carregarContas().then(carregarPlano).then(carregar);
 </script>
 </body></html>

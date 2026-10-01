@@ -18,7 +18,7 @@
     <input type="number" id="ano" style="width:100px;" onchange="carregar()">
     <select id="oConta" style="min-width:240px;"></select>
     <input type="month" id="oComp">
-    <input type="number" id="oValor" placeholder="Previsto (R$)" step="0.01" style="width:140px;">
+    <input type="text" id="oValor" placeholder="Previsto (R$)" style="width:140px;" data-formato="dinheiro">
     <button class="btn btn-primary btn-sm" onclick="salvarPrevisto()">Definir previsto</button>
   </div>
   <div class="tbl-wrap" data-grid="orcamento">
@@ -34,6 +34,8 @@
 </main></div>
 <div id="toasts"></div>
 <script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('fin-orcamento');</script>

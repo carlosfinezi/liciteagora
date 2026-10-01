@@ -41,7 +41,7 @@
             transition: all 0.15s;
         }
         .view-btn:hover { color: var(--text-0); }
-        .view-btn.active { background: var(--accent-strong); color: #fff; border-color: var(--accent-strong); }
+        .view-btn.active { background: var(--btn-primary-bg); color: #fff; border-color: transparent; }
 
         /* Licitacao Group (Accordion) */
         .licitacao-group {
@@ -212,7 +212,7 @@
             align-items: center;
             justify-content: center;
         }
-        .palavra-tag .remover:hover { background: #b91c1c; }
+        .palavra-tag .remover:hover { background: var(--danger); }
         .add-palavra { display: flex; gap: 10px; }
         .add-palavra input {
             flex: 1;
@@ -437,7 +437,7 @@
         }
 
         async function removerPalavra(id, palavra) {
-            if (!confirm(`Remover a palavra "${palavra}"?`)) return;
+            if (!await Aviso.confirmar(`Remover a palavra "${palavra}"?`)) return;
             try {
                 const r = await fetch(`${API_URL}/api/chat/palavras-chave/${id}`, { method: 'DELETE' });
                 const d = await r.json();
@@ -691,7 +691,7 @@
             grupos.forEach((grupo, key) => {
                 const badges = [];
                 badges.push(`<span class="badge">${grupo.mensagens.length} msgs</span>`);
-                if (grupo.naoLidas > 0) badges.push(`<span class="badge" style="background: var(--accent); color: #fff;">${grupo.naoLidas} novas</span>`);
+                if (grupo.naoLidas > 0) badges.push(`<span class="badge" style="background: var(--btn-primary-bg); color: #fff;">${grupo.naoLidas} novas</span>`);
                 if (grupo.temAlerta) badges.push(`<span class="badge alerta">Alerta</span>`);
                 if (grupo.temCnpj) badges.push(`<span class="badge cnpj">CNPJ</span>`);
 
@@ -942,11 +942,11 @@
             const inpItem = document.getElementById('resp-item-' + idSeguro);
             const btn = document.getElementById('resp-btn-' + idSeguro);
             const texto = (ta && ta.value || '').trim();
-            if (!texto) { alert('Escreva a mensagem antes de enviar.'); return; }
+            if (!texto) { Aviso.erro('Escreva a mensagem antes de enviar.'); return; }
 
             const item = inpItem && inpItem.value.trim() ? inpItem.value.trim() : null;
             const alvo = item ? `item ${item}` : 'a compra toda';
-            if (!confirm(`Enviar esta mensagem no chat do pregão (${alvo})?\n\n"${texto}"\n\nEla fica pública no processo e não pode ser apagada.`)) return;
+            if (!await Aviso.confirmar(`Enviar esta mensagem no chat do pregão (${alvo})?\n\n"${texto}"\n\nEla fica pública no processo e não pode ser apagada.`)) return;
 
             if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
             try {
@@ -957,15 +957,15 @@
                 });
                 const j = await r.json();
                 if (j.success) {
-                    alert('Mensagem enviada.');
+                    Aviso.ok('Mensagem enviada.');
                     if (ta) ta.value = '';
                     toggleResposta(idSeguro);
                     if (typeof carregarMensagens === 'function') carregarMensagens();
                 } else {
-                    alert('Falha ao enviar: ' + (j.error || j.message || r.status));
+                    Aviso.erro('Falha ao enviar: ' + (j.error || j.message || r.status));
                 }
             } catch (e) {
-                alert('Erro: ' + e.message);
+                Aviso.erro(Aviso.mensagemDeErro(e));
             } finally {
                 if (btn) { btn.disabled = false; btn.textContent = 'Enviar mensagem'; }
             }
@@ -1031,7 +1031,7 @@
 
         // Marcar todas como lidas
         async function marcarTodasLidas() {
-            if (!confirm('Marcar todas as mensagens como lidas?')) return;
+            if (!await Aviso.confirmar('Marcar todas as mensagens como lidas?')) return;
 
             try {
                 const res = await fetch(`${API_URL}/api/chat/leitura/marcar-todas`, {
@@ -1185,7 +1185,7 @@
         }
 
         async function desativarTelegram() {
-            if (!confirm('Desativar notificações do Telegram?')) return;
+            if (!await Aviso.confirmar('Desativar notificações do Telegram?')) return;
 
             try {
                 const res = await fetch(`${API_URL}/api/telegram/config`, {
@@ -1212,6 +1212,7 @@
     <script src="/js/icons.js"></script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
     <script src="/js/chat-monitor-config-panel.js"></script>
     <script>initSidebar('comprasnet-monitor'); renderChatConfigPanel('cfgPanel','comprasnet');</script>
 </body>

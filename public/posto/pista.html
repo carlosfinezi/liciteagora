@@ -70,7 +70,7 @@
         <option value="venda">Venda</option>
         <option value="interno">Consumo interno</option>
       </select>
-      <input type="text" id="aPlaca" placeholder="Placa" style="width:110px;">
+      <input type="text" id="aPlaca" placeholder="Placa" style="width:110px;" data-formato="placa">
       <button class="btn btn-primary btn-sm" onclick="addAbastecimento()">+ Lançar</button>
     </div>
     <div class="tbl-wrap">
@@ -126,6 +126,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('posto-pista');</script>
 <script>

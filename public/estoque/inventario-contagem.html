@@ -99,6 +99,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('estoque-inventario');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -106,7 +107,13 @@ function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR'
 
 const params = new URLSearchParams(window.location.search);
 const INVENTARIO_ID = Number(params.get('id'));
-if (!INVENTARIO_ID) { alert('ID do inventário não informado'); window.location.href = '/estoque/inventario.html'; }
+/* Sem `?id=`, este endereço não aponta para inventário nenhum: a pessoa vai
+   para a lista, que é onde ela escolhe qual abrir. Antes havia um `alert()`
+   aqui, que travava a aba até alguém fechá-lo; depois um aviso em tela, que
+   ninguém lia porque a navegação acontecia na linha seguinte. Avisar sobre um
+   endereço que a pessoa não digitou não serve para nada — levar até a lista,
+   sim. */
+if (!INVENTARIO_ID) window.location.replace('/estoque/inventario.html');
 
 let inventario = null;
 let itens = [];         // array completo
@@ -136,8 +143,15 @@ async function carregar(){
     indiceAtual = 0;
   }
 
-  document.getElementById('btnFinalizar').disabled =
-    somenteLeitura || !itens.some(i => i.saldoContado != null);
+  // Inventário fechado não é contagem: o botão de finalizar fica cinza e sem
+  // ação, e o campo de contagem e a navegação item a item saem da tela — eles
+  // davam a entender que ainda dava para contar alguma coisa.
+  const btn = document.getElementById('btnFinalizar');
+  btn.disabled = somenteLeitura || !itens.some(i => i.saldoContado != null);
+  btn.classList.toggle('btn-primary', !somenteLeitura);
+  btn.classList.toggle('btn-secondary', somenteLeitura);
+  btn.title = somenteLeitura ? 'Este inventário já foi finalizado' : '';
+  document.querySelector('.nav-buttons').style.display = somenteLeitura ? 'none' : '';
 
   renderAtual();
   renderLista();
@@ -150,12 +164,25 @@ function renderKpis(e){
     <div class="kpi"><div class="label">Total de itens</div><div class="value">${e.total}</div></div>
     <div class="kpi success"><div class="label">Contados</div><div class="value">${e.contados} <small>(${pct}%)</small></div></div>
     <div class="kpi warn"><div class="label">Pendentes</div><div class="value">${e.pendentes}</div></div>
-    <div class="kpi danger"><div class="label">Divergências</div><div class="value">${e.comDivergencia} <small>R$ ${fmt(e.valorDivergencia)}</small></div></div>
+    <div class="kpi danger"><div class="label">Divergências</div><div class="value">${e.comDivergencia}</div></div>
+    <div class="kpi danger"><div class="label">Faltas (R$)</div><div class="value">R$ ${fmt(e.faltas||0)}</div></div>
+    <div class="kpi success"><div class="label">Sobras (R$)</div><div class="value">R$ ${fmt(e.sobras||0)}</div></div>
+    <div class="kpi ${(e.liquido||0) < 0 ? 'danger' : 'success'}"><div class="label">Resultado líquido (R$)</div>
+      <div class="value">${(e.liquido||0) < 0 ? '−' : ''}R$ ${fmt(Math.abs(e.liquido||0))}</div></div>
   `;
 }
 
 function renderAtual(){
   const box = document.getElementById('contadorAtual');
+  if (somenteLeitura) {
+    const d = new Date((inventario.dataFinalizacao || '').replace(' ', 'T'));
+    const quando = isNaN(d) ? '' : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    box.innerHTML = `<div class="card card-info" style="margin-bottom:4px;">
+      Inventário ${inventario.status === 'cancelado' ? 'cancelado' : 'finalizado'}${quando ? ' em ' + quando : ''}.
+      ${inventario.status === 'cancelado' ? 'Nenhum ajuste foi gerado.' : 'Os ajustes de estoque já foram gerados e a contagem está fechada.'}
+    </div>`;
+    return;
+  }
   if (!itens.length) { box.innerHTML = '<div class="empty">Inventário sem itens</div>'; return; }
   if (indiceAtual < 0) indiceAtual = 0;
   if (indiceAtual >= itens.length) indiceAtual = itens.length - 1;
@@ -163,15 +190,15 @@ function renderAtual(){
   const it = itens[indiceAtual];
   const posicao = `${indiceAtual+1} / ${itens.length}`;
   const loteInfo = it.loteNumero ? `<span>Lote: <strong>${it.loteNumero}</strong>${it.loteValidade?' (val '+it.loteValidade+')':''}</span>` : '';
-  const difInfo = it.saldoContado != null ? `<span>Contado: <strong>${fmt(it.saldoContado)}</strong> · Diferença: <strong style="color:${Math.abs(it.diferenca)<0.001?'var(--success)':it.diferenca>0?'var(--success)':'var(--danger)'}">${it.diferenca>0?'+':''}${fmt(it.diferenca)}</strong></span>` : '';
+  const difInfo = it.saldoContado != null ? `<span>Contado: <strong>${qtdU(it.saldoContado, it)}</strong> · Diferença: <strong style="color:${Math.abs(it.diferenca)<0.001?'var(--success)':it.diferenca>0?'var(--success)':'var(--danger)'}">${it.diferenca>0?'+':it.diferenca<0?'−':''}${qtdU(Math.abs(it.diferenca), it)}</strong></span>` : '';
 
   box.innerHTML = `
     <div class="contador-card">
       <div class="sku">${it.sku} · item ${posicao}</div>
       <div class="desc">${it.descricao}</div>
       <div class="meta">
-        <span>Unidade: <strong>${it.unidade||'—'}</strong></span>
-        <span>Saldo sistema: <span class="sys-saldo">${fmt(it.saldoSistema)}</span></span>
+        <span>Unidade: <strong>${it.unidadeNome || it.unidade || '—'}</strong></span>
+        <span>Saldo sistema: <span class="sys-saldo">${qtdU(it.saldoSistema, it)}</span></span>
         <span>Custo unit.: R$ ${fmt(it.custoUnitario)}</span>
         ${loteInfo}
         ${difInfo}
@@ -242,6 +269,15 @@ function pularNaoContado(){
   renderAtual();
 }
 
+// Saco, barra e milheiro sem casa decimal; m³ e kg com ela.
+function qtdU(v, it){
+  const n = Number(v);
+  if (v == null || !Number.isFinite(n)) return '—';
+  return it && it.unidadeFraciona === false
+    ? Math.round(n).toLocaleString('pt-BR')
+    : n.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:3});
+}
+
 function renderLista(){
   const filtQ = document.getElementById('filtItem').value.toLowerCase();
   const filtC = document.getElementById('filtContagem').value;
@@ -259,8 +295,8 @@ function renderLista(){
     let difBadge = '<span class="div-badge ok">pendente</span>';
     if (it.saldoContado != null) {
       if (Math.abs(it.diferenca) < 0.001) difBadge = '<span class="div-badge ok">OK</span>';
-      else if (it.diferenca > 0) difBadge = `<span class="div-badge pos">+${fmt(it.diferenca)}</span>`;
-      else difBadge = `<span class="div-badge neg">${fmt(it.diferenca)}</span>`;
+      else if (it.diferenca > 0) difBadge = `<span class="div-badge pos">+${qtdU(it.diferenca, it)}</span>`;
+      else difBadge = `<span class="div-badge neg">−${qtdU(Math.abs(it.diferenca), it)}</span>`;
     }
     const classes = ['item-row'];
     if (it.__idx === indiceAtual) classes.push('atual');
@@ -269,8 +305,8 @@ function renderLista(){
     return `<div class="${classes.join(' ')}" onclick="irPara(${it.__idx})">
       <strong style="font-family:monospace;min-width:140px;">${it.sku}</strong>
       <span style="flex:1;">${it.descricao}${it.loteNumero?' · lote '+it.loteNumero:''}</span>
-      <span style="color:var(--text-2);">sist: ${fmt(it.saldoSistema)}</span>
-      ${it.saldoContado != null ? `<span>cont: ${fmt(it.saldoContado)}</span>` : ''}
+      <span style="color:var(--text-2);">sistema: ${qtdU(it.saldoSistema, it)} ${(Math.abs(Number(it.saldoSistema))===1 ? it.unidadeNome : (it.unidadeNomePlural || it.unidadeNome)) || it.unidade || ''}</span>
+      ${it.saldoContado != null ? `<span>contado: ${qtdU(it.saldoContado, it)}</span>` : ''}
       ${difBadge}
     </div>`;
   }).join('');
@@ -281,7 +317,7 @@ async function finalizar(){
   const pendentes = itens.filter(i => i.saldoContado == null).length;
   let msg = `Finalizar inventário? Isso gerará ajustes automáticos no estoque para todos os itens divergentes.`;
   if (pendentes > 0) msg += `\n\n⚠️ ${pendentes} item(ns) não foram contados. Eles serão ignorados (nenhum ajuste gerado).`;
-  if (!confirm(msg)) return;
+  if (!await Aviso.confirmar(msg)) return;
 
   try {
     const r = await fetch('/api/inventarios/'+INVENTARIO_ID+'/finalizar', {
@@ -290,7 +326,7 @@ async function finalizar(){
     });
     const d = await r.json();
     if (!d.success) return showAlert(d.error, 'error');
-    showAlert(`Inventário finalizado. ${d.totalDivergencias} ajuste(s) gerado(s), valor divergência R$ ${fmt(d.valorDivergencia)}.`);
+    showAlert(`Inventário finalizado. ${d.totalDivergencias} ajuste(s) gerado(s) — faltas R$ ${fmt(d.faltas)}, sobras R$ ${fmt(d.sobras)}, resultado líquido ${(d.liquido||0)<0?'−':''}R$ ${fmt(Math.abs(d.liquido||0))}.`);
     setTimeout(() => carregar(), 1000);
   } catch(e){ showAlert('Erro: '+e.message, 'error'); }
 }

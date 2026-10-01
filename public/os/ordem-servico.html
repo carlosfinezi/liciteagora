@@ -6,6 +6,7 @@
 <script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<script src="/js/os-rotulos.js"></script>
 <style>
 /* page-local: .tabs/.tab vêm de app-modern.css */
 .tab-pane { display:none; } .tab-pane.active { display:block; }
@@ -99,7 +100,7 @@
           </div>
           <div class="form-group">
             <label>Valor do deslocamento (R$)</label>
-            <input type="number" id="fVlrDesloc" step="0.01" min="0">
+            <input type="text" id="fVlrDesloc" data-formato="dinheiro">
           </div>
           <div class="form-group" style="display:flex;align-items:flex-end;">
             <button class="btn btn-primary btn-sm" onclick="salvarDeslocamento()">Salvar deslocamento</button>
@@ -148,7 +149,7 @@
             </div>
             <div class="form-group">
               <label>Valor unit. *</label>
-              <input type="number" id="pValor" step="0.01" min="0" value="0">
+              <input type="text" id="pValor" value="0" data-formato="dinheiro">
             </div>
             <div class="form-group">
               <label>Desconto (R$)</label>
@@ -191,7 +192,7 @@
             </div>
             <div class="form-group">
               <label>Valor cobrado R$ *</label>
-              <input type="number" id="ptValor" step="0.01" min="0" value="0">
+              <input type="text" id="ptValor" value="0" data-formato="dinheiro">
             </div>
           </div>
           <div class="form-row">
@@ -316,11 +317,12 @@
             </div>
             <div class="form-group">
               <label>R$/hora</label>
-              <input type="number" id="sValor" step="0.01" min="0">
+              <input type="text" id="sValor" data-formato="dinheiro">
             </div>
             <div class="form-group">
-              <label>Total (alternativo)</label>
-              <input type="number" id="sTotal" step="0.01" min="0">
+              <label>Valor fechado (R$)</label>
+              <input type="number" id="sTotal" step="0.01" min="0"
+                title="Use quando o serviço é cobrado por um valor fechado, e não por hora. Preenchido aqui, este valor substitui horas × R$/hora.">
             </div>
             <div class="form-group">
               <label>Desconto (R$)</label>
@@ -354,7 +356,7 @@
             </div>
             <div class="form-group">
               <label>Valor cobrado R$ *</label>
-              <input type="number" id="stValor" step="0.01" min="0" value="0">
+              <input type="text" id="stValor" value="0" data-formato="dinheiro">
             </div>
           </div>
           <div class="form-row">
@@ -596,12 +598,27 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
 <script src="/js/politica-prazo.js"></script>
 <script>initSidebar('ordens-servico');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
 function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
 function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// Data sempre dd/mm/aaaa, e hora só quando o dado tem hora. O banco guarda ISO
+// ("2026-10-01 16:32:00"); quem lê a tela lê o formato daqui.
+function fmtData(v){
+  if (!v) return '';
+  const d = String(v).slice(0,10).split('-');
+  return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : String(v);
+}
+function fmtDataHora(v){
+  if (!v) return '';
+  const t = String(v);
+  const hora = t.length >= 16 ? ' ' + t.slice(11,16) : '';
+  return fmtData(t) + hora;
+}
 
 const id = new URLSearchParams(window.location.search).get('id');
 let osData = null;
@@ -813,18 +830,35 @@ function renderInfo(){
   const bloco = (titulo, texto) => texto
     ? `<div class="bloco-titulo">${titulo}</div><div class="bloco-texto">${escapeHtml(texto)}</div>` : '';
 
+  // O prazo e o cumprimento dele estavam só na LISTA: quem abria a ficha para
+  // trabalhar na OS não via para quando ela foi prometida. Mesmo badge e mesma
+  // regra da lista — o slaStatus vem calculado do GET /api/os/:id.
+  function prazoDaCapa(os) {
+    if (!os.dataPromessa) return '';
+    const map = {
+      'atrasado':  'cancelado', 'risco': 'pendente', 'no-prazo': 'entregue',
+      'cumprido':  'faturado',  'estourado': 'cancelado',
+    };
+    const cls = map[os.slaStatus] || '';
+    const sla = os.slaStatus
+      ? ` <span class="badge badge-os ${cls}" style="font-size:11px;">${OsRotulos.sla(os.slaStatus)}</span>` : '';
+    const dias = os.prazoSLADias ? ` <small class="muted">(${os.prazoSLADias} dia(s))</small>` : '';
+    return `${fmtData(os.dataPromessa)}${dias}${sla}`;
+  }
+
   document.getElementById('info').innerHTML = `
     ${renderEquipamentoHistorico()}
     <div class="grid-info">
       ${campo('Cliente', `${escapeHtml(o.clienteNome || '—')}${o.clienteCpfCnpj ? `<br><small class="muted mono">${escapeHtml(o.clienteCpfCnpj)}</small>` : ''}`)}
       ${campo('Técnico', escapeHtml(o.tecnicoNomeExibicao || o.tecnicoNome || '—'))}
-      ${campo('Equipamento', escapeHtml([o.equipamento, o.marca, o.modelo].filter(Boolean).join(' ') || '—'))}
-      ${campo('Nº de série', escapeHtml(o.numeroSerieEquipamento || '—'), true)}
-      ${campo('Garantia', `${o.garantiaDias || 0} dia(s)`)}
-      ${campo('Aberta em', o.dataAbertura)}
-      ${campo('Iniciada em', o.dataInicioExecucao)}
-      ${campo('Concluída em', o.dataConclusao)}
-      ${campo('Faturada em', o.dataFaturamento ? `${o.dataFaturamento}<br><small class="muted">pedido #${o.pedidoId}</small>` : '')}
+      ${campo('Prazo', prazoDaCapa(o))}
+      ${campo('Equipamento', escapeHtml([o.equipamento, o.marca, o.modelo].filter(Boolean).join(' ')))}
+      ${campo('Nº de série', escapeHtml(o.numeroSerieEquipamento || ''), true)}
+      ${campo('Garantia', o.garantiaDias > 0 ? `${o.garantiaDias} dia(s)` : '')}
+      ${campo('Aberta em', fmtDataHora(o.dataAbertura))}
+      ${campo('Iniciada em', fmtDataHora(o.dataInicioExecucao))}
+      ${campo('Concluída em', fmtDataHora(o.dataConclusao))}
+      ${campo('Faturada em', o.dataFaturamento ? `${fmtDataHora(o.dataFaturamento)}<br><small class="muted">pedido #${o.pedidoId}</small>` : '')}
     </div>
     ${bloco('Defeito relatado', o.defeitoRelatado)}
     ${bloco('Diagnóstico', o.diagnostico)}
@@ -1148,13 +1182,14 @@ function renderServicos(servicos){
   const nbsDistintos = new Set(comCatalogo.map(s => s.servicoCnbs));
   if (!proprios.length) { statusEl.innerHTML = ''; return; }
   if (!comCatalogo.length) {
-    statusEl.innerHTML = '<span class="badge">fiscal: padrão global</span> <small>nenhum serviço de catálogo — NFS-e usará o cTribNac configurado em NFSe › Config (sem &lt;cNBS&gt;).</small>';
+    statusEl.innerHTML = '<span class="badge">Nota: regra padrão da empresa</span> '
+      + '<small>nenhum serviço veio do catálogo, então vale a regra fiscal configurada em Fiscal › NFS-e.</small>';
   } else if (nbsDistintos.size === 1) {
     const [unico] = nbsDistintos;
-    statusEl.innerHTML = `<span class="badge sucesso">fiscal: catálogo · NBS ${unico}</span>`;
+    statusEl.innerHTML = `<span class="badge sucesso">Nota: regra do catálogo</span>`;
   } else {
     const dominante = comCatalogo.reduce((a,b)=> (Number(b.valorTotal)||0) > (Number(a.valorTotal)||0) ? b : a);
-    statusEl.innerHTML = `<span class="badge processando">⚠ múltiplos NBS detectados — emitirá com NBS ${dominante.servicoCnbs} (item de maior valor)</span>`;
+    statusEl.innerHTML = `<span class="badge processando">⚠ os serviços desta OS têm regras fiscais diferentes — a nota usará a do item de maior valor (${escapeHtml(dominante.descricao || '')})</span>`;
   }
 }
 
@@ -1225,8 +1260,8 @@ function classeStatusOS(st){ return CLASSE_STATUS_OS[st] || 'rascunho'; }
 function renderResumo(){
   const o = osData.os;
   const st = document.getElementById('pgStatus');
-  st.className = 'badge ' + classeStatusOS(o.status);
-  st.textContent = o.status;
+  st.className = 'badge badge-os ' + classeStatusOS(o.status);
+  st.textContent = OsRotulos.status(o.status);
   st.style.display = '';
   const desc = Number(o.valorDesconto) || 0;
   const editavel = !['faturada','cancelada'].includes(o.status);
@@ -1265,9 +1300,9 @@ function renderResumo(){
           <button class="btn btn-secondary btn-sm" onclick="salvarDescontoCapa()">Aplicar</button>
         </div>
       </div>
-      <small class="muted" style="font-size:11px;">Abate no total da OS. Ao faturar é rateado entre peças e
-        serviços, e vai como desconto na NF-e (vDesc) e na NFS-e (vDescIncond, que reduz a base do ISS).
-        Para desconto de uma linha só, use o campo Desconto ao lançar a peça ou o serviço.</small>
+      <small class="muted" style="font-size:11px;">Abate no total da OS e é dividido entre peças e serviços
+        ao faturar. A nota sai com esse desconto.
+        Para abater só uma linha, use o campo Desconto ao lançar a peça ou o serviço.</small>
     ` : ''}
   `;
 }
@@ -1450,7 +1485,7 @@ async function addPecaTerceira(){
 }
 
 async function remPeca(itemId){
-  if (!confirm('Remover esta peça?')) return;
+  if (!await Aviso.confirmar('Remover esta peça?')) return;
   const r = await fetch('/api/os/pecas/'+itemId, { method:'DELETE' });
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   carregar();
@@ -1531,7 +1566,7 @@ async function addServicoTerceiro(){
   carregar();
 }
 async function remServico(id){
-  if (!confirm('Remover este serviço?')) return;
+  if (!await Aviso.confirmar('Remover este serviço?')) return;
   const r = await fetch('/api/os/servicos/'+id, { method:'DELETE' });
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   carregar();
@@ -1551,7 +1586,7 @@ async function addApont(){
   carregar();
 }
 async function remApont(id){
-  if (!confirm('Remover apontamento?')) return;
+  if (!await Aviso.confirmar('Remover apontamento?')) return;
   const r = await fetch('/api/os/apontamentos/'+id, { method:'DELETE' });
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   carregar();
@@ -1570,7 +1605,7 @@ async function aguardar(){
 async function concluir(){
   const solucao = prompt('Solução aplicada (opcional, mas recomendada):');
   if (solucao === null) return;
-  const baixar = confirm('Baixar peças do estoque agora? (Cancelar = não baixar)');
+  const baixar = await Aviso.confirmar('Baixar peças do estoque agora? (Cancelar = não baixar)');
   const r = await fetch(`/api/os/${id}/concluir`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ solucao, baixarEstoque: baixar }) });
   const d = await r.json();
   if (!d.success) {
@@ -1697,7 +1732,7 @@ async function emitirNfse(){
   const aviso = !osData.tipoOperacao?.emiteNFe
     ? 'O tipo desta OS é documento interno — a NFSe NÃO será enviada à SEFIN (apenas registrada localmente). Continuar?'
     : 'Emitir NFSe dos serviços para a SEFIN? Esta ação transmite a nota fiscal eletrônica.';
-  if (!confirm(aviso)) return;
+  if (!await Aviso.confirmar(aviso)) return;
   const r = await fetch(`/api/os/${id}/emitir-nfse`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error || 'Falha ao emitir NFSe', 'error');
@@ -1709,7 +1744,7 @@ async function emitirNfe(){
   const aviso = !osData.tipoOperacao?.emiteNFe
     ? 'O tipo desta OS é documento interno — a NF-e NÃO será enviada à SEFAZ. Continuar?'
     : 'Emitir NF-e das peças para a SEFAZ? Esta ação transmite a nota fiscal eletrônica.';
-  if (!confirm(aviso)) return;
+  if (!await Aviso.confirmar(aviso)) return;
   const r = await fetch(`/api/os/${id}/emitir-nfe`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error || 'Falha ao emitir NF-e', 'error');
@@ -1779,7 +1814,7 @@ async function toggleChecklist(itemId, concluido) {
   carregar();
 }
 async function removeChecklist(itemId) {
-  if (!confirm('Remover este item?')) return;
+  if (!await Aviso.confirmar('Remover este item?')) return;
   const r = await fetch(`/api/os/checklist/${itemId}`, { method: 'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -1826,7 +1861,7 @@ async function enviarAnexo() {
   carregar();
 }
 async function removerAnexo(anexoId) {
-  if (!confirm('Remover este anexo?')) return;
+  if (!await Aviso.confirmar('Remover este anexo?')) return;
   const r = await fetch(`/api/os/anexos/${anexoId}`, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');

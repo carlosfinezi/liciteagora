@@ -95,6 +95,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('estoque-transferencias');</script>
@@ -145,7 +146,7 @@ async function verDetalhe(id){
 }
 
 async function acao(id, verbo){
-  if (verbo === 'cancelar' && !confirm('Cancelar esta transferência?')) return;
+  if (verbo === 'cancelar' && !await Aviso.confirmar('Cancelar esta transferência?')) return;
   const r = await fetch(`/api/transferencias/${id}/${verbo}`, { method: 'POST' });
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');

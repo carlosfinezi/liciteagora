@@ -34,14 +34,14 @@
   .etapa { font-size: 0.76em; font-weight: 600; padding: 2px 9px; border-radius: var(--r-sm); white-space: nowrap; }
   .etapa-disputa   { background: #4caf5025; color: var(--success); }
   .etapa-prorrog   { background: #ff980025; color: var(--warn); }
-  .etapa-julgamento{ background: #9c27b025; color: #ce93d8; }
+  .etapa-julgamento{ background: #9c27b025; color: var(--purple); }
   .etapa-encerrada { background: #88888825; color: var(--text-3); }
   .etapa-outra     { background: #4dabf725; color: var(--accent); }
   .pos-badge { font-size: 0.78em; font-weight: 700; padding: 2px 9px; border-radius: 10px; background: var(--bg-3); color: var(--text-2); white-space: nowrap; }
-  .pos-badge.lider { background: rgba(255,215,0,0.16); color: #ffd700; }
+  .pos-badge.lider { background: rgba(255,215,0,0.16); color: var(--warn); }
   .pos-badge.top { background: rgba(76,175,80,0.16); color: var(--success); }
   .modo-tag { font-size: 0.7em; font-weight: 700; padding: 2px 7px; border-radius: 4px; }
-  .modo-live { background: #003300; color: #7fef9e; } .modo-dry { background: #664400; color: #ffd166; }
+  .modo-live { background: var(--success); color: var(--success); } .modo-dry { background: var(--warn-soft); color: var(--warn); }
   .arrow { color: var(--text-3); font-size: 0.75em; transition: transform 0.2s; }
   .arrow.aberta { transform: rotate(180deg); }
 
@@ -60,9 +60,9 @@
   .deg .pv { font-size: 0.86em; font-weight: 600; color: var(--text-1); font-variant-numeric: tabular-nums; }
   .deg.lider { border-color: var(--success); background: #4caf5012; }
   .deg.lider .pv { color: var(--success); }
-  .deg.nosso { border-color: #ffd700; background: rgba(255,215,0,0.10); box-shadow: 0 0 0 1px #ffd70055 inset; }
-  .deg.nosso .pn { color: #ffd700; font-weight: 700; }
-  .deg.nosso .pv { color: #ffd700; }
+  .deg.nosso { border-color: var(--warn); background: rgba(255,215,0,0.10); box-shadow: 0 0 0 1px #ffd70055 inset; }
+  .deg.nosso .pn { color: var(--warn); font-weight: 700; }
+  .deg.nosso .pv { color: var(--warn); }
   .deg.abaixo-piso { opacity: 0.45; }
   .piso-mark { flex: 0 0 auto; width: 2px; background: repeating-linear-gradient(var(--danger) 0 4px, transparent 4px 8px); position: relative; margin: 0 3px; }
   .piso-mark::after { content: 'PISO'; position: absolute; top: -2px; left: 4px; font-size: 0.6em; color: var(--danger); font-weight: 700; white-space: nowrap; }
@@ -163,7 +163,7 @@
       <li>Em <span class="modo-tag modo-live">AO VIVO</span> ele envia lances REAIS: lê a escada completa e se posiciona no melhor degrau possível acima do seu piso, reagindo em milissegundos via SignalR.</li>
     </ul>
     <h4>Escada</h4>
-    <p style="color:var(--text-2); font-size:0.85em;">Cada degrau é um participante (anônimo). <span style="color:var(--success);">Verde</span> = líder, <span style="color:#ffd700;">dourado</span> = nós. A linha tracejada vermelha marca o seu piso.</p>
+    <p style="color:var(--text-2); font-size:0.85em;">Cada degrau é um participante (anônimo). <span style="color:var(--success);">Verde</span> = líder, <span style="color: var(--warn);">dourado</span> = nós. A linha tracejada vermelha marca o seu piso.</p>
     <div style="text-align:right; margin-top:16px;">
       <button class="btn btn-primary btn-sm" onclick="fechar('modalHelp')">Fechar</button>
     </div>
@@ -322,30 +322,30 @@ async function salvarLote(loteId){
 }
 
 async function toggleDry(id, aoVivo){
-  if(aoVivo && !confirm('⚠️ Modo AO VIVO: o robô vai enviar lances REAIS (reais inteiros) quando o lote tiver auto-lance ativo e houver degrau acima do piso. Confirmar?')){ render(); return; }
+  if(aoVivo && !await Aviso.confirmar('⚠️ Modo AO VIVO: o robô vai enviar lances REAIS (reais inteiros) quando o lote tiver auto-lance ativo e houver degrau acima do piso. Confirmar?')){ render(); return; }
   try{
     const r=await fetch('/api/bll/salas/'+id+'/dry-run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dryRun:!aoVivo})});
     const d=await r.json(); if(!d.success) throw new Error(d.error); carregar();
-  }catch(e){ alert(e.message); }
+  }catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 async function toggleAtivo(id, ativo){
   try{
     const r=await fetch('/api/bll/salas/'+id+'/ativo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ativo})});
     const d=await r.json(); if(!d.success) throw new Error(d.error); carregar();
-  }catch(e){ alert(e.message); }
+  }catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 async function redescobrir(id){
   try{
     const r=await fetch('/api/bll/salas/'+id+'/redescobrir',{method:'POST'});
     const d=await r.json(); if(!d.success) throw new Error(d.error); carregar();
-  }catch(e){ alert(e.message); }
+  }catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 async function remover(id){
-  if(!confirm('Remover esta sala? O motor para de monitorar.')) return;
+  if(!await Aviso.confirmar('Remover esta sala? O motor para de monitorar.')) return;
   try{
     const r=await fetch('/api/bll/salas/'+id,{method:'DELETE'});
     const d=await r.json(); if(!d.success) throw new Error(d.error); expanded.delete(id); carregar();
-  }catch(e){ alert(e.message); }
+  }catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 function abrir(id){ document.getElementById(id).classList.add('open'); }
@@ -375,6 +375,7 @@ carregar();
 </script>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('bll-salas');</script>
 </body>

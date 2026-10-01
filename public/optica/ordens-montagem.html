@@ -128,6 +128,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('ordens-montagem');</script>
@@ -318,7 +319,7 @@ async function salvar(){
     const r = await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     const d = await r.json();
     if (!d.success) {
-      if (d.omId && confirm('Já existe OM ativa para este pedido. Abrir?')) { editar(d.omId); return; }
+      if (d.omId && await Aviso.confirmar('Já existe OM ativa para este pedido. Abrir?')) { editar(d.omId); return; }
       throw new Error(d.error||'falha');
     }
     showAlert(id ? 'OM atualizada' : 'OM '+(d.numero||'criada'));
@@ -330,7 +331,7 @@ async function salvar(){
 async function inativar(){
   const id = document.getElementById('fId').value;
   if (!id) return;
-  if (!confirm('Inativar esta OM?')) return;
+  if (!await Aviso.confirmar('Inativar esta OM?')) return;
   try {
     const r = await fetch('/api/optica/ordens-montagem/'+id, { method:'DELETE' });
     const d = await r.json();

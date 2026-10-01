@@ -39,6 +39,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('sem-interesse');</script>
 <script>
 let dadosCache = [];
@@ -100,7 +101,7 @@ function renderizar(lista) {
 }
 
 async function removerSemInteresse(cnpj, ano, seq, btn) {
-    if (!confirm('Restaurar interesse nesta licitação?')) return;
+    if (!await Aviso.confirmar('Restaurar interesse nesta licitação?')) return;
     btn.disabled = true; btn.textContent = '…';
     try {
         const resp = await fetch(`/api/sem-interesse/${cnpj}/${ano}/${seq}`, { method: 'DELETE' });
@@ -110,7 +111,7 @@ async function removerSemInteresse(cnpj, ano, seq, btn) {
         document.getElementById('totalBadge').textContent = dadosCache.length;
         filtrar();
     } catch (err) {
-        alert('Erro: ' + err.message);
+        Aviso.erro(Aviso.mensagemDeErro(err));
         btn.disabled = false; btn.textContent = 'Restaurar';
     }
 }

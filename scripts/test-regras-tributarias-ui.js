@@ -13,6 +13,7 @@ const Database = require(BASE + '/node_modules/better-sqlite3');
 const { copiaDoTenant } = require('./banco-de-teste');
 const puppeteer = require(BASE + '/node_modules/puppeteer-core');
 const { registrarRotasFiscalRegras } = require(BASE + '/fiscal-regras-routes');
+const { prepararAvisos } = require('./aviso-de-teste');
 
 const PORTA = 34123;
 const db = new Database(copiaDoTenant('labfiscal'));
@@ -55,6 +56,15 @@ const server = app.listen(PORTA);
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   });
   const page = await browser.newPage();
+  /* O `confirm()` do navegador era dispensado pelo puppeteer sozinho, e com
+     isso a suíte clicava em "excluir" e o fluxo seguia. Desde 01/10/2026 a
+     confirmação é a caixa do sistema (`Aviso.confirmar`), que é uma PROMESSA
+     esperando alguém clicar: sem isto, o `evaluate` fica pendurado e a suíte
+     morre com "Runtime.callFunctionOn timed out". `prepararAvisos` responde
+     SIM, que é o que o diálogo nativo fazia, e registra o que foi pedido em
+     `window.__confirmacoes`. */
+  await prepararAvisos(page);
+
   await page.setViewport({ width: 1500, height: 950 });
 
   const errosJS = [];

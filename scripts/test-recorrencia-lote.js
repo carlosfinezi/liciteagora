@@ -58,6 +58,7 @@ for (const s of ['', '-wal', '-shm']) { try { fs.unlinkSync(DB + s); } catch {} 
 const db = new Database(DB);
 db.pragma('journal_mode = WAL');
 const schema = require('./schema-de-tenant').lerSchema();
+const { prepararAvisos } = require('./aviso-de-teste');
 db.exec(schema);
 for (const m of schema.matchAll(/REFERENCES\s+(\w+)\s*\(/gi)) {
   db.exec(`CREATE TABLE IF NOT EXISTS ${m[1]} (id INTEGER PRIMARY KEY AUTOINCREMENT)`);
@@ -290,6 +291,15 @@ function subirServidor() {
 }
 async function abrir() {
   const page = await browser.newPage();
+  /* O `confirm()` do navegador era dispensado pelo puppeteer sozinho, e com
+     isso a suíte clicava em "excluir" e o fluxo seguia. Desde 01/10/2026 a
+     confirmação é a caixa do sistema (`Aviso.confirmar`), que é uma PROMESSA
+     esperando alguém clicar: sem isto, o `evaluate` fica pendurado e a suíte
+     morre com "Runtime.callFunctionOn timed out". `prepararAvisos` responde
+     SIM, que é o que o diálogo nativo fazia, e registra o que foi pedido em
+     `window.__confirmacoes`. */
+  await prepararAvisos(page);
+
   const erros = [];
   page.on('pageerror', (e) => erros.push(`${e.name}: ${e.message}`));
   page.on('dialog', (d) => d.accept());

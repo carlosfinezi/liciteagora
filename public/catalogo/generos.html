@@ -59,6 +59,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('cadastro-generos');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -113,7 +114,7 @@ async function salvar(){
 }
 
 async function inativar(valor){
-  if (!confirm('Inativar gênero "'+valor+'"?')) return;
+  if (!await Aviso.confirmar('Inativar gênero "'+valor+'"?')) return;
   try {
     const r = await fetch('/api/produto-lookup/genero/'+encodeURIComponent(valor), { method:'DELETE' });
     const d = await r.json();

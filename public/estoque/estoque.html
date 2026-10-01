@@ -75,12 +75,23 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('estoque');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
 function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+// Quantidade na unidade do produto: saco e barra sem casa decimal, m³ e kg com
+// ela. Quem decide é o servidor, em `unidades.js`.
+function qtd(v, item){
+  const n = Number(v);
+  if (v == null || !Number.isFinite(n)) return '-';
+  return item && item.unidadeFraciona === false
+    ? Math.round(n).toLocaleString('pt-BR')
+    : n.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:3});
+}
 function fmtInt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR'); }
 
 // Seletor de depósito só aparece quando o tenant tem mais de um depósito ativo
@@ -120,7 +131,10 @@ async function carregarSaldo(){
   renderKpis(d.total, d.itens, pres);
 
   const tb=document.getElementById('tbSaldo');
-  tb.innerHTML = d.itens.length ? d.itens.map(i=>{
+  const itens = SO_ABAIXO
+    ? d.itens.filter(i => (i.estoqueMinimo>0 && i.disponivel<i.estoqueMinimo) || (i.pontoReposicao>0 && i.disponivel<i.pontoReposicao))
+    : d.itens;
+  tb.innerHTML = itens.length ? itens.map(i=>{
     const baixo = i.estoqueMinimo>0 && i.disponivel<i.estoqueMinimo;
     const pontoRep = i.pontoReposicao>0 && i.disponivel<i.pontoReposicao;
     const negativo = i.disponivel < 0;
@@ -134,11 +148,11 @@ async function carregarSaldo(){
     return `<tr>
       <td><strong>${i.sku}</strong></td>
       <td class="col-produto">${i.descricao}</td>
-      <td>${i.unidade||'-'}</td>
-      <td style="text-align:right;cursor:pointer;text-decoration:underline dotted;" title="Ver saldo por loja" onclick="verSaldoLojas(${i.id}, '${(i.sku||'').replace(/'/g,"\\'")}')">${fmt(i.saldo)}</td>
-      ${pres.reserva ? `<td style="text-align:right;${i.reservado>0?'color:var(--warn);font-weight:600':'color:var(--text-3);'}">${fmt(i.reservado)}</td>` : ''}
-      <td style="text-align:right;font-weight:700;${negativo?'color:var(--danger);':baixo?'color:var(--warn);':''}">${fmt(i.disponivel)}</td>
-      <td style="text-align:right;color:var(--text-2);">${fmt(i.estoqueMinimo)}</td>
+      <td>${i.unidadeNome || i.unidade || '-'}</td>
+      <td style="text-align:right;cursor:pointer;text-decoration:underline dotted;" title="Ver saldo por loja" onclick="verSaldoLojas(${i.id}, '${(i.sku||'').replace(/'/g,"\\'")}')">${qtd(i.saldo, i)}</td>
+      ${pres.reserva ? `<td style="text-align:right;${i.reservado>0?'color:var(--warn);font-weight:600':'color:var(--text-3);'}">${qtd(i.reservado, i)}</td>` : ''}
+      <td style="text-align:right;font-weight:700;${negativo?'color:var(--danger);':baixo?'color:var(--warn);':''}">${qtd(i.disponivel, i)}</td>
+      <td style="text-align:right;color:var(--text-2);">${qtd(i.estoqueMinimo, i)}</td>
       <td style="text-align:right;">R$ ${fmt(i.custoMedio)}</td>
       <td style="text-align:right;font-weight:600;">R$ ${fmt(i.valorEstoque)}</td>
       ${temRastreio ? `<td>${rastreio}</td>` : ''}
@@ -152,11 +166,11 @@ async function verSaldoLojas(produtoId, sku){
     const r = await fetch(`/api/estoque/${produtoId}/saldo-lojas`).then(x=>x.json());
     if (!r.success) return;
     if (!r.lojas || r.lojas.length <= 1){
-      alert(`${sku}\nSaldo: ${fmt(r.total)} (só matriz)`);
+      Aviso.erro(`${sku}\nSaldo: ${fmt(r.total)} (só matriz)`);
       return;
     }
     const linhas = r.lojas.map(l=>`• ${l.nome}: ${fmt(l.saldo)}`).join('\n');
-    alert(`Saldo por loja — ${sku}\n\n${linhas}\n\nTotal da rede: ${fmt(r.total)}`);
+    Aviso.erro(`Saldo por loja — ${sku}\n\n${linhas}\n\nTotal da rede: ${fmt(r.total)}`);
   } catch(e){ /* silencioso */ }
 }
 
@@ -170,14 +184,28 @@ function renderKpis(total, itens, pres){
   `;
 }
 
+// Só os que precisam de reposição, para o link do aviso filtrar a lista.
+let SO_ABAIXO = false;
+function alternarAbaixo(e){
+  if (e) e.preventDefault();
+  SO_ABAIXO = !SO_ABAIXO;
+  carregarSaldo();
+}
+
 async function carregarAlertas(){
   const r=await fetch('/api/estoque/alertas');
   const d=await r.json();
   const box=document.getElementById('alertasBox');
   if(d.success && d.alertas.length){
-    // Pelo nome: o código sozinho não diz nada a quem está no balcão.
-    box.innerHTML = `<div class="alert warn"><strong>⚠️ ${d.alertas.length} produto(s) abaixo do mínimo/ponto de reposição:</strong> `+
-      d.alertas.map(a=>`${a.descricao} (tem ${fmt(a.disponivel)}, mínimo ${fmt(a.pontoReposicao||a.estoqueMinimo)})`).join(' · ')+`</div>`;
+    // Era a lista inteira em parágrafo corrido: com 139 produtos, ela tomava a
+    // tela e empurrava a tabela para fora. Agora é a contagem, o link que
+    // filtra e o caminho para comprar.
+    const n = d.alertas.length;
+    box.innerHTML = `<div class="alert warn" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <span><strong>${n} produto${n>1?'s':''} abaixo do mínimo</strong></span>
+      <a href="#" onclick="alternarAbaixo(event)">${SO_ABAIXO ? 'Ver todos os produtos' : 'Ver só esses ' + n}</a>
+      <a class="btn btn-secondary btn-sm" href="/compras/sugestao.html" style="margin-left:auto;text-decoration:none;">Sugestão de Compra →</a>
+    </div>`;
   } else box.innerHTML='';
 }
 

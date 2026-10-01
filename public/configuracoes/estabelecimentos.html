@@ -26,7 +26,7 @@
             display: inline-block; padding: 3px 9px; border-radius: 999px;
             font-size: 0.72em; font-weight: 600; white-space: nowrap;
         }
-        .badge-matriz { background: var(--accent); color: #fff; }
+        .badge-matriz { background: var(--btn-primary-bg); color: #fff; }
         .badge-filial { background: var(--bg-2); color: var(--text-2); }
         .badge-pj { background: var(--bg-2); color: var(--text-2); }
         .badge-ativa { background: color-mix(in srgb, var(--success, #2f8f5b) 18%, transparent); color: var(--success, #2f8f5b); }
@@ -86,7 +86,7 @@
                         <div class="form-group" style="grid-column: span 2;">
                             <label for="cnpj" class="required">CNPJ</label>
                             <div style="display:flex; gap:8px;">
-                                <input type="text" id="cnpj" name="cnpj" placeholder="00.000.000/0000-00" style="flex:1;">
+                                <input type="text" id="cnpj" name="cnpj" placeholder="00.000.000/0000-00" style="flex:1;" data-formato="cnpj">
                                 <button type="button" id="btnBuscarCnpj" class="btn btn-secondary btn-sm" onclick="buscarDadosCnpj()" style="white-space:nowrap;">🔎 Buscar</button>
                             </div>
                             <small id="cnpjStatus" class="form-hint">Digite o CNPJ e clique em Buscar — os demais campos são preenchidos automaticamente.</small>
@@ -105,11 +105,11 @@
                         </div>
                         <div class="form-group">
                             <label for="inscricaoEstadual">Inscrição Estadual</label>
-                            <input type="text" id="inscricaoEstadual" name="inscricaoEstadual" placeholder="IE">
+                            <input type="text" id="inscricaoEstadual" name="inscricaoEstadual" placeholder="IE" data-formato="inscricao">
                         </div>
                         <div class="form-group">
                             <label for="inscricaoMunicipal">Inscrição Municipal</label>
-                            <input type="text" id="inscricaoMunicipal" name="inscricaoMunicipal" placeholder="IM">
+                            <input type="text" id="inscricaoMunicipal" name="inscricaoMunicipal" placeholder="IM" data-formato="inscricao">
                         </div>
                     </div>
 
@@ -169,7 +169,7 @@
                         </div>
                         <div class="form-group">
                             <label for="cep">CEP</label>
-                            <input type="text" id="cep" name="cep" placeholder="00000-000">
+                            <input type="text" id="cep" name="cep" placeholder="00000-000" data-formato="cep">
                         </div>
                         <div class="form-group">
                             <label for="codigoMunicipio">Cód. Município (IBGE)</label>
@@ -180,15 +180,15 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="telefone">Telefone</label>
-                            <input type="text" id="telefone" name="telefone" placeholder="Telefone">
+                            <input type="text" id="telefone" name="telefone" placeholder="Telefone" data-formato="telefone">
                         </div>
                         <div class="form-group">
                             <label for="celular">Celular</label>
-                            <input type="text" id="celular" name="celular" placeholder="Celular">
+                            <input type="text" id="celular" name="celular" placeholder="Celular" data-formato="telefone">
                         </div>
                         <div class="form-group" style="grid-column: span 2;">
                             <label for="email">E-mail</label>
-                            <input type="email" id="email" name="email" placeholder="email@empresa.com">
+                            <input type="email" id="email" name="email" placeholder="email@empresa.com" data-formato="email">
                         </div>
                     </div>
 
@@ -215,6 +215,8 @@
 
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
+    <script src="/js/campo-formato.js"></script>
     <script>initSidebar('estabelecimentos');</script>
     <script>
     let lista = [];
@@ -464,17 +466,15 @@
         el.style.display = 'block';
     }
 
+    /**
+     * A máscara do CNPJ saiu daqui em 30/09/2026: quem formata é o
+     * `data-formato="cnpj"` do campo, em `public/js/campo-formato.js`. Era a
+     * mesma cópia que estava em `minha-empresa.html`.
+     *
+     * Ficou a busca automática, que não é máscara.
+     */
     function configurarMascaraCnpj() {
-        const cnpjEl = document.getElementById('cnpj');
-        cnpjEl.addEventListener('input', function(e) {
-            let value = e.target.value.replace(/\D/g, '');
-            value = value.replace(/^(\d{2})(\d)/, '$1.$2');
-            value = value.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
-            value = value.replace(/\.(\d{3})(\d)/, '.$1/$2');
-            value = value.replace(/(\d{4})(\d)/, '$1-$2');
-            e.target.value = value.substring(0, 18);
-        });
-        cnpjEl.addEventListener('blur', function() {
+        document.getElementById('cnpj').addEventListener('blur', function() {
             const raw = (this.value || '').replace(/\D/g, '');
             if (raw.length === 14 && raw !== _ultimoCnpjBuscado) {
                 buscarDadosCnpj({ silencioso: true });

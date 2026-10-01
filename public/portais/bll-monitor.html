@@ -29,7 +29,7 @@
   .msg-proc { font-size: 0.76em; font-weight: 600; color: var(--accent); }
   .badge { font-size: 0.68em; font-weight: 700; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
   .b-escopo { background: var(--bg-3); color: var(--text-2); }
-  .b-preg { background: rgba(255,215,0,0.16); color: #ffd700; }
+  .b-preg { background: rgba(255,215,0,0.16); color: var(--warn); }
   .b-sis { background: #88888822; color: var(--text-3); }
   .b-part { background: rgba(77,171,247,0.15); color: var(--accent); }
   .msg-time { font-size: 0.72em; color: var(--text-3); margin-left: auto; }
@@ -166,7 +166,7 @@ function render(){
     const aberto=grupoExpandido.has(g.salaId);
     const badges=`<span class="badge b-escopo">${g.msgs.length} msgs</span>`+
       (g.preg?`<span class="badge b-preg">${g.preg} pregoeiro</span>`:'')+
-      (g.nova?`<span class="badge" style="background:var(--accent);color:#fff;">novas</span>`:'');
+      (g.nova?`<span class="badge" style="background: var(--btn-primary-bg); color: #fff;">novas</span>`:'');
     return `<div class="grupo ${aberto?'aberto':''}">
       <div class="grupo-head" onclick="toggleGrupo(${g.salaId})">
         <span class="grupo-chevron">▶</span>
@@ -205,6 +205,7 @@ carregar();
 <script>renderChatConfigPanel('cfgPanel','bll');</script>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('bll-monitor');</script>
 </body>

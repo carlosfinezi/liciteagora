@@ -24,7 +24,7 @@
     <button class="close" onclick="fecharModal()">&times;</button>
     <h2>Vincular produto ao item</h2>
     <div class="item-origem" id="itemOrigem"></div>
-    <label style="color:#888;font-size:0.85em;">Buscar produto existente</label>
+    <label style="color: var(--text-2);font-size:0.85em;">Buscar produto existente</label>
     <input type="text" id="buscaProduto" placeholder="Código ou descrição..." oninput="debounceBusca()">
     <div class="result-list" id="resultList"></div>
     <div class="divider">OU</div>
@@ -38,7 +38,7 @@
   <div class="modal" style="max-width:560px;">
     <button class="close" onclick="fecharObs()">&times;</button>
     <h2>Observação interna</h2>
-    <p style="color:#888;font-size:0.85em;">Anotação da empresa sobre o lançamento — os campos fiscais da NF continuam imutáveis.</p>
+    <p style="color: var(--text-2);font-size:0.85em;">Anotação da empresa sobre o lançamento — os campos fiscais da NF continuam imutáveis.</p>
     <textarea id="obsTexto" rows="4" style="width:100%;" placeholder="Contexto da entrada, referências, combinados com o fornecedor…"></textarea>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
       <button class="btn btn-secondary" onclick="fecharObs()">Cancelar</button>
@@ -52,15 +52,15 @@
   <div class="modal" style="max-width:560px;">
     <button class="close" onclick="fecharExcluir()">&times;</button>
     <h2>Excluir lançamento interno</h2>
-    <p style="color:#888;font-size:0.85em;">
+    <p style="color: var(--text-2);font-size:0.85em;">
       Reverte o estoque (se aplicado) e remove as contas a pagar em aberto desta NF-e.
       É reversível: o lançamento pode ser restaurado depois.
     </p>
-    <label style="color:#888;font-size:0.85em;">Motivo *</label>
+    <label style="color: var(--text-2);font-size:0.85em;">Motivo *</label>
     <textarea id="excluirMotivo" rows="3" style="width:100%;" placeholder="Por que está excluindo? (obrigatório)"></textarea>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
       <button class="btn btn-secondary" onclick="fecharExcluir()">Cancelar</button>
-      <button class="btn btn-warn" style="color:#ef4444;" onclick="confirmarExcluir()">Excluir</button>
+      <button class="btn btn-warn" style="color: var(--danger);" onclick="confirmarExcluir()">Excluir</button>
     </div>
   </div>
 </div>
@@ -69,7 +69,7 @@
 <div class="modal-bg" id="modalDevolucao">
   <div class="modal" style="max-width:1120px;width:96%;">
     <button class="close" onclick="fecharDevolucao()">&times;</button>
-    <h2>↩ Devolução ao fornecedor <span style="font-size:.6em;color:#888;">— espelho da entrada</span></h2>
+    <h2>↩ Devolução ao fornecedor <span style="font-size:.6em;color: var(--text-2);">— espelho da entrada</span></h2>
     <div class="item-origem" id="devCabecalho"></div>
     <div id="devConteudo">Carregando…</div>
   </div>
@@ -77,6 +77,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('manifestador');</script>
 <script>
 function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -96,9 +97,9 @@ async function salvarMarkup(valor){
       body: JSON.stringify({ markupPct: pct })
     });
     const d = await r.json();
-    if (!d.success) { alert('Erro: '+d.error); return; }
+    if (!d.success) { Aviso.erro(Aviso.mensagemDeErro(d)); return; }
     MARKUP_PCT = d.markupPct;
-  } catch(e){ alert('Erro ao salvar markup: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function carregar(){
@@ -138,9 +139,9 @@ function render(){
   let acoesHtml = `<div class="panel">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;">
       <div>
-        <div style="margin-bottom:6px;"><span class="label" style="color:#888;font-size:0.8em;">Status estoque:</span>
+        <div style="margin-bottom:6px;"><span class="label" style="color: var(--text-2);font-size:0.8em;">Status estoque:</span>
           <span class="badge ${n.statusEstoque}">${n.statusEstoque}</span></div>
-        <div><span class="label" style="color:#888;font-size:0.8em;">Status financeiro:</span>
+        <div><span class="label" style="color: var(--text-2);font-size:0.8em;">Status financeiro:</span>
           <span class="badge ${n.statusFinanceiro}">${n.statusFinanceiro}</span></div>
       </div>
       <div class="acoes">
@@ -162,12 +163,12 @@ function render(){
         <button class="btn btn-secondary" onclick="abrirObs()">📝 Observação interna</button>
         ${n.excluida
           ? `<button class="btn btn-primary" onclick="restaurarLancamento()">↶ Restaurar lançamento</button>`
-          : `<button class="btn btn-warn" style="color:#ef4444;" onclick="abrirExcluir()">🗑 Excluir lançamento</button>`}
+          : `<button class="btn btn-warn" style="color: var(--danger);" onclick="abrirExcluir()">🗑 Excluir lançamento</button>`}
       </div>
     </div>
-    ${itensSemVinculo > 0 ? `<p style="color:#f59e0b;margin-top:10px;font-size:0.85em;">⚠ ${itensSemVinculo} item(ns) ainda sem produto vinculado.</p>` : ''}
-    ${n.excluida ? `<p style="color:#ef4444;margin-top:10px;font-size:0.85em;">🗑 Lançamento excluído${n.motivoExclusao ? ' — ' + n.motivoExclusao : ''}. A nota fiscal em si continua válida; o que foi desfeito é o lançamento interno.</p>` : ''}
-    ${n.observacaoInterna ? `<p style="color:#888;margin-top:10px;font-size:0.85em;"><strong>Obs. interna:</strong> ${n.observacaoInterna}</p>` : ''}
+    ${itensSemVinculo > 0 ? `<p style="color: var(--warn);margin-top:10px;font-size:0.85em;">⚠ ${itensSemVinculo} item(ns) ainda sem produto vinculado.</p>` : ''}
+    ${n.excluida ? `<p style="color: var(--danger);margin-top:10px;font-size:0.85em;">🗑 Lançamento excluído${n.motivoExclusao ? ' — ' + n.motivoExclusao : ''}. A nota fiscal em si continua válida; o que foi desfeito é o lançamento interno.</p>` : ''}
+    ${n.observacaoInterna ? `<p style="color: var(--text-2);margin-top:10px;font-size:0.85em;"><strong>Obs. interna:</strong> ${n.observacaoInterna}</p>` : ''}
   </div>`;
 
   let html = acoesHtml + `
@@ -184,7 +185,7 @@ function render(){
     </div>
 
     <div class="panel">
-      <h3 style="color:#60a5fa;margin-bottom:12px;">Itens (${itens.length})</h3>
+      <h3 style="color: var(--accent);margin-bottom:12px;">Itens (${itens.length})</h3>
       <table>
         <thead><tr><th>#</th><th>Código</th><th>Descrição</th><th>NCM</th><th>Qtde</th><th>V.Unit</th><th>Total</th><th>Produto vinculado</th></tr></thead>
         <tbody>${itens.map(i => `<tr>
@@ -202,12 +203,12 @@ function render(){
   `;
   if (dups.length) {
     html += `<div class="panel">
-      <h3 style="color:#60a5fa;margin-bottom:12px;">Duplicatas (${dups.length})</h3>
+      <h3 style="color: var(--accent);margin-bottom:12px;">Duplicatas (${dups.length})</h3>
       <table><thead><tr><th>Nº</th><th>Vencimento</th><th>Valor</th><th>Conta a pagar</th></tr></thead>
       <tbody>${dups.map(x => `<tr><td>${x.numero||'-'}</td><td>${fmtData(x.dataVencimento)}</td><td>R$ ${fmt(x.valor)}</td>
         <td>${x.contaPagarId
             ? `<a href="/financeiro/contas-a-pagar.html?id=${x.contaPagarId}" class="produto-link">✓ CP #${x.contaPagarId}</a>`
-            : '<em style="color:#888;">pendente</em>'}</td></tr>`).join('')}</tbody>
+            : '<em style="color: var(--text-2);">pendente</em>'}</td></tr>`).join('')}</tbody>
       </table>
     </div>`;
   }
@@ -218,57 +219,57 @@ function render(){
 
 async function vincularTodos(){
   const semVinc = DADOS.itens.filter(i => !i.produtoId).length;
-  if (!confirm(`Criar/vincular produto para ${semVinc} item(ns) sem vínculo?\n\nItens que casarem com produtos existentes (código do fornecedor, EAN ou código do produto) são apenas vinculados; os demais ganham um produto novo com os dados da NF-e.`)) return;
+  if (!await Aviso.confirmar(`Criar/vincular produto para ${semVinc} item(ns) sem vínculo?\n\nItens que casarem com produtos existentes (código do fornecedor, EAN ou código do produto) são apenas vinculados; os demais ganham um produto novo com os dados da NF-e.`)) return;
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/vincular-todos', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error||'erro');
-    alert(`Concluído.\n\nVinculados a produtos existentes: ${d.vinculadosExistente}\nProdutos novos criados: ${d.criados}` + (d.semVinculo>0 ? `\n\n⚠ ${d.semVinculo} ainda sem vínculo.` : ''));
+    Aviso.ok(`Concluído.\n\nVinculados a produtos existentes: ${d.vinculadosExistente}\nProdutos novos criados: ${d.criados}` + (d.semVinculo>0 ? `\n\n⚠ ${d.semVinculo} ainda sem vínculo.` : ''));
     await carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function aplicarEstoque(){
-  if (!confirm('Aplicar entrada no estoque?\n\nIsso cria movimentações e recalcula o preço de custo (média ponderada) dos produtos.')) return;
+  if (!await Aviso.confirmar('Aplicar entrada no estoque?\n\nIsso cria movimentações e recalcula o preço de custo (média ponderada) dos produtos.')) return;
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/aplicar-estoque', { method:'POST' });
     const d = await r.json();
     if (!d.success) {
       if (d.itensPendentes) {
-        alert(d.error + '\n\n' + d.itensPendentes.map(i => `• Item ${i.numero}: ${i.descricao}`).join('\n'));
+        Aviso.erro(d.error + '\n\n' + d.itensPendentes.map(i => `• Item ${i.numero}: ${i.descricao}`).join('\n'));
       } else {
-        alert('Erro: '+d.error);
+        Aviso.erro(Aviso.mensagemDeErro(d));
       }
       return;
     }
-    alert(`Entrada aplicada! ${d.movimentacoes.length} movimentação(ões) criada(s).`);
+    Aviso.ok(`Entrada aplicada! ${d.movimentacoes.length} movimentação(ões) criada(s).`);
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function reverterEstoque(){
-  if (!confirm('Reverter entrada de estoque?\n\nMovimentações serão removidas. Preço de custo dos produtos NÃO volta ao anterior (histórico cumulativo).')) return;
+  if (!await Aviso.confirmar('Reverter entrada de estoque?\n\nMovimentações serão removidas. Preço de custo dos produtos NÃO volta ao anterior (histórico cumulativo).')) return;
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/reverter-estoque', { method:'POST' });
     const d = await r.json();
     if (!d.success) {
       // 409: a mercadoria já saiu — reverter deixaria saldo negativo.
       if (d.produtos) {
-        alert(d.error + '\n\n' + d.produtos.map(p =>
+        Aviso.erro(d.error + '\n\n' + d.produtos.map(p =>
           `• ${p.sku} ${p.descricao}: saldo ${p.saldoAtual} → ${p.saldoAposReversao}`).join('\n') +
           '\n\nAjuste o estoque desses produtos antes de reverter.');
         return;
       }
-      alert('Erro: '+d.error); return;
+      Aviso.erro(Aviso.mensagemDeErro(d)); return;
     }
-    alert('Estoque revertido.' + (d.aviso ? '\n\n' + d.aviso : ''));
+    Aviso.erro('Estoque revertido.' + (d.aviso ? '\n\n' + d.aviso : ''));
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function gerarContasPagar(opts){
   const o = opts || {};
-  if (!opts && !confirm('Gerar contas a pagar a partir das duplicatas da NF-e?')) return;
+  if (!opts && !await Aviso.confirmar('Gerar contas a pagar a partir das duplicatas da NF-e?')) return;
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/gerar-contas-pagar', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -282,35 +283,35 @@ async function gerarContasPagar(opts){
     // 409: o prazo contado da emissão cai no passado — a conta nasceria vencida.
     if (r.status === 409 && d.vencimentoRetroativo) {
       const v = d.vencimentoRetroativo;
-      const usarEntrada = confirm(
+      const usarEntrada = await Aviso.confirmar(
         `${d.error}.\n\n` +
         `Contando da emissão (${v.dataEmissao}): ${v.vencimentosPorEmissao.join(', ')}\n` +
         `Contando da entrada (${v.dataEntrada||'—'}): ${v.vencimentosPorEntrada.join(', ')}\n\n` +
         `OK = contar da entrada da mercadoria\nCancelar = escolher manter as datas retroativas`);
       if (usarEntrada) return gerarContasPagar({ ...o, baseVencimento: 'entrada' });
-      if (!confirm('Gerar com as datas retroativas, já vencidas?')) return;
+      if (!await Aviso.confirmar('Gerar com as datas retroativas, já vencidas?')) return;
       return gerarContasPagar({ ...o, confirmarVencimentoRetroativo: true });
     }
     // 409: as duplicatas não somam o total da nota — gerar assim esconde passivo.
     if (r.status === 409 && d.divergencia) {
-      if (!confirm(d.error + '\n\nGerar mesmo assim, só com o que veio nas duplicatas?')) return;
+      if (!await Aviso.confirmar(d.error + '\n\nGerar mesmo assim, só com o que veio nas duplicatas?')) return;
       return gerarContasPagar({ ...o, confirmarDivergencia: true });
     }
-    if (!d.success) { alert('Erro: '+d.error); return; }
-    alert(`${d.contas.length} conta(s) a pagar gerada(s).`);
+    if (!d.success) { Aviso.erro(Aviso.mensagemDeErro(d)); return; }
+    Aviso.ok(`${d.contas.length} conta(s) a pagar gerada(s).`);
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function reverterContasPagar(){
-  if (!confirm('Reverter contas a pagar? Só funciona se nenhuma estiver paga/cancelada.')) return;
+  if (!await Aviso.confirmar('Reverter contas a pagar? Só funciona se nenhuma estiver paga/cancelada.')) return;
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/reverter-contas-pagar', { method:'POST' });
     const d = await r.json();
-    if (!d.success) { alert('Erro: '+d.error); return; }
-    alert('Contas a pagar revertidas.');
+    if (!d.success) { Aviso.erro(Aviso.mensagemDeErro(d)); return; }
+    Aviso.erro('Contas a pagar revertidas.');
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 // ===== Observação interna e exclusão do lançamento =====
@@ -333,7 +334,7 @@ async function salvarObs(){
     if (!d.success) throw new Error(d.error||'erro');
     fecharObs();
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 function abrirExcluir(){
@@ -344,7 +345,7 @@ function fecharExcluir(){ document.getElementById('modalExcluir').classList.remo
 
 async function confirmarExcluir(){
   const motivo = document.getElementById('excluirMotivo').value.trim();
-  if (!motivo) { alert('Motivo obrigatório.'); return; }
+  if (!motivo) { Aviso.erro('Motivo obrigatório.'); return; }
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/excluir', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -354,18 +355,18 @@ async function confirmarExcluir(){
     if (!d.success) throw new Error(d.error||'erro');
     fecharExcluir();
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function restaurarLancamento(){
-  if (!confirm('Restaurar este lançamento? Estoque e contas não são reaplicados automaticamente.')) return;
+  if (!await Aviso.confirmar('Restaurar este lançamento? Estoque e contas não são reaplicados automaticamente.')) return;
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/restaurar', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error||'erro');
-    if (d.aviso) alert(d.aviso);
+    if (d.aviso) Aviso.erro(d.aviso);
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 document.getElementById('modalObs').addEventListener('click', e => {
@@ -386,7 +387,7 @@ function abrirVincular(itemId){
   if (!ITEM_ATUAL) return;
   document.getElementById('itemOrigem').innerHTML = `
     <strong>Item da NF-e:</strong> ${ITEM_ATUAL.descricao || '—'}<br>
-    <span style="color:#888;">Código fornecedor: ${ITEM_ATUAL.codigoProduto || '—'} · NCM: ${ITEM_ATUAL.ncm || '—'} · EAN: ${ITEM_ATUAL.ean || '—'}</span>
+    <span style="color: var(--text-2);">Código fornecedor: ${ITEM_ATUAL.codigoProduto || '—'} · NCM: ${ITEM_ATUAL.ncm || '—'} · EAN: ${ITEM_ATUAL.ean || '—'}</span>
   `;
   const eanValido = ITEM_ATUAL.ean && ITEM_ATUAL.ean !== 'SEM GTIN' && ITEM_ATUAL.ean.length >= 8;
   document.getElementById('previewNovo').innerHTML = `
@@ -410,13 +411,13 @@ function fecharModal(){
 
 async function buscarProdutos(){
   const q = document.getElementById('buscaProduto').value.trim();
-  if (q.length < 2) { document.getElementById('resultList').innerHTML = '<p style="color:#888;padding:10px;">Digite ao menos 2 caracteres</p>'; return; }
+  if (q.length < 2) { document.getElementById('resultList').innerHTML = '<p style="color: var(--text-2);padding:10px;">Digite ao menos 2 caracteres</p>'; return; }
   try {
     const r = await fetch('/api/estoque?q='+encodeURIComponent(q));
     const d = await r.json();
     const list = document.getElementById('resultList');
     if (!d.success || !d.itens.length) {
-      list.innerHTML = '<p style="color:#888;padding:10px;">Nenhum produto encontrado. Crie um novo abaixo ⬇</p>';
+      list.innerHTML = '<p style="color: var(--text-2);padding:10px;">Nenhum produto encontrado. Crie um novo abaixo ⬇</p>';
       return;
     }
     list.innerHTML = d.itens.slice(0,20).map(p => `
@@ -425,7 +426,7 @@ async function buscarProdutos(){
         <div class="saldo">saldo: ${fmt(p.saldo)} ${p.unidade||''}</div>
       </div>
     `).join('');
-  } catch(e){ document.getElementById('resultList').innerHTML = '<p style="color:#ff6b6b;">Erro: '+e.message+'</p>'; }
+  } catch(e){ document.getElementById('resultList').innerHTML = '<p style="color: var(--danger);">Erro: '+e.message+'</p>'; }
 }
 
 async function vincularExistente(produtoId){
@@ -436,26 +437,26 @@ async function vincularExistente(produtoId){
       body: JSON.stringify({ produtoId })
     });
     const d = await r.json();
-    if (!d.success) { alert('Erro: '+d.error); return; }
+    if (!d.success) { Aviso.erro(Aviso.mensagemDeErro(d)); return; }
     fecharModal();
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function criarNovoProduto(){
   if (!ITEM_ATUAL) return;
-  if (!confirm('Criar novo produto com os dados da NF-e e vincular ao item?')) return;
+  if (!await Aviso.confirmar('Criar novo produto com os dados da NF-e e vincular ao item?')) return;
   try {
     const r = await fetch('/api/nfe-entrada/itens/'+ITEM_ATUAL.id+'/vincular', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ novoProduto: true })
     });
     const d = await r.json();
-    if (!d.success) { alert('Erro: '+d.error); return; }
-    alert(`Produto criado: ${d.produto.sku} · ${d.produto.descricao}`);
+    if (!d.success) { Aviso.erro(Aviso.mensagemDeErro(d)); return; }
+    Aviso.ok(`Produto criado: ${d.produto.sku} · ${d.produto.descricao}`);
     fecharModal();
     carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 document.getElementById('modalVincular').addEventListener('click', e => {
@@ -478,8 +479,8 @@ async function abrirDevolucao(){
     renderDevolucao();
   } catch(e){
     document.getElementById('devConteudo').innerHTML =
-      '<p style="color:#ff6b6b;">Erro: '+e.message+'</p>'+
-      '<p style="color:#888;font-size:.85em;">Se for "não encontrada"/404, o endpoint de preview entra no ar no próximo restart do serviço.</p>';
+      '<p style="color: var(--danger);">Erro: '+e.message+'</p>'+
+      '<p style="color: var(--text-2);font-size:.85em;">Se for "não encontrada"/404, o endpoint de preview entra no ar no próximo restart do serviço.</p>';
   }
 }
 function fecharDevolucao(){ document.getElementById('modalDevolucao').classList.remove('open'); DEV=null; }
@@ -488,16 +489,16 @@ function renderDevolucao(){
   const e = DEV.entrada;
   document.getElementById('devCabecalho').innerHTML = `
     <strong>NF-e ${e.numero}/${e.serie}</strong> · Fornecedor: ${e.fornecedor||'—'} (${e.uf||'—'})<br>
-    <span style="color:#888;">Natureza: <b>${DEV.natOp}</b> · Saída (tpNF=1, finNFe=4) · refNFe: <span class="mono" style="font-size:.82em;">${e.chave}</span></span>
-    ${DEV.avisos.cfopsForaDoMapa>0 ? `<div style="color:#f59e0b;margin-top:6px;">⚠ ${DEV.avisos.cfopsForaDoMapa} item(ns) com CFOP fora do mapa — usando fallback 5202/6202 (revisar com o contador).</div>`:''}
+    <span style="color: var(--text-2);">Natureza: <b>${DEV.natOp}</b> · Saída (tpNF=1, finNFe=4) · refNFe: <span class="mono" style="font-size:.82em;">${e.chave}</span></span>
+    ${DEV.avisos.cfopsForaDoMapa>0 ? `<div style="color: var(--warn);margin-top:6px;">⚠ ${DEV.avisos.cfopsForaDoMapa} item(ns) com CFOP fora do mapa — usando fallback 5202/6202 (revisar com o contador).</div>`:''}
   `;
   const rows = DEV.itens.map((it,idx)=>`
     <tr data-idx="${idx}">
       <td><input type="checkbox" class="dev-chk" data-idx="${idx}" ${it.saldoDisponivel>0?'checked':'disabled'} onchange="recalcDev()"></td>
       <td>${it.numero}</td>
-      <td>${it.descricao||'-'}<br><small class="mono" style="color:#888;">${it.codigoProduto||''}${it.produtoId?'':' · <span style="color:#f59e0b;">sem produto vinculado</span>'}</small></td>
+      <td>${it.descricao||'-'}<br><small class="mono" style="color: var(--text-2);">${it.codigoProduto||''}${it.produtoId?'':' · <span style="color: var(--warn);">sem produto vinculado</span>'}</small></td>
       <td class="mono">${it.cfopEntradaNosso} → <b>${it.cfopDevolucao}</b>${it.cfopDevolucaoDoMapa?'':' ⚠'}</td>
-      <td>${fmt(it.saldoDisponivel)} <small style="color:#888;">/${fmt(it.quantidadeRecebida)}</small></td>
+      <td>${fmt(it.saldoDisponivel)} <small style="color: var(--text-2);">/${fmt(it.quantidadeRecebida)}</small></td>
       <td><input type="number" class="dev-qtd" data-idx="${idx}" min="0" step="any" max="${it.saldoDisponivel}" value="${it.saldoDisponivel}" style="width:78px;" oninput="recalcDev()"></td>
       <td class="dev-vprod" style="text-align:right;">-</td>
       <td class="dev-vicms" style="text-align:right;">-</td>
@@ -522,7 +523,7 @@ function renderDevolucao(){
     </table>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:10px;">
-      <small style="color:#888;">Impostos rateados proporcionalmente à quantidade devolvida — espelho da nota de origem.</small>
+      <small style="color: var(--text-2);">Impostos rateados proporcionalmente à quantidade devolvida — espelho da nota de origem.</small>
       <button class="btn btn-primary" id="btnEmitirDev" onclick="emitirDevolucao()">Emitir NF-e de devolução</button>
     </div>
   `;
@@ -571,13 +572,13 @@ async function emitirDevolucao(){
     const qtd = parseFloat((document.querySelector('.dev-qtd[data-idx="'+idx+'"]')||{}).value) || 0;
     if (chk && chk.checked && qtd > 0) sel.push({ nfeEntradaItemId: it.nfeEntradaItemId, quantidade: qtd });
   });
-  if (!sel.length) { alert('Selecione ao menos 1 item com quantidade a devolver.'); return; }
+  if (!sel.length) { Aviso.erro('Selecione ao menos 1 item com quantidade a devolver.'); return; }
   // Total = todos os itens no saldo cheio.
   const todos = sel.length === DEV.itens.length && DEV.itens.every((it, idx) => {
     const q = parseFloat((document.querySelector('.dev-qtd[data-idx="'+idx+'"]')||{}).value) || 0;
     return q >= it.saldoDisponivel;
   });
-  if (!confirm(`Emitir NF-e de devolução ao fornecedor (${sel.length} item(ns))?\n\nEmite a nota na SEFAZ, dá saída no estoque e abate a conta a pagar da entrada. Só se desfaz cancelando a NF-e.`)) return;
+  if (!await Aviso.confirmar(`Emitir NF-e de devolução ao fornecedor (${sel.length} item(ns))?\n\nEmite a nota na SEFAZ, dá saída no estoque e abate a conta a pagar da entrada. Só se desfaz cancelando a NF-e.`)) return;
   const btn = document.getElementById('btnEmitirDev');
   btn.disabled = true; btn.textContent = 'Emitindo…';
   try {
@@ -590,15 +591,15 @@ async function emitirDevolucao(){
       const ef = d.efeitos || {};
       const est = ef.estoque ? `${ef.estoque.length} saída(s) de estoque` : '';
       const fin = ef.financeiro && ef.financeiro.abatidos ? `abatido em ${ef.financeiro.abatidos.length} conta(s) a pagar` : '';
-      alert(`✅ NF-e de devolução AUTORIZADA!\n\nNúmero: ${d.numero}\nChave: ${d.chaveAcesso}\nValor: R$ ${d.valorTotal}` +
+      Aviso.erro(`✅ NF-e de devolução AUTORIZADA!\n\nNúmero: ${d.numero}\nChave: ${d.chaveAcesso}\nValor: R$ ${d.valorTotal}` +
         (est||fin ? `\n\n${[est,fin].filter(Boolean).join(' · ')}` : ''));
       fecharDevolucao(); carregar();
     } else {
-      alert(`Não autorizada.\n\nStatus: ${d.statusSefaz||'-'}\nMotivo: ${d.motivo || d.error || '—'}`);
+      Aviso.erro(`Não autorizada.\n\nStatus: ${d.statusSefaz||'-'}\nMotivo: ${d.motivo || d.error || '—'}`);
       btn.disabled = false; btn.textContent = 'Emitir NF-e de devolução';
     }
   } catch(e){
-    alert('Erro: '+e.message);
+    Aviso.erro(Aviso.mensagemDeErro(e));
     btn.disabled = false; btn.textContent = 'Emitir NF-e de devolução';
   }
 }
