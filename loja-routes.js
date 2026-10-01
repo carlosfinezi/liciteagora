@@ -29,6 +29,7 @@ const { criarReservasPedido } = require('./reservas-routes');
 const semDoc = require('./pessoa-sem-documento');
 const montagem = require('./loja-montagem');
 const pagamentoLoja = require('./loja-pagamento');
+const metodosLoja = require('./loja-metodos-pagamento');
 
 const RAIZ_PUBLICA = path.join(__dirname, 'public');
 const SUBDIR_LOJA = 'uploads/loja';
@@ -323,6 +324,12 @@ function migrarLojaDB(db) {
   // 'manual' e 'licitacao'.
   try { db.exec('ALTER TABLE pedidos ADD COLUMN origemLoja INTEGER DEFAULT 0'); }
   catch (e) { if (!/duplicate column/i.test(e.message)) throw e; }
+
+  /* Os métodos de pagamento, AGORA que `loja_config` existe — é dela que sai
+     a tradução do `pagamentoModo` antigo. O `db-schema.js` também chama esta
+     migração, mas ele roda antes desta função, quando ainda não há o que
+     traduzir. Chamar de novo é seguro: ela só age com a tabela vazia. */
+  metodosLoja.migrarMetodos(db);
 }
 
 const jsonOu = (t, padrao) => { try { return t ? JSON.parse(t) : padrao; } catch { return padrao; } };
@@ -580,6 +587,29 @@ function naturezaDoPedidoDoCatalogo(db, cfg) {
 /** Os três meios desta fase, no vocabulário SEFAZ que o ERP já usa. */
 const PAGAMENTOS_CHECKOUT = { pix: '17', dinheiro: '01', cartao: '03' };
 const ROTULO_PAGAMENTO = { pix: 'PIX', dinheiro: 'Dinheiro', cartao: 'Cartão na entrega/retirada' };
+
+/**
+ * A chave do método que o checkout escolheu.
+ *
+ * O navegador novo manda `metodo` ('pix_online', 'dinheiro', ...). A aba que
+ * ficou aberta com a versão anterior de `catalogo.js` manda `pagamento`, com
+ * o vocabulário de três opções — e aquela página é um arquivo estático, então
+ * essa aba existe de verdade no instante em que este código sobe.
+ *
+ * A tradução do Pix depende da loja: 'pix' vinha tanto do Pix cobrado no site
+ * quanto do combinado com o lojista, e era justamente essa ambiguidade que a
+ * tabela de métodos desfez. Aqui ela se resolve pelo que a loja tem ativo,
+ * dando preferência ao online, que era o que o checkout antigo fazia quando
+ * havia cobrança. O 'cartao' único vira crédito: era o que o tPag 03 dele já
+ * dizia.
+ */
+function escolherMetodo(b) {
+  const direto = String((b && b.metodo) || '');
+  if (direto) return direto;
+  const legado = String((b && b.pagamento) || '');
+  return { dinheiro: 'dinheiro', cartao: 'credito_presencial' }[legado]
+    || (legado === 'pix' ? 'pix' : '');   // 'pix' puro é resolvido pela loja
+}
 
 /**
  * A descrição do item, com as personalizações que o SERVIDOR validou.
@@ -1049,9 +1079,26 @@ function registrarRotasLojaPublica(app, db) {
         bannerFoco: lerFoco(c.bannerFoco),
         mostrarPreco: !!c.mostrarPreco, mostrarEstoque: !!c.mostrarEstoque, tema: c.tema,
         pagamento: c.pagamentoModo || 'nenhum',
-        // Pix no fechamento do pedido: a loja cobra assim E há provedor que gere.
-        // Nesse caso o checkout oferece só o Pix e pede CPF, que o Asaas exige.
-        pixNoSite: pagamentoLoja.pixNoCheckout(c) && pagamentoLoja.provedorPixPronto(db),
+        /* O que a loja aceita, por atendimento (30/09). Os dois conjuntos vão
+           juntos porque o cliente troca de entrega para retirada dentro do
+           mesmo checkout, e buscar de novo a cada troca mostraria a lista
+           piscando. Quem valida a escolha é o servidor, de novo, no
+           finalizar: isto aqui é para PINTAR a tela, não para autorizar. */
+        metodosPagamento: {
+          entrega: metodosLoja.disponiveis(db, 'entrega', c)
+            .map(({ metodo, rotulo, descricao, modalidade }) => ({ metodo, rotulo, descricao, modalidade })),
+          retirada: metodosLoja.disponiveis(db, 'retirada', c)
+            .map(({ metodo, rotulo, descricao, modalidade }) => ({ metodo, rotulo, descricao, modalidade })),
+        },
+        /* Mantido para a aba aberta com o checkout anterior, que lê este
+           campo para saber se esconde dinheiro e cartão. Agora ele sai da
+           tabela de métodos, e não do `pagamentoModo`: é verdade só quando a
+           loja de fato não aceita nenhum método manual, que é o único caso em
+           que aquela tela acertaria ao mostrar o Pix sozinho. */
+        pixNoSite: (() => {
+          const d = [...metodosLoja.disponiveis(db, 'entrega', c), ...metodosLoja.disponiveis(db, 'retirada', c)];
+          return d.some((m) => m.metodo === 'pix_online') && !d.some((m) => m.modalidade === 'manual');
+        })(),
         favicon: c.faviconPath || null,
         rodape: c.rodapeTexto || null,
       } });
@@ -1527,12 +1574,17 @@ function registrarRotasLojaPublica(app, db) {
    */
   function responderExistente(res, pedido, impressaoAgora) {
     const p = db.prepare(`SELECT p.numero, p.valorTotal, p.valorFrete, p.tipoAtendimento,
-        p.meioPagamento, pe.razaoSocial, pe.telefone, pe.cpfCnpj, pe.semDocumento
+        p.meioPagamento, p.metodoPagamento, pe.razaoSocial, pe.telefone, pe.cpfCnpj, pe.semDocumento
       FROM pedidos p LEFT JOIN pessoas pe ON pe.id = p.clienteId
       WHERE p.id = ?`).get(pedido.id);
     const itens = db.prepare(`SELECT produtoId, quantidade, descricao
       FROM pedido_itens WHERE pedidoId = ? ORDER BY id`).all(pedido.id);
-    const codigo = Object.keys(PAGAMENTOS_CHECKOUT)
+    /* A impressão do pedido gravado precisa ser montada com o MESMO
+       vocabulário da tentativa que chega, senão toda retentativa legítima
+       responderia "esta tentativa já foi usada para outro pedido".
+       Pedido anterior a 30/09 não tem `metodoPagamento`, e para ele vale a
+       leitura antiga, pelo código fiscal. */
+    const codigo = p.metodoPagamento || Object.keys(PAGAMENTOS_CHECKOUT)
       .find((k) => PAGAMENTOS_CHECKOUT[k] === p.meioPagamento) || null;
 
     const impressaoAntes = impressaoDaIntencao({
@@ -1551,7 +1603,11 @@ function registrarRotasLojaPublica(app, db) {
 
     const c = lerConfig(db);
     const lp = (() => { try { return db.prepare('SELECT token, freteACombinar FROM loja_pagamentos WHERE pedidoId = ?').get(pedido.id); } catch { return null; } })();
-    const pixNoSite = pagamentoLoja.pixNoCheckout(c) && pagamentoLoja.provedorPixPronto(db);
+    /* Quem responde é o PEDIDO, e não a configuração da loja: com métodos
+       online e manuais ativos ao mesmo tempo, uma loja "que cobra por Pix"
+       também tem pedidos em dinheiro, e mandar esse cliente para a tela de
+       pagamento o deixaria esperando um QR que nunca vai existir. */
+    const pixNoSite = p.metodoPagamento === 'pix_online';
     return res.json({
       success: true, repetido: true,
       freteACombinar: !!(lp && lp.freteACombinar), pixNoSite, link: lp ? lp.token : null,
@@ -1559,7 +1615,10 @@ function registrarRotasLojaPublica(app, db) {
       numero: p.numero, total: r2c(p.valorTotal),
       subtotal: r2c(p.valorTotal - (p.valorFrete || 0)), frete: r2c(p.valorFrete || 0),
       atendimento: p.tipoAtendimento,
-      pagamento: { codigo, rotulo: ROTULO_PAGAMENTO[codigo] || null },
+      pagamento: {
+        codigo,
+        rotulo: (metodosLoja.CATALOGO[codigo] || {}).rotulo || ROTULO_PAGAMENTO[codigo] || null,
+      },
       whatsapp: whatsappNormalizado(c.whatsapp || (empresaDe(db) || {}).telefone),
     });
   }
@@ -1595,10 +1654,6 @@ function registrarRotasLojaPublica(app, db) {
       }
 
       const b = req.body || {};
-      /* Pix no site: a loja cobra por Pix no fechamento E há provedor que o
-         gere. Aí o Pix é a única forma, e o CPF passa a ser obrigatório,
-         porque o Asaas não emite cobrança sem ele. */
-      const pixNoSite = pagamentoLoja.pixNoCheckout(c) && pagamentoLoja.provedorPixPronto(db);
 
       // ── chave da tentativa ────────────────────────────────────────────
       const chave = txtPub(b.idempotencyKey, 100);
@@ -1618,9 +1673,12 @@ function registrarRotasLojaPublica(app, db) {
       const docBruto = b.cliente && b.cliente.cpfCnpj;
       if (docBruto != null && String(docBruto).trim() !== '') {
         documento = documentoValido(docBruto);
-        if (!documento) return recusa(422, pixNoSite ? 'CPF/CNPJ inválido. Confira os números.' : 'CPF/CNPJ inválido. Confira ou deixe em branco.', { campo: 'documento' });
+        if (!documento) return recusa(422, 'CPF/CNPJ inválido. Confira os números.', { campo: 'documento' });
       }
-      if (pixNoSite && !documento) return recusa(422, 'Informe seu CPF. O pagamento por Pix precisa dele.', { campo: 'documento' });
+      /* A EXIGÊNCIA do documento desceu para depois da escolha do pagamento
+         (30/09): quem precisa dele é a cobrança online, e só ali se sabe se
+         vai haver uma. Pedir CPF a quem vai pagar em dinheiro na entrega é
+         cobrar um dado que o pedido não usa. */
 
       // E-mail é opcional; informado, precisa ser um e-mail. O aceite de
       // promoções vai para o cadastro (contato-marketing.js).
@@ -1641,13 +1699,19 @@ function registrarRotasLojaPublica(app, db) {
         return recusa(422, 'No momento esta loja não está fazendo entregas.');
       }
 
-      // ── pagamento: INTENÇÃO, nesta fase ───────────────────────────────
-      const pagamento = String(b.pagamento || '');
-      if (!PAGAMENTOS_CHECKOUT[pagamento]) {
-        return recusa(422, 'Escolha uma forma de pagamento.', { campo: 'pagamento' });
-      }
-      if (pixNoSite && pagamento !== 'pix') {
-        return recusa(422, 'Esta loja recebe pelo Pix.');
+      // ── pagamento ─────────────────────────────────────────────────────
+      /* Quem decide é `loja_metodos_pagamento`, pela MESMA função que montou
+         a tela. O navegador manda a chave do método e nada mais: o código
+         fiscal sai daqui, porque é ele que vai para a nota, e um comprador
+         que escolhesse o próprio tPag emitiria documento fiscal errado. */
+      const met = metodosLoja.validar(db, escolherMetodo(b), atendimento, c);
+      if (met.erro) return recusa(422, met.erro, { campo: 'pagamento' });
+
+      /* Cobrança online precisa do documento: o provedor não emite sem ele, e
+         descobrir isso depois deixaria o pedido criado esperando um Pix que
+         nunca nasce. */
+      if (met.modalidade === 'online' && !documento) {
+        return recusa(422, 'Informe seu CPF. O pagamento pelo site precisa dele.', { campo: 'documento' });
       }
 
       // ── itens, com autoridade do servidor ─────────────────────────────
@@ -1725,7 +1789,10 @@ function registrarRotasLojaPublica(app, db) {
        */
       let linhaTroco = null;
       let recebidoEmDinheiro = null;
-      if (pagamento === 'dinheiro' && b.precisaTroco) {
+      /* Troco só existe em dinheiro, e é o MÉTODO que diz isso, não o código
+         fiscal: 01 é dinheiro em qualquer origem, mas só o cliente que vai
+         pagar em espécie na porta precisa que o entregador leve troco. */
+      if (met.metodo === 'dinheiro' && b.precisaTroco) {
         const trocoPara = r2c(Number(b.trocoPara));
         /* `!(x > 0)` cobre de uma vez o zero, o negativo, o vazio e o texto
            que virou NaN — comparação com NaN é sempre falsa. */
@@ -1745,7 +1812,7 @@ function registrarRotasLojaPublica(app, db) {
          em `pedidos.meioPagamento`, em código SEFAZ; aqui ele aparece por
          extenso porque é onde quem separa e entrega vai olhar. */
       const observacao = ['[Catálogo Online]',
-        `Pagamento: ${ROTULO_PAGAMENTO[pagamento]}`,
+        `Pagamento: ${(metodosLoja.CATALOGO[met.metodo] || {}).rotulo || met.metodo}`,
         freteACombinar ? 'Taxa de entrega a combinar' : null,
         linhaTroco,
         end && end.referencia ? `Referência: ${end.referencia}` : null,
@@ -1756,7 +1823,7 @@ function registrarRotasLojaPublica(app, db) {
          Reconstruída dos mesmos dados que serão gravados, para poder ser
          recalculada depois a partir do pedido — sem guardar campo novo. */
       const impressao = impressaoDaIntencao({
-        nome, telefone, documento, atendimento, pagamento, total,
+        nome, telefone, documento, atendimento, pagamento: met.metodo, total,
         itens: itens.map((i) => ({ produtoId: i.produtoId, quantidade: i.quantidade,
                                    descricao: descricaoDoItem(i) })),
       });
@@ -1802,17 +1869,18 @@ function registrarRotasLojaPublica(app, db) {
                depositoId, tipoAtendimento, meioPagamento, tipoFrete, valorFrete,
                enderecoEntrega, numeroEntrega, complementoEntrega, bairroEntrega,
                cidadeEntrega, ufEntrega, cepEntrega, contatoEntrega, telefoneEntrega,
-               idempotenciaChave, tipoOperacaoId, valorRecebidoDinheiro)
+               idempotenciaChave, tipoOperacaoId, valorRecebidoDinheiro, metodoPagamento)
             VALUES (?, 'catalogo', 'pedido', ?, 'rascunho', ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
             /* `date('now','-3 hours')` é como o resto deste arquivo grava data:
                o ERP inteiro usa a hora de Brasília e não há timezone por tenant. */
             .run(numero, pessoaId, dataDeHojeBrasilia(), observacao, resolverDeposito(db, {}),
-                 atendimento, PAGAMENTOS_CHECKOUT[pagamento],
+                 atendimento, met.meioFiscal,
                  atendimento === 'entrega' ? 'CIF' : null, frete,
                  end && end.logradouro, end && end.numero, end && end.complemento,
                  end && end.bairro, end && end.cidade, end && end.uf, end && end.cep,
-                 nome, telefone, chave, natureza.id, recebidoEmDinheiro).lastInsertRowid;
+                 nome, telefone, chave, natureza.id, recebidoEmDinheiro,
+                 met.metodo).lastInsertRowid;
 
           const ins = db.prepare(`INSERT INTO pedido_itens
               (pedidoId, produtoId, descricao, quantidade, precoUnitario, valorTotal)
@@ -1868,8 +1936,13 @@ function registrarRotasLojaPublica(app, db) {
       /* O Pix nasce DEPOIS do commit: é chamada de rede ao provedor, e o
          pedido já existe e vale mesmo que ela falhe. Nesse caso o cliente fica
          sabendo que a loja manda o Pix, e a tela do pedido gera de novo. */
+      /* Quem manda emitir é o MÉTODO escolhido, e não mais a configuração da
+         loja: com `pix_online` e `dinheiro` os dois ativos, o mesmo checkout
+         serve os dois clientes, e só o primeiro gera cobrança. `pix_manual`
+         não passa por aqui de propósito — nele a loja manda a chave e confere
+         o comprovante, e uma cobrança Asaas ficaria aberta para sempre. */
       let pixErro = null;
-      if (pixNoSite && !freteACombinar && total > 0) {
+      if (met.metodo === 'pix_online' && !freteACombinar && total > 0) {
         try { await pagamentoLoja.emitirPixDoPedido(db, criado.id, { vencimentoDias: c.pagamentoVencimentoDias ?? 1 }); }
         catch (e) { pixErro = e.message; console.error(`[loja] Pix do pedido ${criado.numero}:`, e.message); }
       }
@@ -1881,12 +1954,20 @@ function registrarRotasLojaPublica(app, db) {
         total: r2c(p.valorTotal),
         subtotal, frete,
         atendimento,
-        pagamento: { codigo: pagamento, rotulo: ROTULO_PAGAMENTO[pagamento] },
+        pagamento: {
+          codigo: met.metodo,
+          modalidade: met.modalidade,
+          rotulo: (metodosLoja.CATALOGO[met.metodo] || {}).rotulo || met.metodo,
+        },
         whatsapp: whatsappNormalizado(c.whatsapp || (empresaDe(db) || {}).telefone),
         freteACombinar,
-        pixNoSite,
+        /* Este PEDIDO gerou cobrança online, e não "esta LOJA cobra online":
+           com métodos por pedido as duas deixaram de ser a mesma pergunta. É
+           por este campo que a tela decide levar o cliente ao pagamento em
+           vez da confirmação comum. */
+        pixNoSite: met.metodo === 'pix_online',
         link: criado.token,
-        cobranca: pixNoSite ? pagamentoLoja.estadoDoPedido(db, criado.id) : null,
+        cobranca: met.metodo === 'pix_online' ? pagamentoLoja.estadoDoPedido(db, criado.id) : null,
         pixFalhou: !!pixErro,
       });
     } catch (e) {
@@ -1962,6 +2043,39 @@ function registrarRotasLojaAdmin(app, db) {
   migrarLojaDB(db);
   montagem.registrarRotasMontagemAdmin(app, db);       // /api/loja/montagem
   pagamentoLoja.registrarRotasPagamentoAdmin(app, db); // /api/pedidos/:id/pix
+
+  /* Os métodos de pagamento da loja. Rota própria, e não mais um campo do
+     `PUT /api/loja/config`: são sete linhas com três marcações cada, e
+     empurrá-las para dentro do objeto de configuração misturaria a escolha
+     de cobrança com tema, contato e horário, que salvam por outra tela. */
+  app.get('/api/loja/metodos-pagamento', (req, res) => {
+    try {
+      const c = lerConfig(db);
+      res.json({
+        success: true,
+        metodos: metodosLoja.listar(db),
+        /* A tela precisa saber o que a loja faz para não oferecer marcação
+           de entrega a quem não entrega. */
+        servicos: { entrega: !!c.servicoDelivery, retirada: !!c.servicoRetirada },
+      });
+    } catch (e) { return erroInterno(res, '/api/loja/metodos-pagamento', e); }
+  });
+
+  app.put('/api/loja/metodos-pagamento', (req, res) => {
+    try {
+      const lista = (req.body || {}).metodos;
+      if (!Array.isArray(lista)) {
+        return res.status(422).json({ success: false, error: 'Envie a lista de métodos.' });
+      }
+      metodosLoja.salvar(db, lista);
+      const c = lerConfig(db);
+      res.json({
+        success: true,
+        metodos: metodosLoja.listar(db),
+        servicos: { entrega: !!c.servicoDelivery, retirada: !!c.servicoRetirada },
+      });
+    } catch (e) { return erroInterno(res, '/api/loja/metodos-pagamento', e); }
+  });
 
   app.get('/api/loja/config', (req, res) => {
     try {

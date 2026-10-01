@@ -22,7 +22,6 @@
 
 const crypto = require('crypto');
 
-const MODOS_PIX = ['pix', 'pix-ou-boleto'];
 const r2c = (v) => Math.round((Number(v) || 0) * 100) / 100;
 
 function migrarPagamento(db) {
@@ -36,8 +35,11 @@ function migrarPagamento(db) {
   `);
 }
 
-/** A loja cobra por Pix no fechamento do pedido público? */
-const pixNoCheckout = (cfg) => MODOS_PIX.includes(cfg && cfg.pagamentoModo);
+/* `pixNoCheckout(cfg)` morava aqui e respondia "a loja cobra por Pix?" lendo
+   `loja_config.pagamentoModo`. Saiu em 30/09, quando quem passou a responder
+   isso foi `loja-metodos-pagamento`: a pergunta deixou de ser da LOJA e passou
+   a ser do PEDIDO, porque a mesma loja agora aceita Pix no site e dinheiro na
+   entrega ao mesmo tempo. */
 
 /**
  * Há provedor capaz de gerar Pix? Sem isto o pedido entra sem cobrança e a loja
@@ -273,7 +275,7 @@ function registrarRotasPagamentoAdmin(app, db) {
 }
 
 module.exports = {
-  migrarPagamento, pixNoCheckout, provedorPixPronto, registrarPedido,
+  migrarPagamento, provedorPixPronto, registrarPedido,
   estadoDoPedido, emitirPixDoPedido, lancarTaxaDeEntrega, cancelarPixAberto,
   registrarRotasPagamentoPublico, registrarRotasPagamentoAdmin,
 };

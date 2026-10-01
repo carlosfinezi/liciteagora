@@ -825,6 +825,47 @@ async function pintarSacola() {
    `corpoDoPedido()` lê do DOM, e o DOM é remontado a cada entrada na tela. */
 let CHECKOUT = { atendimento: null, pagamento: null, chave: null, enviando: false, campos: {} };
 
+/* ── formas de pagamento ─────────────────────────────────────────────────
+ *
+ * Quem decide o que aparece é o servidor: `LOJA.metodosPagamento` já vem
+ * filtrado por método ativo, atendimento e provedor no ar. Aqui só se pinta.
+ * A mesma função roda de novo no `finalizar`, do lado de lá, porque uma
+ * requisição montada à mão não passa por esta tela.
+ *
+ * A lista muda com o atendimento (uma loja pode receber cartão na entrega e
+ * só dinheiro na retirada), então ela é repintada a cada troca.
+ */
+/* Servidor ANTERIOR a 30/09 não manda `metodosPagamento`, e este arquivo é
+   estático: ele entra no ar ao ser salvo, enquanto o `loja-routes.js` só
+   passa a valer no restart. Entre uma coisa e outra existe uma janela real
+   em que a loja publicada seria atendida pela tela nova e pelo servidor
+   velho — e sem isto o cliente veria "esta loja ainda não configurou como
+   receber", com a loja funcionando.
+
+   O que vale nessa janela é exatamente o que valia antes: Pix sozinho quando
+   a loja cobrava no site, e os três de sempre quando não cobrava. */
+const METODOS_LEGADO = [
+  { metodo: 'pix', rotulo: 'PIX', descricao: '', modalidade: 'manual' },
+  { metodo: 'dinheiro', rotulo: 'Dinheiro', descricao: '', modalidade: 'manual' },
+  { metodo: 'cartao', rotulo: 'Cartão', descricao: 'na entrega/retirada', modalidade: 'manual' },
+];
+
+function metodosDoAtendimento(atend) {
+  if (!atend) return [];
+  const m = LOJA && LOJA.metodosPagamento;
+  if (!m) {
+    return LOJA && LOJA.pixNoSite
+      ? [{ ...METODOS_LEGADO[0], modalidade: 'online' }]
+      : METODOS_LEGADO;
+  }
+  return (atend === 'entrega' ? m.entrega : m.retirada) || [];
+}
+
+const metodoAtual = () =>
+  metodosDoAtendimento(CHECKOUT.atendimento).find((m) => m.metodo === CHECKOUT.pagamento) || null;
+
+const ehOnline = () => { const m = metodoAtual(); return !!(m && m.modalidade === 'online'); };
+
 /** Grava o que a pessoa digitou, para a tela voltar como ela deixou. */
 function guardarCampoCheckout(el) {
   if (!el || !el.id || !el.id.startsWith('chk')) return;
@@ -869,9 +910,9 @@ async function pintarCheckout() {
       <br><button class="btn-linha" data-voltar="1">Ver o catálogo</button></div>`;
     return;
   }
-  // Com Pix no site, o Pix é a única forma e já vem marcado.
-  const pixNoSite = !!(LOJA && LOJA.pixNoSite);
-  if (pixNoSite) CHECKOUT.pagamento = 'pix';
+  /* A forma de pagamento é marcada por pintarPagamentos(), que roda depois
+     desta montagem: ela depende do atendimento, que pode ainda não estar
+     escolhido aqui. Nada de Pix é decidido neste ponto. */
   const datas = SACOLA.itens.map((i) => i.dataDesejada).filter(Boolean).sort();
   // Serviço único não é escolha: já vem marcado.
   if (!CHECKOUT.atendimento) {
@@ -913,11 +954,12 @@ async function pintarCheckout() {
                  data-formato="telefone" maxlength="16" placeholder="(00) 00000-0000">
         </div>
         <div class="chk-campo">
-          ${pixNoSite
-            ? '<label for="chkDoc">CPF *</label>'
-            : '<label for="chkDoc">CPF ou CNPJ <span class="chk-op-txt">(opcional)</span></label>'}
+          <!-- Rótulo e placeholder são trocados por pintarEscolhas(): o CPF
+               vira obrigatório quando a forma escolhida é cobrada pelo site,
+               e essa escolha acontece depois deste campo ser desenhado. -->
+          <label for="chkDoc" id="chkDocRot">CPF ou CNPJ <span class="chk-op-txt">(opcional)</span></label>
           <input id="chkDoc" type="text" inputmode="numeric" data-formato="cpfcnpj" maxlength="18"
-                 placeholder="${pixNoSite ? 'O Pix precisa dele' : 'Só se quiser na nota'}">
+                 placeholder="Só se quiser na nota">
         </div>
         <div class="chk-campo">
           <label for="chkEmail">E-mail <span class="chk-op-txt">(opcional)</span></label>
@@ -975,11 +1017,8 @@ async function pintarCheckout() {
       <section class="chk-bloco">
         <h2>Pagamento</h2>
         <p class="chk-aviso" id="chkQuandoPaga"></p>
-        <div class="chk-opcoes" id="chkPagOps">
-          <button type="button" class="chk-op" data-pag="pix"><strong>PIX</strong></button>
-          ${pixNoSite ? '' : `<button type="button" class="chk-op" data-pag="dinheiro"><strong>Dinheiro</strong></button>
-          <button type="button" class="chk-op" data-pag="cartao"><strong>Cartão</strong><span>na entrega/retirada</span></button>`}
-        </div>
+        <!-- Montado por pintarPagamentos(), que depende do atendimento. -->
+        <div class="chk-opcoes" id="chkPagOps"></div>
         <div id="chkTroco" hidden>
           <label class="chk-check">
             <input type="checkbox" id="chkPrecisaTroco"> Precisa de troco?
@@ -1025,10 +1064,42 @@ async function pintarCheckout() {
 }
 
 /** Marca os botões escolhidos e mostra/esconde o que depende deles. */
+/**
+ * Redesenha as formas de pagamento do atendimento escolhido.
+ *
+ * Roda a cada troca de atendimento, e é aí que a escolha anterior pode deixar
+ * de valer: quem marcou "cartão" para entrega e mudou para retirada numa loja
+ * que só recebe dinheiro na porta não pode continuar com o cartão marcado. A
+ * escolha é limpa, e não trocada em silêncio por outra — o cliente escolhe.
+ */
+function pintarPagamentos() {
+  const caixa = $('chkPagOps');
+  if (!caixa) return;
+  const lista = metodosDoAtendimento(CHECKOUT.atendimento);
+
+  if (CHECKOUT.pagamento && !lista.some((m) => m.metodo === CHECKOUT.pagamento)) {
+    CHECKOUT.pagamento = null;
+  }
+  // Forma única não é escolha.
+  if (!CHECKOUT.pagamento && lista.length === 1) CHECKOUT.pagamento = lista[0].metodo;
+
+  if (!lista.length) {
+    caixa.innerHTML = CHECKOUT.atendimento
+      ? '<p class="chk-aviso">Esta loja ainda não configurou como receber neste tipo de pedido. Fale com ela pelo WhatsApp.</p>'
+      : '<p class="chk-aviso">Escolha primeiro como quer receber.</p>';
+    return;
+  }
+  caixa.innerHTML = lista.map((m) => `<button type="button" class="chk-op" data-pag="${esc(m.metodo)}">`
+    + `<strong>${esc(m.rotulo)}</strong>`
+    + (m.descricao ? `<span>${esc(m.descricao)}</span>` : '')
+    + '</button>').join('');
+}
+
 function pintarEscolhas() {
   const e = (LOJA && LOJA.entrega) || {};
   document.querySelectorAll('[data-atend]').forEach((b) =>
     b.classList.toggle('on', b.dataset.atend === CHECKOUT.atendimento));
+  pintarPagamentos();
   document.querySelectorAll('[data-pag]').forEach((b) =>
     b.classList.toggle('on', b.dataset.pag === CHECKOUT.pagamento));
 
@@ -1049,17 +1120,28 @@ function pintarEscolhas() {
     } else { info.hidden = true; }
   }
 
+  /* A frase segue o MÉTODO escolhido, e não mais a loja: com Pix online e
+     dinheiro ativos ao mesmo tempo, as duas respostas convivem na mesma
+     tela, e é a escolha do cliente que diz qual vale para ele. */
   const quando = $('chkQuandoPaga');
   if (quando) {
-    if (LOJA && LOJA.pixNoSite) {
+    if (!CHECKOUT.pagamento) {
+      quando.textContent = '';
+    } else if (ehOnline()) {
       quando.textContent = entrega && e.freteModo === 'combinar'
-        ? 'A loja calcula a taxa de entrega e manda o Pix do total pelo WhatsApp.'
-        : 'O Pix aparece logo depois de você confirmar o pedido.';
+        ? 'A loja calcula a taxa de entrega e manda a cobrança do total pelo WhatsApp.'
+        : 'A cobrança aparece logo depois de você confirmar o pedido.';
     } else {
-      quando.textContent = CHECKOUT.atendimento
-        ? `Você paga na ${entrega ? 'entrega' : 'retirada'}. Nada é cobrado agora.`
-        : 'Nada é cobrado agora.';
+      quando.textContent = `Você paga na ${entrega ? 'entrega' : 'retirada'}. Nada é cobrado agora.`;
     }
+  }
+
+  const rot = $('chkDocRot');
+  const doc = $('chkDoc');
+  if (rot && doc) {
+    const obrig = ehOnline();
+    rot.innerHTML = obrig ? 'CPF *' : 'CPF ou CNPJ <span class="chk-op-txt">(opcional)</span>';
+    doc.placeholder = obrig ? 'A cobrança pelo site precisa dele' : 'Só se quiser na nota';
   }
 
   const troco = $('chkTroco');
@@ -1104,7 +1186,18 @@ function corpoDoPedido() {
     cliente: { nome: v('chkNome'), telefone: so('chkTelefone'), cpfCnpj: so('chkDoc') || null,
                email: v('chkEmail') || null, aceitePromocoes: !!($('chkPromocoes') && $('chkPromocoes').checked) },
     atendimento: CHECKOUT.atendimento,
-    pagamento: CHECKOUT.pagamento,
+    /* `metodo` é a chave de `loja_metodos_pagamento`. O código fiscal NÃO
+       viaja daqui: quem o resolve é o servidor, porque é ele que vai para a
+       nota.
+
+       `pagamento` vai junto pelo motivo inverso do fallback acima: enquanto
+       o servidor for o anterior a 30/09, é este campo que ele lê, e sem ele
+       o pedido seria recusado com "escolha uma forma de pagamento". O
+       servidor novo ignora `pagamento` quando `metodo` vem preenchido. */
+    metodo: CHECKOUT.pagamento,
+    pagamento: { pix_online: 'pix', pix_manual: 'pix', dinheiro: 'dinheiro',
+                 credito_presencial: 'cartao', debito_presencial: 'cartao',
+               }[CHECKOUT.pagamento] || CHECKOUT.pagamento,
     observacao: v('chkObs') || null,
     itens: lerCarrinho(),
   };
@@ -1145,7 +1238,7 @@ function faltasDoCheckout() {
   // Só o VAZIO é cobrado aqui: número incompleto, CPF com dígito errado e
   // e-mail torto são da peça de formato, logo abaixo.
   if (!v('chkTelefone')) marcar('chkTelefone', 'Falta preencher');
-  if (LOJA && LOJA.pixNoSite && !v('chkDoc')) marcar('chkDoc', 'O Pix precisa do CPF');
+  if (ehOnline() && !v('chkDoc')) marcar('chkDoc', 'A cobrança pelo site precisa do CPF');
   if (CHECKOUT.atendimento === 'entrega') {
     for (const [id, diz] of [['chkRua', 'Falta preencher'], ['chkNumero', 'Falta preencher'],
       ['chkBairro', 'Falta preencher'], ['chkCidade', 'Falta preencher'], ['chkUf', 'Falta preencher']]) {
@@ -1227,10 +1320,13 @@ function pintarSucesso(numero) {
     ? `https://wa.me/${d.whatsapp}?text=${encodeURIComponent(
         `Olá! Acabei de fazer o pedido nº ${num} pelo catálogo.`)}`
     : null;
+  const onde = d.atendimento === 'entrega' ? 'entrega' : 'retirada';
   const instrucao = {
-    pix: 'A loja vai enviar as instruções de pagamento do PIX.',
-    dinheiro: 'Separe o valor para pagar na ' + (d.atendimento === 'entrega' ? 'entrega' : 'retirada') + '.',
-    cartao: 'A maquininha vai na ' + (d.atendimento === 'entrega' ? 'entrega' : 'retirada') + '.',
+    pix_manual: 'A loja vai enviar a chave PIX e conferir o comprovante.',
+    boleto_online: 'O boleto foi gerado e o link chega pelo WhatsApp.',
+    dinheiro: `Separe o valor para pagar na ${onde}.`,
+    credito_presencial: `A maquininha vai na ${onde}.`,
+    debito_presencial: `A maquininha vai na ${onde}.`,
   }[d.pagamento && d.pagamento.codigo] || '';
 
   alvo.innerHTML = `

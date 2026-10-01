@@ -147,6 +147,15 @@ function montar({ provedor = true, frete = 'combinar' } = {}) {
     db.prepare(`INSERT INTO contas_financeiras_boleto (contaFinanceiraId, provedor, ambiente, ativo, ehPadrao, configJson)
       VALUES (?, 'asaas', 'homologacao', 1, 1, ?)`).run(conta, JSON.stringify({ accessToken: '$aact_hmlg_teste', webhookToken: 'tok-webhook' }));
   }
+
+  /* `loja_metodos_pagamento` é a fonte do que o checkout aceita desde
+     30/09, e ela nasce no boot traduzindo o `pagamentoModo`. Aqui o modelo
+     é montado ANTES de o `pagamentoModo` e a conta Asaas serem gravados, e
+     a tabela já ficaria com os manuais — o Pix do checkout nunca sairia.
+     Refazer a migração reproduz o boot, que é o que esta suíte mede. */
+  db.exec('DELETE FROM loja_metodos_pagamento');
+  require('../loja-metodos-pagamento').migrarMetodos(db);
+
   return { db, grupos: { ferrero: g1, ferrero8: o1, mensagem: g2 } };
 }
 

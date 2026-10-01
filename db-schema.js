@@ -1356,7 +1356,24 @@ for (const col of [
    * físico que passa pela mão do entregador, e só serve para o <vTroco> da
    * NFC-e e para quem separa o pedido saber que precisa levar troco.
    */
-  'valorRecebidoDinheiro REAL'
+  'valorRecebidoDinheiro REAL',
+  /*
+   * Como o cliente escolheu pagar, na linguagem da LOJA (2026-09-30).
+   *
+   * É a chave de `loja_metodos_pagamento`, e existe porque `meioPagamento`
+   * não consegue responder o que o operacional precisa saber. Pix online e
+   * Pix combinado com a loja são os dois tPag 17: a nota sai igual, mas um
+   * já tem cobrança emitida e baixa sozinho, e o outro espera alguém
+   * conferir o comprovante. Quem só lê o 17 não distingue os dois, e foi
+   * essa indistinção que travou o checkout em "ou online, ou manual".
+   *
+   * NULL é o estado de todo pedido anterior a esta data, e de todo pedido
+   * que não nasce no catálogo (ERP, PDV, licitação, OS). Nada é preenchido
+   * para trás: o fiscal sempre leu `meioPagamento`, continua lendo, e
+   * reinterpretar um pedido antigo seria inventar uma escolha que o cliente
+   * nunca fez.
+   */
+  'metodoPagamento TEXT'
 ]) alterSafe(db, `ALTER TABLE pedidos ADD COLUMN ${col}`);
 /* A autoridade contra concorrência. Parcial porque só o checkout público
    preenche a coluna. */
@@ -2929,6 +2946,12 @@ require('./migracao-fornecedores-pessoas').migrarFornecedoresParaPessoas(db);
 // link de pagamento e entrega a combinar). Tabelas novas, só aditivas (29/09).
 require('./loja-montagem').migrarMontagem(db);
 require('./loja-pagamento').migrarPagamento(db);
+
+/* O que a loja aceita receber, e em qual atendimento (30/09). Vem DEPOIS de
+   tudo porque a semente lê `loja_config` para traduzir o `pagamentoModo`
+   antigo, e essa tabela nasce no `migrarLojaDB`, mais acima. Rodar antes
+   deixaria a leitura vazia e a loja sem método nenhum. */
+require('./loja-metodos-pagamento').migrarMetodos(db);
 
 }
 
