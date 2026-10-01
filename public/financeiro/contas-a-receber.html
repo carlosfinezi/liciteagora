@@ -8,6 +8,12 @@
   <link rel="stylesheet" href="/css/sidebar.css">
   <link rel="stylesheet" href="/css/app-modern.css">
   <style>
+    /* A nota do cabeçalho explica a coluna sem depender do balão do mouse. */
+    .th-nota {
+      display: block; font-weight: var(--peso-normal);
+      font-size: var(--text-xs); color: var(--text-3); text-transform: none;
+      letter-spacing: 0; margin-top: 2px;
+    }
     /* Page-local: barra fixa para ações em lote + autocomplete de pessoa */
     .barra-lote {
       display: none;
@@ -31,7 +37,7 @@
     .pessoa-result .item:hover { background: var(--bg-hover); color: var(--text-0); }
     .pessoa-result .item:last-child { border-bottom: none; }
     .pessoa-sel {
-      margin-top: 6px; font-size: 0.85em; color: var(--success);
+      margin-top: 6px; font-size: var(--text-xs); color: var(--success);
     }
   </style>
 </head>
@@ -40,7 +46,7 @@
   <main class="main-content">
     <div class="page-header">
       <div>
-        <h1>💰 Contas a Receber</h1>
+        <h1>Contas a Receber</h1>
         <small>Cobranças a clientes, lançadas à mão, vindas de NFS-e ou parceladas</small>
       </div>
       <div class="actions">
@@ -87,7 +93,10 @@
           <th>Categoria</th>
           <th style="text-align:right;">Valor</th>
           <th style="text-align:right;">Saldo</th>
-          <th style="text-align:right;" title="Saldo + juros + multa quando em atraso">Com atraso</th>
+          <!-- A explicação fica na tela, e não só no balão do mouse: em vídeo e
+               no toque o `title` não aparece, e o número sem ele vira mistério. -->
+          <th style="text-align:right;" title="Saldo + juros + multa quando em atraso">Com atraso
+            <small class="th-nota">com juros e multa</small></th>
           <th>Status</th>
           <th style="text-align:center;" title="Nota fiscal">📄</th>
           <th style="text-align:center;" title="Anexos">📎</th>
@@ -212,7 +221,7 @@
       </label>
       <small style="color:var(--text-3);">Marcado: principal é coberto primeiro; o que sobrar vai pra multa e juros (sobras do cliente caem como juros recebidos menores). Desmarcado: imputa juros → multa → principal (Art. 354 CC), título pode ficar parcial.</small>
     </div>
-    <div id="lPrevia" style="font-size:0.82em;color:var(--text-2);margin-top:4px;"></div>
+    <div id="lPrevia" style="font-size:var(--text-xs);color:var(--text-2);margin-top:4px;"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharLote()">Cancelar</button>
       <button class="btn btn-success" onclick="confirmarLote()">Confirmar recebimento</button>

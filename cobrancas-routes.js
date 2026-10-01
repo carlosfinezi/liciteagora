@@ -10,7 +10,7 @@
  */
 
 const { enviarEmailCobranca, loadSmtpConfig } = require('./email-client');
-const { enviarWhatsApp } = require('./whatsapp-adapter');
+const { enviarWhatsApp, loadProviderConfig } = require('./whatsapp-adapter');
 
 const DEFAULT_REGUA = [
   {
@@ -145,6 +145,31 @@ function getConfig(db) {
 
 function setConfig(db, cfg) {
   db.prepare('INSERT OR REPLACE INTO cobrancas_config (key, value) VALUES (?, ?)').run('config', JSON.stringify(cfg));
+}
+
+/**
+ * O que a cobrança consegue mandar neste tenant, agora.
+ *
+ * A tela prometia "envio por e-mail e WhatsApp" e punha "Executar régua agora"
+ * em destaque sem nenhum dos dois configurado: só depois do clique, e conta por
+ * conta, aparecia "SMTP nao configurado". O estado vem junto da configuração
+ * para a tela avisar ANTES.
+ *
+ * `boleto` é sobre a linha digitável e o link que a régua oferece como
+ * variável: sem provedor nenhum, as duas saem vazias na mensagem do cliente.
+ *
+ * Cada leitura é isolada de propósito: um módulo que mude de forma não pode
+ * derrubar a tela de cobrança inteira, e canal que não se consegue ler conta
+ * como não configurado, que é o lado seguro — avisa a mais, nunca a menos.
+ */
+function estadoDosCanais(db) {
+  const seguro = (fn) => { try { return !!fn(); } catch { return false; } };
+  return {
+    email: seguro(() => loadSmtpConfig(db)),
+    whatsapp: seguro(() => loadProviderConfig(db, null)),
+    boleto: seguro(() => db.prepare(
+      'SELECT COUNT(*) AS n FROM contas_financeiras_boleto WHERE COALESCE(ativo, 1) = 1').get().n > 0),
+  };
 }
 
 function formatarValor(v) {
@@ -390,7 +415,9 @@ function registrarRotasCobrancas(app, db) {
       });
 
       const totalValor = contas.reduce((s, c) => s + (c.valor || 0), 0);
-      res.json({ success: true, contas, resumo: { total: contas.length, totalValor } });
+      // `canais` vem junto para a lista avisar sem uma segunda chamada: o aviso
+      // de "nada sai daqui" precisa aparecer na mesma pintura da tela.
+      res.json({ success: true, contas, resumo: { total: contas.length, totalValor }, canais: estadoDosCanais(db) });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -444,7 +471,7 @@ function registrarRotasCobrancas(app, db) {
 
   app.get('/api/cobrancas/config', (req, res) => {
     try {
-      res.json({ success: true, config: getConfig(db) });
+      res.json({ success: true, config: getConfig(db), canais: estadoDosCanais(db) });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -504,4 +531,4 @@ function registrarRotasCobrancas(app, db) {
   console.log('[Cobrancas] Rotas registradas');
 }
 
-module.exports = { registrarRotasCobrancas, executarRegua, enviarEtapa, getConfig, nomeDaEtapa, migrarDB, isDiaUtil, dataBrasilia };
+module.exports = { registrarRotasCobrancas, executarRegua, enviarEtapa, getConfig, nomeDaEtapa, estadoDosCanais, migrarDB, isDiaUtil, dataBrasilia };

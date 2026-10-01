@@ -23,10 +23,10 @@
   .ped-header-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
   .ped-header-left { min-width: 0; }
   .ped-header-left h1 { font-size: 1.25rem; margin-bottom: 4px; }
-  .ped-header-meta { color: var(--text-2); font-size: 0.85em; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .ped-header-meta { color: var(--text-2); font-size: var(--text-xs); display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   .ped-header-meta strong { color: var(--text-0); font-weight: 500; }
   .ped-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); background: none; border: none; cursor: pointer; padding: 0; margin-bottom: 8px; font-size: 0.85em; font-family: inherit; }
+  .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); background: none; border: none; cursor: pointer; padding: 0; margin-bottom: 8px; font-size: var(--text-xs); font-family: inherit; }
   .back-link:hover { color: var(--accent); }
 
   /* Tabs do pedido (variante com count) */
@@ -59,7 +59,7 @@
   .ped-tab:hover { color: var(--text-0); }
   .ped-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
   .ped-tab.dirty::after { content:'●'; color: var(--warn); margin-left: 5px; font-size: 0.9em; }
-  .ped-tab .count { background: var(--bg-3); color: var(--text-2); padding: 1px 7px; border-radius: 999px; font-size: 0.72em; margin-left: 6px; }
+  .ped-tab .count { background: var(--bg-3); color: var(--text-2); padding: 1px 7px; border-radius: 999px; font-size: var(--text-xs); margin-left: 6px; }
 
   /* Painéis abáveis */
   .ped-painel { display: none; flex: 1; overflow-y: auto; padding: 24px 28px; background: var(--bg-0); min-height: 0 !important; }
@@ -79,7 +79,7 @@
   .drawer-body { display: flex; flex-direction: column; gap: 6px; }
   .drawer-body .btn { width: 100%; justify-content: flex-start; padding: 11px 14px; font-size: 0.9em; }
   .drawer-body .divider { height: 1px; background: var(--border); margin: 10px 0; }
-  .drawer-body .group-label { font-size: 0.72em; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; padding: 4px 0 2px; }
+  .drawer-body .group-label { font-size: var(--text-xs); color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; padding: 4px 0 2px; }
 
   /* Descrição do item: cresce com o texto em vez de cortar o nome do produto. */
   textarea.auto-altura {
@@ -132,7 +132,7 @@
     .tabela-itens td::before {
       content: attr(data-rot);
       flex: 0 0 78px; color: var(--text-3);
-      font-size: .78em; text-transform: uppercase; letter-spacing: .05em;
+      font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .05em;
     }
     /* Produto e descrição ocupam o bloco inteiro, um sobre o outro — é o que
        se lê primeiro para saber de que item se trata. */
@@ -144,7 +144,7 @@
     /* O índice vira etiqueta no canto: numerar um card não precisa de linha. */
     .tabela-itens td.col-indice {
       position: absolute; top: 10px; right: 12px; padding: 0 !important;
-      font-size: .76em; opacity: .65;
+      font-size: var(--text-xs); opacity: .65;
     }
     .tabela-itens td.col-indice::before { content: '#'; flex: none; }
     .tabela-itens td.col-remover { justify-content: flex-end; padding-top: 10px !important; }
@@ -201,7 +201,7 @@
         <div class="form-group full-width">
           <label>Tipo de operação *</label>
           <select id="tipoOperacaoId" onchange="onTrocarTipoOp()"></select>
-          <div id="tipoOpResumo" class="muted" style="font-size:0.85em;margin-top:6px;"></div>
+          <div id="tipoOpResumo" class="muted" style="font-size:var(--text-xs);margin-top:6px;"></div>
         </div>
       </div>
     </div>
@@ -229,7 +229,7 @@
     </div>
 
     <h3 style="margin-top:20px;">Endereço de entrega</h3>
-    <p class="muted" style="font-size:0.85em;margin-bottom:12px;">
+    <p class="muted" style="font-size:var(--text-xs);margin-bottom:12px;">
       Pré-preenchido com o endereço do cliente. Altere livremente caso este pedido tenha local de entrega diferente.
     </p>
     <div class="panel">
@@ -261,7 +261,7 @@
       <select id="pedTabelaPreco" onchange="salvarTabelaPedido()" style="min-width:240px;">
         <option value="">Automática (tabela do cliente / vigente)</option>
       </select>
-      <span class="muted" style="font-size:.82em;">Força uma tabela neste pedido. Vazio = usa a tabela do cliente, senão a vigente por prioridade, senão o preço do cadastro.</span>
+      <span class="muted" style="font-size:var(--text-xs);">Força uma tabela neste pedido. Vazio = usa a tabela do cliente, senão a vigente por prioridade, senão o preço do cadastro.</span>
     </div>
     <div id="avisoFalta" style="display:none;"></div>
     <div class="tbl-wrap">
@@ -290,7 +290,7 @@
                     spellcheck="false"></textarea></div>
         <div class="form-group"><label>Qtd *</label><input type="number" id="itQtd" step="0.01" onchange="resolverPrecoItem()"></div>
         <div class="form-group"><label>V.Unit *</label><input type="number" id="itPu" step="0.01">
-          <span id="itPrecoFonte" class="muted" style="font-size:.8em;"></span>
+          <span id="itPrecoFonte" class="muted" style="font-size:var(--text-xs);"></span>
         </div>
       </div>
       <button class="btn btn-primary btn-sm" onclick="addItem()">Adicionar item</button>
@@ -364,7 +364,7 @@
       <div class="form-row">
         <div class="form-group" style="grid-column: span 2;">
           <label>Condição de pagamento
-            <a href="/financeiro/politicas-prazo.html" target="_blank" style="font-size:11px;font-weight:normal;margin-left:6px;">⚙ gerenciar</a></label>
+            <a href="/financeiro/politicas-prazo.html" target="_blank" style="font-size:var(--text-xs);font-weight:normal;margin-left:6px;">⚙ gerenciar</a></label>
           <select id="politicaPrazo" onchange="aoTrocarPolitica()"></select>
           <small id="politicaPrazoInfo" class="muted" style="display:block;margin-top:4px;"></small>
         </div>
@@ -394,8 +394,8 @@
           <small class="muted" style="display:block;">Cada parcela gera uma conta a receber separada na tela Contas a Receber.</small>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <span class="muted" style="font-size:0.85em;">Total pedido: <strong id="parcTotalPed">R$ 0,00</strong></span>
-          <span id="parcSomaWrap" style="font-size:0.85em;">Soma: <strong id="parcSoma">R$ 0,00</strong></span>
+          <span class="muted" style="font-size:var(--text-xs);">Total pedido: <strong id="parcTotalPed">R$ 0,00</strong></span>
+          <span id="parcSomaWrap" style="font-size:var(--text-xs);">Soma: <strong id="parcSoma">R$ 0,00</strong></span>
           <button class="btn btn-secondary btn-sm" onclick="desativarParcelamento()">← Voltar ao pagamento único</button>
         </div>
       </div>
@@ -1222,7 +1222,7 @@ function renderPgtoFatura(){
         <div><small class="muted">Valor Recebido</small><div>${pagoLabel}</div></div>
         <div><small class="muted">Data Pagamento</small><div>${p.crDataPagamento || '<span class="muted">—</span>'}</div></div>
       </div>
-      <p class="muted" style="font-size:0.85em;margin-top:10px;">
+      <p class="muted" style="font-size:var(--text-xs);margin-top:10px;">
         Para dar baixa manualmente, acesse <a href="/financeiro/contas-a-receber.html">Contas a Receber</a>.
       </p>`;
   } else {
@@ -2284,7 +2284,7 @@ function montarPainelFiscal(d){
   const campo = (rot, val, largo) => val
     ? '<div' + (largo ? ' style="grid-column:1/-1;"' : '') + '><small class="muted">'
       + rot + '</small><div class="mono"' + (largo
-        ? ' style="font-size:0.82em;word-break:break-all;"' : '') + '>'
+        ? ' style="font-size:var(--text-xs);word-break:break-all;"' : '') + '>'
       + escHtml(val) + '</div></div>'
     : '';
   const linhaNota = '<div class="panel"><div class="form-row">'
@@ -3089,13 +3089,20 @@ function aplicarFalta(){
     if (info.faltando > 0) {
       td.className = 'text-danger';
       td.innerHTML = `<strong>${q(info.disponivel)} ${un(info.disponivel)}</strong>` +
-        `<br><span style="font-size:.82em;">faltam ${q(info.faltando)} ${un(info.faltando)}</span>` +
-        (info.emTransito > 0 ? `<br><span class="muted" style="font-size:.78em;">${q(info.emTransito)} ${un(info.emTransito)} a caminho</span>` : '');
+        `<br><span style="font-size:var(--text-xs);">faltam ${q(info.faltando)} ${un(info.faltando)}</span>` +
+        (info.emTransito > 0 ? `<br><span class="muted" style="font-size:var(--text-xs);">${q(info.emTransito)} ${un(info.emTransito)} a caminho</span>` : '');
     } else {
       td.className = 'text-success';
       td.innerHTML = `${q(info.disponivel)} <span class="muted">${un(info.disponivel)}</span>`;
     }
   });
+
+  // A altura dos textareas foi medida quando a coluna "Disp." ainda era um
+  // traço. O item que falta enche essa célula com até três linhas, a coluna da
+  // descrição estreita, e o que cabia em duas linhas passa a precisar de três —
+  // com a altura já fixada, a última saía cortada ao meio. Medir de novo aqui é
+  // o único ponto em que as larguras finais já existem.
+  document.querySelectorAll('#tbItens textarea.desc-item').forEach(ajustarAltura);
 
   const aviso = document.getElementById('avisoFalta');
   if (!aviso) return;
@@ -3113,7 +3120,7 @@ function aplicarFalta(){
        <div>
          <strong>Sem saldo para ${faltantes.length} ${faltantes.length === 1 ? 'item' : 'itens'}:</strong>
          ${faltantes.map(i => `${comoChama(i)} — faltam ${fmtQtd(i.faltando, i.produtoId, i.unidade, i)} ${escHtml(nomeUnid(i.produtoId, i.unidade, i, i.faltando))}`).join('; ')}
-         ${emTransito.length ? `<br><span class="muted" style="font-size:.85em;">Já há compra a caminho para ${emTransito.map(comoChama).join(', ')}.</span>` : ''}
+         ${emTransito.length ? `<br><span class="muted" style="font-size:var(--text-xs);">Já há compra a caminho para ${emTransito.map(comoChama).join(', ')}.</span>` : ''}
        </div>
        <button class="btn btn-primary btn-sm" onclick="abrirModalFalta(false)">Comprar faltantes</button>
      </div>`;
@@ -3172,14 +3179,14 @@ function abrirModalFalta(daConfirmacao, insuficiencias){
     return `
     <tr>
       <td><input type="checkbox" class="falta-chk" data-idx="${n}" checked></td>
-      <td>${escHtml(i.descricao || '')}${i.sku ? `<br><span class="muted mono" style="font-size:.82em;">${escHtml(i.sku)}</span>` : ''}</td>
+      <td>${escHtml(i.descricao || '')}${i.sku ? `<br><span class="muted mono" style="font-size:var(--text-xs);">${escHtml(i.sku)}</span>` : ''}</td>
       <td style="text-align:right;">${q(i.quantidade)} <span class="muted">${un(i.quantidade)}</span></td>
       <td style="text-align:right;">${q(i.disponivel)} <span class="muted">${un(i.disponivel)}</span></td>
       <td style="text-align:right;">${i.emTransito > 0 ? `<strong>${q(i.emTransito)}</strong> <span class="muted">${un(i.emTransito)}</span>` : '<span class="muted">—</span>'}</td>
       <td><input type="number" step="${i.unidadeFraciona === false ? '1' : '0.01'}" min="0" class="falta-qtd" data-idx="${n}"
              value="${i.unidadeFraciona === false ? Math.ceil(Number(i.faltando)||0) : (Number(i.faltando)||0)}"
              style="width:100px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;">
-          <span class="muted" style="font-size:.82em;">${un(i.faltando)}</span></td>
+          <span class="muted" style="font-size:var(--text-xs);">${un(i.faltando)}</span></td>
       <td>${escHtml(i.fornecedorNome || 'a definir')}</td>
     </tr>`;
   }).join('');
@@ -3607,7 +3614,7 @@ async function carregarFaturaInfo(){
         <div class="form-row">
           <div><small class="muted">Status SEFAZ</small><div><span class="badge ${f.statusSefaz==='autorizada'?'pago':f.statusSefaz==='cancelada_sefaz'?'cancelada':'vencida'}">${f.statusSefaz}</span></div></div>
           ${f.numeroNFe?`<div><small class="muted">Nº/Série</small><div><strong class="mono">${f.numeroNFe}/${f.serieNFe||'1'}</strong></div></div>`:''}
-          ${f.chaveAcesso?`<div style="grid-column:1/-1;"><small class="muted">Chave de acesso</small><div class="mono" style="font-size:0.82em;word-break:break-all;">${f.chaveAcesso}</div></div>`:''}
+          ${f.chaveAcesso?`<div style="grid-column:1/-1;"><small class="muted">Chave de acesso</small><div class="mono" style="font-size:var(--text-xs);word-break:break-all;">${f.chaveAcesso}</div></div>`:''}
           ${f.protocoloAutorizacao?`<div><small class="muted">Protocolo</small><div class="mono">${f.protocoloAutorizacao}</div></div>`:''}
           ${f.dataAutorizacaoSefaz?`<div><small class="muted">Autorizada em</small><div>${f.dataAutorizacaoSefaz}</div></div>`:''}
         </div>

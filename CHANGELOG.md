@@ -4,6 +4,62 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-01, a cobrança para de prometer o canal que não tem
+
+Sete pontos levantados no retrato de loja de material de construção, onde as
+telas foram lidas como o dono da loja as lê. Todos de interface e de leitura:
+nenhuma mudança de regra de negócio, nenhuma migração de banco.
+
+**A cobrança oferecia envio sem ter por onde enviar.** A tela anunciava "envio
+de cobranças por e-mail e WhatsApp" e punha "Executar régua agora" em destaque
+com nenhum dos dois configurados. O erro aparecia só depois do clique, uma linha
+por conta: "SMTP nao configurado". Agora `GET /api/cobrancas/config` e a lista
+de vencidas devolvem `canais` (`estadoDosCanais`, em `cobrancas-routes.js`), e
+as duas telas avisam ANTES, com o caminho da configuração, e desativam o botão
+da régua e os três de envio em massa — cada um pelo seu canal. O estado sai de
+quem manda de verdade: `loadSmtpConfig` para o e-mail e `loadProviderConfig`
+para o WhatsApp, em vez de uma segunda definição de "configurado" que poderia
+divergir. Canal que não se consegue ler conta como não configurado, que é o lado
+seguro: avisa a mais, nunca a menos.
+
+**A régua oferecia variável que sairia vazia.** `{{linhaDigitavel}}` e
+`{{linkBoleto}}` ficavam na lista de variáveis disponíveis mesmo sem provedor de
+boleto, e quem as usasse mandava ao cliente a mensagem com a linha em branco.
+Agora elas saem riscadas, com o motivo no balão, e a tela diz **em que etapa**
+elas estão sendo usadas hoje — que é onde a mensagem sairia com o buraco.
+
+**"Com atraso" se explica na tela.** A coluna de Contas a Receber mostra o saldo
+com juros e multa, e isso estava escrito só no `title` do cabeçalho. Em vídeo e
+no toque esse balão não existe. Virou uma linha visível sob o rótulo.
+
+**O e-mail em cópia interna se anuncia como exemplo.** O campo já era
+`placeholder`, mas o endereço plausível em cinza passava por valor configurado.
+Agora começa com "exemplo:".
+
+**O emoji saiu do título de Contas a Receber.** Era a única tela do conjunto com
+emoji no `<h1>`, contra o padrão de ícone ou nada das outras.
+
+**A descrição do item do pedido não corta mais a segunda linha.** A altura dos
+textareas era medida na montagem, quando a coluna "Disponível" ainda era um
+traço. O item que falta enche essa célula com até três linhas, a coluna da
+descrição estreita, e o que cabia em duas linhas passava a precisar de três —
+com a altura já fixada, a última saía cortada ao meio. `aplicarFalta` remede
+depois de preencher, que é o único ponto em que as larguras finais já existem.
+
+**A tabela do estoque em janela estreita não tinha defeito**, e isso foi medido
+antes de mexer: o `.tabela-rolagem` que o `sidebar.js` injeta já rola, e a
+coluna Status é alcançável (12, 132, 323 e 443 px de rolagem em 820, 700, 600 e
+480 px de janela). O que parecia corte no print era o Chrome da captura rodando
+com `--hide-scrollbars`. Nada foi alterado; ficou a etapa E6 de
+`test-estoque-mercado`, que guarda a propriedade para o dia em que alguém puser
+`overflow: hidden` no caminho.
+
+Provas: etapa **171** nova (`test-cobranca-canais`, 17 checagens no Chrome, as
+duas telas nos dois estados) e o bloco **H** de `test-os-sla-e-rotulos` (11
+checagens, incluindo `estadoDosCanais` contra banco com e sem SMTP e com
+provedor de boleto ativo e desativado). Doze sabotagens, uma por correção,
+reprovaram todas.
+
 ## 2026-10-01, o campo de dado com um padrão só, e o aviso que para de travar a tela
 
 Saiu de um levantamento das 259 telas (relatório em `/tmp/revisao-liciteagora-2026-09-30.md`,
@@ -161,7 +217,7 @@ lugar de "ETAPA 4", com o nome editável na configuração; o relatório virou
 e a coluna de equipamento some para quem não usa equipamento; e o número do
 contrato parou de cortar.
 
-Prova: etapa **168** do verify (`test-os-sla-e-rotulos`, 49 checagens). Quatro
+Prova: etapa **168** do verify (`test-os-sla-e-rotulos`, 38 checagens). Quatro
 sabotagens reprovaram: o relatório voltando a ler a coluna (5 checagens), as
 colunas fora do `db-schema` (2), o KPI lendo `statusFiscal` (1) e os pisos de
 largura somando mais que a tela (1). Esta última nasceu de um erro cometido no

@@ -24,9 +24,14 @@
                 <small>Títulos vencidos e envio de cobranças por e-mail e WhatsApp</small>
               </div>
               <div class="actions">
-                <button class="btn btn-primary btn-sm" onclick="abrirPreviewRegua()">⚡ Executar régua agora</button>
+                <button class="btn btn-primary btn-sm" id="btnRegua" onclick="abrirPreviewRegua()">⚡ Executar régua agora</button>
               </div>
             </div>
+
+            <!-- Sem e-mail e sem WhatsApp a régua não tem por onde sair. O aviso
+                 vem antes do clique: até aqui o erro só aparecia depois, uma
+                 linha por conta, com "SMTP nao configurado". -->
+            <div id="semCanal" class="alert alert-warn" style="display:none;"></div>
 
             <div id="alertBox" class="alert"></div>
 
@@ -42,9 +47,9 @@
 
                 <div class="acoes-massa" id="acoesMassa" style="display:none;">
                     <span class="label"><span id="qtdSelecionadas">0</span> selecionadas</span>
-                    <button class="btn btn-primary btn-sm" onclick="cobrarMassa('email')">Cobrar por e-mail</button>
-                    <button class="btn btn-primary btn-sm" onclick="cobrarMassa('whatsapp')">Cobrar por WhatsApp</button>
-                    <button class="btn btn-primary btn-sm" onclick="cobrarMassa('ambos')">E-mail + WhatsApp</button>
+                    <button class="btn btn-primary btn-sm" data-canal="email" onclick="cobrarMassa('email')">Cobrar por e-mail</button>
+                    <button class="btn btn-primary btn-sm" data-canal="whatsapp" onclick="cobrarMassa('whatsapp')">Cobrar por WhatsApp</button>
+                    <button class="btn btn-primary btn-sm" data-canal="ambos" onclick="cobrarMassa('ambos')">E-mail + WhatsApp</button>
                     <button class="btn btn-secondary btn-sm" onclick="limparSelecao()">Limpar</button>
                 </div>
 
@@ -123,11 +128,38 @@
                 const data = await resp.json();
                 if (!data.success) throw new Error(data.error);
                 contasCache = data.contas;
+                aplicarCanais(data.canais);
                 renderStats(data.contas, data.resumo);
                 renderTabela(data.contas);
             } catch (err) {
                 mostrarAlerta('Erro: ' + err.message, 'error');
             }
+        }
+
+        // Sem canal configurado, a tela para de oferecer o que não sai daqui: o
+        // aviso aparece e os botões de envio ficam desativados, com o motivo no
+        // próprio botão. Servidor antigo não manda `canais`; nesse caso nada
+        // muda, e a tela segue como era.
+        function aplicarCanais(canais) {
+            if (!canais) return;
+            const caixa = document.getElementById('semCanal');
+            const nenhum = !canais.email && !canais.whatsapp;
+            const motivo = 'Para enviar as cobranças, configure o e-mail ou o WhatsApp.';
+            caixa.style.display = nenhum ? 'block' : 'none';
+            if (nenhum) {
+                caixa.innerHTML = `${motivo}
+                  <a href="/configuracoes/email.html">Configurar e-mail</a> ·
+                  <a href="/comunicacao/canal.html">Configurar WhatsApp</a>`;
+            }
+            const desligar = (btn, canal) => {
+                if (!btn) return;
+                const falta = canal === 'email' ? !canais.email
+                            : canal === 'whatsapp' ? !canais.whatsapp : nenhum;
+                btn.disabled = falta;
+                btn.title = falta ? motivo : '';
+            };
+            desligar(document.getElementById('btnRegua'), 'ambos');
+            document.querySelectorAll('[data-canal]').forEach(b => desligar(b, b.dataset.canal));
         }
 
         function renderStats(contas, resumo) {
@@ -336,9 +368,9 @@
                             <strong>${escHtml(l.canal)} — etapa ${l.etapa} (${escHtml(l.origem || 'manual')})</strong>
                             <span style="color:${l.status==='enviado'?'#51cf66':l.status==='fila'?'#fcc419':'#ff6b6b'};">${escHtml(l.status)}</span>
                         </div>
-                        <div style="color:#888;font-size:0.85em;">${escHtml(l.dataEnvio)} — ${escHtml(l.destinatario || '')}</div>
+                        <div style="color:#888;font-size:var(--text-xs);">${escHtml(l.dataEnvio)} — ${escHtml(l.destinatario || '')}</div>
                         ${l.assunto ? '<div style="margin-top:5px;"><em>'+escHtml(l.assunto)+'</em></div>' : ''}
-                        ${l.mensagem ? '<pre style="margin-top:5px;background:var(--bg-3);color:var(--text-1);padding:8px;border-radius:4px;white-space:pre-wrap;font-size:0.8em;">'+escHtml(l.mensagem)+'</pre>' : ''}
+                        ${l.mensagem ? '<pre style="margin-top:5px;background:var(--bg-3);color:var(--text-1);padding:8px;border-radius:4px;white-space:pre-wrap;font-size:var(--text-xs);">'+escHtml(l.mensagem)+'</pre>' : ''}
                         ${l.erro ? '<div style="color:#ff6b6b;margin-top:5px;">Erro: '+escHtml(l.erro)+'</div>' : ''}
                     </div>
                 `).join('');

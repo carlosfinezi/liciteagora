@@ -15,17 +15,25 @@
         border-radius: var(--r-md);
         padding: 10px 14px;
         margin-bottom: 18px;
-        font-size: 0.82em;
+        font-size: var(--text-xs);
         color: var(--text-2);
         line-height: 1.9;
       }
+      /* Variável que o tenant não tem como preencher: fica à vista, mas
+         riscada, e o motivo vem logo abaixo. Esconder a linha deixaria quem
+         já a usa no texto sem entender por que a mensagem sai pela metade. */
+      .variaveis-info code.indisponivel {
+        opacity: .55; text-decoration: line-through;
+        color: var(--text-3); background: var(--bg-2);
+      }
+      .variaveis-aviso { margin-top: 8px; color: var(--warn); }
       .variaveis-info code {
         display: inline-block;
         background: var(--bg-3);
         color: var(--accent);
         padding: 2px 8px;
         border-radius: var(--r-sm);
-        font-size: 0.85em;
+        font-size: var(--text-xs);
         margin: 0 2px;
       }
       .etapa-box {
@@ -74,6 +82,10 @@
               </div>
             </div>
 
+            <!-- A régua pode ser montada sem canal nenhum, e aí nada sai. O
+                 aviso diz isso aqui, e não depois do primeiro disparo. -->
+            <div id="semCanal" class="alert alert-warn" style="display:none;"></div>
+
             <div id="alertBox" class="alert"></div>
 
             <div class="panel">
@@ -98,7 +110,9 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label>E‑mail em cópia interna (opcional)</label>
-                        <input type="email" id="ccInterno" placeholder="financeiro@empresa.com.br">
+                        <!-- "exemplo:" na frente para o endereço cinza não ser
+                             lido como valor já configurado. -->
+                        <input type="email" id="ccInterno" placeholder="exemplo: financeiro@suaempresa.com.br">
                     </div>
                 </div>
             </div>
@@ -138,11 +152,14 @@
             <div class="panel">
                 <h3>Régua de cobrança</h3>
                 <div class="variaveis-info">
-                    <strong>Variáveis disponíveis nos templates:</strong>
+                    <strong>Variáveis disponíveis nos textos:</strong>
                     <code>{{nome}}</code><code>{{descricao}}</code><code>{{valor}}</code>
                     <code>{{vencimento}}</code><code>{{diasAtraso}}</code>
-                    <code>{{linhaDigitavel}}</code><code>{{linkBoleto}}</code>
+                    <!-- As duas do boleto dependem de provedor configurado: sem
+                         ele saem vazias, e o cliente recebe a linha em branco. -->
+                    <code data-exige="boleto">{{linhaDigitavel}}</code><code data-exige="boleto">{{linkBoleto}}</code>
                     <code>{{nfseNumero}}</code>
+                    <div id="avisoVariaveis" class="variaveis-aviso" style="display:none;"></div>
                 </div>
                 <div id="etapas"></div>
             </div>
@@ -155,6 +172,46 @@
 
     <script>
         let configAtual = null;
+        let canaisAtuais = null;
+
+        // O que este tenant consegue mandar. Servidor antigo não manda `canais`:
+        // nesse caso a tela fica como era, sem aviso e sem riscar nada.
+        function aplicarCanais() {
+            if (!canaisAtuais) return;
+            const caixa = document.getElementById('semCanal');
+            const nenhum = !canaisAtuais.email && !canaisAtuais.whatsapp;
+            caixa.style.display = nenhum ? 'block' : 'none';
+            if (nenhum) {
+                caixa.innerHTML = `Para enviar as cobranças, configure o e-mail ou o WhatsApp.
+                  <a href="/configuracoes/email.html">Configurar e-mail</a> ·
+                  <a href="/comunicacao/canal.html">Configurar WhatsApp</a>`;
+            }
+            marcarVariaveis();
+        }
+
+        // Variável sem como ser preenchida sai riscada, com o motivo, e a tela
+        // diz em que etapa ela está sendo usada: é lá que a mensagem do cliente
+        // sairia com um buraco.
+        function marcarVariaveis() {
+            const temBoleto = !!(canaisAtuais && canaisAtuais.boleto);
+            document.querySelectorAll('.variaveis-info code[data-exige="boleto"]').forEach(c => {
+                c.classList.toggle('indisponivel', !temBoleto);
+                c.title = temBoleto ? '' : 'Sem provedor de boleto configurado, esta variável sai vazia';
+            });
+            const aviso = document.getElementById('avisoVariaveis');
+            if (temBoleto) { aviso.style.display = 'none'; return; }
+            const usadas = new Set();
+            (configAtual.regua || []).forEach((e) => {
+                const texto = [e.assunto, e.emailTexto, e.whatsappTexto].join(' ');
+                for (const v of ['linhaDigitavel', 'linkBoleto']) {
+                    if (texto.includes('{{' + v + '}}')) usadas.add(`etapa ${e.etapa}`);
+                }
+            });
+            aviso.style.display = 'block';
+            aviso.textContent = usadas.size
+                ? `Sem provedor de boleto configurado, {{linhaDigitavel}} e {{linkBoleto}} saem vazias. Hoje elas estão no texto de: ${[...usadas].join(', ')}.`
+                : 'Sem provedor de boleto configurado, {{linhaDigitavel}} e {{linkBoleto}} saem vazias.';
+        }
 
         document.addEventListener('DOMContentLoaded', carregar);
 
@@ -167,7 +224,9 @@
                 const data = await respR.json();
                 if (!data.success) throw new Error(data.error);
                 configAtual = data.config;
+                canaisAtuais = data.canais || null;
                 renderForm();
+                aplicarCanais();
 
                 const dataJ = await respJ.json();
                 if (dataJ.success) {
@@ -192,7 +251,7 @@
                 <div class="etapa-box">
                     <h4>
                         <span>Etapa ${e.etapa}</span>
-                        <span style="color:var(--text-2);font-weight:normal;font-size:0.82em;">
+                        <span style="color:var(--text-2);font-weight:normal;font-size:var(--text-xs);">
                             Dispara D+<input type="number" id="diasApos_${idx}" value="${e.diasApos}" min="1" style="width:64px;padding:3px 6px;text-align:center;"> dias após vencer
                         </span>
                     </h4>
@@ -206,7 +265,7 @@
                     <div class="canais">
                         <label><input type="checkbox" id="canalEmail_${idx}" ${e.canais?.includes('email') ? 'checked' : ''}> E‑mail</label>
                         <label><input type="checkbox" id="canalWa_${idx}" ${e.canais?.includes('whatsapp') ? 'checked' : ''}> WhatsApp</label>
-                        <span style="color:var(--text-3);font-size:0.82em;">(desmarque tudo para desativar a etapa)</span>
+                        <span style="color:var(--text-3);font-size:var(--text-xs);">(desmarque tudo para desativar a etapa)</span>
                     </div>
                     <div class="form-row">
                         <div class="form-group">

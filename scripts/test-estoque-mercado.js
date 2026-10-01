@@ -328,7 +328,7 @@ t('E3. Lotes: nada cortado, só o nome do produto quebra linha', async () => {
   const c = await cortes(frame, '.tbl-nao-corta');
   assert(!c.length, c.join(' · '));
 });
-t('E4. Estoque: SEM ESTOQUE no zerado, nome no aviso, sem reserva, ordem com acento, nada cortado', async () => {
+t('E4. Estoque: SEM ESTOQUE no zerado, aviso curto com filtro, sem reserva, ordem com acento, nada cortado', async () => {
   const { frame, erros } = await abrir('/estoque/estoque.html');
   const r = await frame.evaluate(() => ({
     aviso: document.getElementById('alertasBox').textContent,
@@ -341,7 +341,13 @@ t('E4. Estoque: SEM ESTOQUE no zerado, nome no aviso, sem reserva, ordem com ace
     texto: document.body.innerText,
   }));
   assert(r.status['Chiclete (caixa com 100)'] === 'SEM ESTOQUE' && r.status['Goiaba vermelha'] === 'SEM ESTOQUE', 'status: ' + JSON.stringify(r.status));
-  assert(/Açúcar refinado 1 kg/.test(r.aviso), 'aviso sem o nome: ' + r.aviso);
+  // O aviso deixou de enfileirar os produtos (30/09): com 139 deles, a lista
+  // corrida tomava a tela inteira. Agora é a contagem, o link que filtra e o
+  // caminho para a compra — e o nome de cada um está na tabela, logo abaixo.
+  assert(/\d+ produtos? abaixo do mínimo/.test(r.aviso), 'aviso sem a contagem: ' + r.aviso);
+  assert(/Ver só esse/.test(r.aviso), 'aviso sem o link que filtra: ' + r.aviso);
+  assert(/Sugestão de Compra/.test(r.aviso), 'aviso sem o caminho da compra: ' + r.aviso);
+  assert(!/Açúcar refinado 1 kg/.test(r.aviso), 'o aviso voltou a enfileirar os produtos: ' + r.aviso);
   assert(!r.cabec.includes('Reservado') && !r.cartoes.some(x => /reserv/i.test(x)), 'reserva à mostra: ' + r.cabec.join('|') + ' / ' + r.cartoes.join('|'));
   assert(r.cabec.includes('Rastreio') && r.lote !== 'none' && r.serial === 'none', `rastreio: coluna ${r.cabec.includes('Rastreio')}, lote ${r.lote}, serial ${r.serial}`);
   assert(r.cabec[0] === 'Código', 'cabeçalho: ' + r.cabec.join('|'));
@@ -349,6 +355,47 @@ t('E4. Estoque: SEM ESTOQUE no zerado, nome no aviso, sem reserva, ordem com ace
   assert(!/-0,00|SKU/.test(r.texto), 'texto: -0,00 ou SKU na tela');
   const c = await cortes(frame, '.tbl-nao-corta');
   assert(!c.length, c.join(' · '));
+  assert(!erros.length, 'erros de JS: ' + erros.join(' | '));
+});
+// Em 1190 a tabela cabe, e o E4 garante isso. Quando o nome dos produtos do
+// tenant a faz passar da caixa, quem segura é o `.tabela-rolagem` que o
+// `sidebar.js` injeta em volta de toda tabela: a coluna Status sai da vista,
+// mas continua alcançável pela rolagem do quadro.
+//
+// Este teste nasceu de um alarme falso: no print do retrato de construção a
+// coluna aparecia cortada e sem barra, e a barra só não estava lá porque o
+// Chrome da captura roda com `--hide-scrollbars`. Fica como guarda — o dia em
+// que alguém puser `overflow: hidden` no caminho, a coluna some de verdade.
+t('E6. Estoque em janela estreita: a tabela rola em vez de esconder a última coluna', async () => {
+  const { frame, erros } = await abrir('/estoque/estoque.html', 600);
+  const r = await frame.evaluate(() => {
+    const tabela = document.querySelector('.tbl-nao-corta table');
+    const rolagem = tabela.closest('.tabela-rolagem');
+    if (!rolagem) return { semQuadro: true };
+    const cabecalho = tabela.querySelector('thead tr').lastElementChild;
+    const transborda = rolagem.scrollWidth > rolagem.clientWidth + 1;
+    rolagem.scrollLeft = rolagem.scrollWidth;     // rola até o fim
+    const rolou = rolagem.scrollLeft;
+    const caixa = rolagem.getBoundingClientRect();
+    const col = cabecalho.getBoundingClientRect();
+    // O texto do cabeçalho tem de caber na própria célula: rolagem resolve
+    // coluna fora da vista, não texto espremido dentro dela.
+    const faixa = document.createRange(); faixa.selectNodeContents(cabecalho);
+    return {
+      transborda, rolou,
+      overflowX: getComputedStyle(rolagem).overflowX,
+      ultimaColuna: cabecalho.textContent.trim(),
+      alcancavel: col.left >= caixa.left - 1 && col.right <= caixa.right + 1,
+      textoCabe: faixa.getBoundingClientRect().width <= cabecalho.clientWidth + 1,
+    };
+  });
+  assert(!r.semQuadro, 'a tabela não está dentro de .tabela-rolagem: o sidebar.js não a envolveu');
+  assert(r.transborda, 'em 600px a tabela deveria transbordar; o teste não mede nada se ela couber');
+  assert(/^(auto|scroll)$/.test(r.overflowX), 'o quadro da tabela não rola na horizontal: overflow-x ' + r.overflowX);
+  assert(r.rolou > 0, 'o quadro não aceitou rolagem: a coluna que passa da borda fica inalcançável');
+  assert(r.ultimaColuna === 'Status', 'a última coluna mudou de nome: ' + r.ultimaColuna);
+  assert(r.alcancavel, 'depois de rolar até o fim, a coluna Status continua fora da caixa');
+  assert(r.textoCabe, 'o texto do cabeçalho da última coluna não cabe na própria célula');
   assert(!erros.length, 'erros de JS: ' + erros.join(' | '));
 });
 t('E5. Sugestão: a lista vem primeiro, sem oportunidades de mercado, e nada cortado', async () => {
