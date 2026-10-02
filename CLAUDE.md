@@ -522,8 +522,8 @@ de qualquer arquivo.
 - **commit, push e restart passam sem prompt.** O restart de QUALQUER unidade
   passa, inclusive `bll-session`, `bnc-session`, `licitanet-collector` e
   `govbr-bearer`. O `start` também, e o `stop` de unidade fora do deny;
-- o `stop` dos session-services só é negado com o sufixo: `systemctl stop
-  bll-session.service` é recusado, e `systemctl stop bll-session` passa;
+- o `stop` dos session-services e do `govbr-bearer` é negado com e sem o
+  sufixo `.service`, com e sem `sudo`;
 - escrita em banco de `data/` por `sqlite3` ou por `node` passa sem prompt. O
   deny de `data/` cobre só a ferramenta Edit;
 - continuam barrados o `rm`, `disable`/`mask`/`kill`, `pkill`/`killall`, o git
@@ -726,11 +726,10 @@ Nesta árvore, não rode sem perguntar `impeccable hooks ignore-*`, `init`,
 
 ## Nunca faça sem perguntar
 
-- Reiniciar serviço **fora de um fechamento** — aí o restart é sempre pedido
-  seu. Como passo 7 do "fechamento" não exige pergunta; no "fechamento 0" não
-  há restart. Os session-services (`bll-session`, `bnc-session`,
-  `licitanet-collector`) e o `govbr-bearer` exigem pergunta sempre, inclusive
-  dentro do fechamento
+- Reiniciar os session-services (`bll-session`, `bnc-session`,
+  `licitanet-collector`) e o `govbr-bearer`: exigem pergunta sempre, inclusive
+  dentro do fechamento. O restart das outras unidades é livre, dentro ou fora
+  do fechamento
 - `stop`, `disable`, `mask` ou `kill` de serviço: não são rotina nenhuma
 - Tocar nos DBs de `data/` (schema, escrita direta, apagar)
 - `sqlite3` / `psql` além de leitura: SELECT e PRAGMA seguem livres; qualquer
