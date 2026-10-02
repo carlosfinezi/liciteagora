@@ -837,6 +837,7 @@ const suites = [
   // onde a cascata de `em` do <style> proprio produz tamanhos que nao estao
   // escritos em lugar nenhum.
   ['170. piso tipografico de 12px (test-piso-tipografico)', 'test-piso-tipografico.js'],
+  ['172. cartao presencial chega a agenda (test-cartao-presencial-fase2)', 'test-cartao-presencial-fase2.js'],
 ];
 // ==================== modo rápido: quais suítes ====================
 /**

@@ -340,19 +340,18 @@ const caixa = (db) => db.prepare(`SELECT COUNT(*) n, COALESCE(SUM(valor),0) v
    * precisa saber qual adquirente vai liquidar), e o checkout público não
    * pergunta a bandeira — o cliente escolhe "Cartão", não "Visa".
    *
-   * Isto NÃO foi introduzido nem corrigido aqui: o erro nasce no laço das
-   * parcelas, que só roda quando NÃO há cobrança da loja a adotar. O teste
-   * fica, afirmando o comportamento real, para que o dia em que o cartão
-   * for resolvido esta expectativa falhe e alguém venha atualizá-la.
-   * Descoberto em 29/09/2026, ao cobrir o defeito da CR duplicada.
+   * O erro nasce no laço das parcelas, que só roda quando NÃO há cobrança da
+   * loja a adotar. Descoberto em 29/09/2026, ao cobrir o defeito da CR
+   * duplicada; em 02/10 passou a sair como 400, porque faltar a adquirente é
+   * dado que o lojista ainda não deu, e não falha do servidor.
    */
   {
     const db = montar('f-cartao'); const app = montarApp(db);
     const ped = pedidoDoCatalogo(db, app, { pagamento: 'cartao' });
     entregar(app, ped.id);
     const f = faturar(app, ped.id);
-    ok('F3 cartão do catálogo é RECUSADO no faturamento (limitação conhecida: sem bandeira)',
-      f.status === 500 && /bandeira do cartão obrigatória/.test((f.body && f.body.error) || ''),
+    ok('F3 cartão do catálogo sem adquirente é recusado com 400, e não com 500',
+      f.status === 400 && /bandeira do cartão obrigatória/.test((f.body && f.body.error) || ''),
       `${f.status} ${JSON.stringify(f.body)}`);
     ok('F4 e a recusa não deixa conta a receber pela metade',
       crs(db).length === 0, JSON.stringify(crs(db)));

@@ -20,6 +20,13 @@ const MEIOS_AVISTA_CAIXA = new Set(['01']);      // Dinheiro
 const MEIOS_AVISTA_BANCO = new Set([]);          // PIX (17) agora gera cobrança QR/link (baixa via webhook), não auto-baixa
 const MEIOS_CARTAO = new Set(['03','04']);       // Cartão crédito/débito
 
+/* Recusa de regra de negócio lançada de dentro da transação do faturamento.
+   O catch da rota responde 500 em tudo que vem de lá, e faltar a adquirente
+   de um cartão não é falha do servidor: é dado que o lojista ainda não deu.
+   A marca separa os dois — erro sem ela continua sendo 500, porque aí o
+   servidor realmente quebrou. */
+function erroDoCliente(msg) { return Object.assign(new Error(msg), { httpStatus: 400 }); }
+
 function alterSafe(db, sql) { try { db.exec(sql); } catch { /* coluna ja existe */ } }
 
 function dataBrasilia() {
@@ -424,6 +431,11 @@ function registrarRotasFaturas(app, db) {
 
         // Cria uma CR por parcela
         const idsCR = [];
+        /* A parcela 1/1 de cartão a materializar no fim, se houver. Ela sai
+           do laço abaixo, e não da lista montada acima, porque é lá que a
+           adquirente é conferida: assim a linha gravada nunca aponta uma que
+           não passou pela validação. */
+        let cartaoAvista = null;
         const grupoParcelaId = parcelas.length > 1 ? `fat-${faturaId}` : null;
 
         if (crAdotada) {
@@ -449,11 +461,14 @@ function registrarRotasFaturas(app, db) {
           let origemCR = 'fatura';
           let adquirenteCartaoId = null;
           if (MEIOS_CARTAO.has(parc.meioPagamento)) {
-            if (!parc.bandeiraId) throw new Error(`Parcela ${parc.numero}/${parc.total}: bandeira do cartão obrigatória`);
+            if (!parc.bandeiraId) throw erroDoCliente(`Parcela ${parc.numero}/${parc.total}: bandeira do cartão obrigatória`);
             const adq = db.prepare('SELECT id, nome FROM adquirentes_cartao WHERE id = ? AND ativo = 1').get(parc.bandeiraId);
-            if (!adq) throw new Error(`Parcela ${parc.numero}/${parc.total}: adquirente de cartão não cadastrada`);
+            if (!adq) throw erroDoCliente(`Parcela ${parc.numero}/${parc.total}: adquirente de cartão não cadastrada`);
             adquirenteCartaoId = adq.id;
             origemCR = 'cartao_adquirente';
+            if (!parcelasPed.length && parcelas.length === 1) {
+              cartaoAvista = { ...parc, bandeiraId: adq.id };
+            }
           }
 
           const descParcela = parcelas.length > 1
@@ -496,6 +511,27 @@ function registrarRotasFaturas(app, db) {
               usuario: req.session?.username || null
             });
           }
+        }
+
+        /* Cartão presencial em parcela única: a linha de `pedido_parcelas` é
+         * o que faz a venda existir para a agenda de recebíveis. O gerador de
+         * `/api/cartoes/agenda/gerar` varre aquela tabela, e a parcela montada
+         * acima para o caso de 1 CR mora só na memória desta requisição — sem
+         * materializá-la, a taxa da adquirente e a previsão de liquidação
+         * nunca são calculadas para a venda do catálogo.
+         *
+         * Só quando NÃO havia parcela: plano montado pelo lojista já tem as
+         * linhas dele, e reescrevê-las aqui seria decidir no lugar dele.
+         *
+         * A CR não muda por causa disto: o resto desta rota decide descrição,
+         * `parcelaNumero`, `totalParcelas` e `grupoParcelaId` por
+         * `parcelas.length > 1`, e com uma parcela só nada disso é preenchido. */
+        if (cartaoAvista) {
+          db.prepare(`INSERT INTO pedido_parcelas
+            (pedidoId, numeroParcela, valor, dataVencimento, meioPagamento, bandeiraId, observacao)
+            VALUES (?, 1, ?, ?, ?, ?, ?)`)
+            .run(pedido.id, cartaoAvista.valor, cartaoAvista.dataVencimento,
+                 cartaoAvista.meioPagamento, cartaoAvista.bandeiraId, cartaoAvista.observacao);
         }
 
         // Retrocompat: faturas.contaReceberId aponta para a primeira CR (legacy)
@@ -543,7 +579,7 @@ function registrarRotasFaturas(app, db) {
 
       res.json({ success: true, fatura: carregarFaturaCompleta(db, faturaId) });
     } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
+      res.status(err.httpStatus || 500).json({ success: false, error: err.message });
     }
   });
 
