@@ -163,12 +163,12 @@
       <div class="form-group">
         <label>Gatilho de meta (%)</label>
         <input type="number" id="rGatilho" step="1" min="0" max="300" placeholder="em branco = sem gatilho">
-        <small class="muted" style="font-size:11px;">Abaixo deste % da meta do período não há comissão nenhuma.</small>
+        <small class="muted" style="font-size:var(--text-xs);">Abaixo deste % da meta do período não há comissão nenhuma.</small>
       </div>
       <div class="form-group">
         <label>Valor acelerado</label>
         <input type="number" id="rAcelerado" step="0.01" min="0" placeholder="em branco = sem acelerador">
-        <small class="muted" style="font-size:11px;">Vale no lugar do valor normal quando a meta é batida.</small>
+        <small class="muted" style="font-size:var(--text-xs);">Vale no lugar do valor normal quando a meta é batida.</small>
       </div>
     </div>
     <div class="form-row">
@@ -488,7 +488,7 @@ function renderMetas(metas){
       return `<div>Vendedor #${m.vendedorId}: <strong style="color:${cor};">${m.percentual.toFixed(1)}%</strong>
         — ${fmtBRL(m.realizado)} de ${fmtBRL(m.valorMeta)}${m.atingida ? ' ✓ batida' : ''}</div>`;
     }).join('')}</div>
-    <div class="muted" style="font-size:0.8em;margin-top:6px;">
+    <div class="muted" style="font-size:var(--text-xs);margin-top:6px;">
       Gatilho e acelerador das regras usam estes números.
     </div>
   </div>`;
@@ -499,9 +499,9 @@ function listaItens(titulo, cor, itens, linha, rodape){
   const mostra = itens.slice(0, 30);
   return `<div class="panel" style="border-left:4px solid var(--${cor});margin-bottom:10px;">
     <h3 style="margin:0 0 8px;font-size:0.95em;">${titulo}</h3>
-    <div style="font-size:0.85em;line-height:1.7;">${mostra.map(linha).join('<br>')}</div>
-    ${itens.length > mostra.length ? `<div class="muted" style="font-size:0.8em;margin-top:6px;">…e mais ${itens.length - mostra.length}.</div>` : ''}
-    ${rodape ? `<div class="muted" style="font-size:0.8em;margin-top:6px;">${rodape}</div>` : ''}
+    <div style="font-size:var(--text-xs);line-height:1.7;">${mostra.map(linha).join('<br>')}</div>
+    ${itens.length > mostra.length ? `<div class="muted" style="font-size:var(--text-xs);margin-top:6px;">…e mais ${itens.length - mostra.length}.</div>` : ''}
+    ${rodape ? `<div class="muted" style="font-size:var(--text-xs);margin-top:6px;">${rodape}</div>` : ''}
   </div>`;
 }
 

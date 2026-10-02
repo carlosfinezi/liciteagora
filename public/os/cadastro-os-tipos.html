@@ -63,7 +63,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap;">
         <h3 id="formTitle" style="margin:0;">Novo tipo de OS</h3>
         <div style="display:flex;align-items:center;gap:8px;">
-          <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:0.85em;color:var(--text-2);">
+          <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:var(--text-xs);color:var(--text-2);">
             Status
             <select id="fAtivo" style="width:auto;"><option value="1">Ativo</option><option value="0">Inativo</option></select>
           </label>
@@ -126,7 +126,7 @@
               <option value="transferencia-interna">Transferência interna</option>
               <option value="revisao">Revisão</option>
             </select>
-            <small class="muted" style="font-size:11px;">As de garantia abrem a OS já marcada como em garantia.</small>
+            <small class="muted" style="font-size:var(--text-xs);">As de garantia abrem a OS já marcada como em garantia.</small>
           </div>
           <div class="form-group">
             <label>Local de prestação</label>
@@ -135,7 +135,7 @@
               <option value="interno">Interno (na oficina)</option>
               <option value="externo">Externo (no cliente)</option>
             </select>
-            <small class="muted" style="font-size:11px;">Externo exige endereço de execução.</small>
+            <small class="muted" style="font-size:var(--text-xs);">Externo exige endereço de execução.</small>
           </div>
         </div>
         <div class="form-row">
@@ -146,7 +146,7 @@
             <select id="fTipoOperacaoPadrao">
               <option value="">— sem padrão (usa VDA-NORMAL) —</option>
             </select>
-            <small class="muted" style="font-size:11px;">
+            <small class="muted" style="font-size:var(--text-xs);">
               Cadastre novos em <a href="/fiscal/cadastro-tipos-operacao.html" target="_blank">Tipos de Operação</a>.
             </small>
           </div>
@@ -172,7 +172,7 @@
           <div class="form-group" id="grpValorHora" style="display:none;">
             <label>Valor hora padrão (R$)</label>
             <input type="text" id="fValorHoraPadrao" placeholder="ex: 120,00" data-formato="dinheiro">
-            <small class="muted" style="font-size:11px;">Usado quando a linha não traz valor hora próprio.</small>
+            <small class="muted" style="font-size:var(--text-xs);">Usado quando a linha não traz valor hora próprio.</small>
           </div>
           <div class="form-group" id="grpAlterarCalc" style="display:none;">
             <label>Alteração do valor</label>
@@ -230,7 +230,7 @@
               <option value="seguradora">A seguradora</option>
               <option value="outro">Outro pagador</option>
             </select>
-            <small class="muted" style="font-size:11px;" id="avisoFaturarPara"></small>
+            <small class="muted" style="font-size:var(--text-xs);" id="avisoFaturarPara"></small>
           </div>
         </div>
       </div>
@@ -260,7 +260,7 @@
             <input type="checkbox" id="fPermiteAgregacao"> Permite agregar ao equipamento
           </label>
         </div>
-        <small class="muted" style="font-size:11px;">
+        <small class="muted" style="font-size:var(--text-xs);">
           Agregar é para OS que monta a máquina (implemento, blindagem, acessório):
           o item marcado passa a fazer parte do equipamento e soma ao custo dele.
           Ligado aqui, o marcador aparece item a item na OS — desligado por padrão,
@@ -301,7 +301,7 @@
               <option value="permitido">Permitido</option>
               <option value="bloqueado">Não permitido</option>
             </select>
-            <small class="muted" style="font-size:11px;">Sem custo lançado, o a pagar do fornecedor não nasce.</small>
+            <small class="muted" style="font-size:var(--text-xs);">Sem custo lançado, o a pagar do fornecedor não nasce.</small>
           </div>
           <div class="form-group">
             <label>Km não informado</label>
@@ -309,7 +309,7 @@
               <option value="permitido">Permitido</option>
               <option value="bloqueado">Não permitido</option>
             </select>
-            <small class="muted" style="font-size:11px;">Só vale quando o deslocamento é cobrado por km.</small>
+            <small class="muted" style="font-size:var(--text-xs);">Só vale quando o deslocamento é cobrado por km.</small>
           </div>
           <div class="form-group">
             <label>Apontamento em aberto</label>
@@ -317,7 +317,7 @@
               <option value="permitido">Permitido</option>
               <option value="bloqueado">Não permitido</option>
             </select>
-            <small class="muted" style="font-size:11px;">Técnico que não fechou o ponto.</small>
+            <small class="muted" style="font-size:var(--text-xs);">Técnico que não fechou o ponto.</small>
           </div>
         </div>
       </div>

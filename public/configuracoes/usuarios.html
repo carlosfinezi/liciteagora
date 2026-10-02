@@ -166,7 +166,7 @@ async function carregar(){
   tb.innerHTML = d.usuarios.length ? d.usuarios.map(u=>`<tr>
     <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar usuário" onclick='editar(${JSON.stringify(u)})'><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
     <td class="mono"><strong>${u.username}</strong></td>
-    <td>${u.nome||'—'}${u.ehVendedor?` <span class="badge" style="background: var(--btn-primary-bg); color: #fff;font-size:9px;">vendedor</span>`:''}</td>
+    <td>${u.nome||'—'}${u.ehVendedor?` <span class="badge" style="background: var(--btn-primary-bg); color: #fff;font-size:var(--text-xs);">vendedor</span>`:''}</td>
     <td>${u.email||'—'}</td>
     <td><span class="badge ${u.role==='admin'?'faturado':'confirmado'}">${u.role}</span></td>
     <td><span class="badge ${u.ativo?'ativo':'inativo'}">${u.ativo?'ativo':'inativo'}</span></td>
@@ -190,7 +190,7 @@ function blocoAcesso(titulo, cor, linhas, rodape){
   return `<div class="panel" style="border-left:4px solid var(--${cor});margin-bottom:10px;">
     <h3 style="margin:0 0 8px;font-size:0.95em;">${titulo}</h3>
     <div style="font-size:0.88em;line-height:1.7;">${linhas.join('<br>')}</div>
-    ${rodape ? `<div class="muted" style="font-size:0.8em;margin-top:8px;">${rodape}</div>` : ''}
+    ${rodape ? `<div class="muted" style="font-size:var(--text-xs);margin-top:8px;">${rodape}</div>` : ''}
   </div>`;
 }
 

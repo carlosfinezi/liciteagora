@@ -11,7 +11,7 @@
   /* page-local: .card/.card h3 vêm do app-modern.css; vocabulário sn-*/subl-*/das-*/.alerta/.status-badge/.fator-r-info/.acoes-apuracao/.timeline é específico do domínio Simples Nacional */
   .sn-toolbar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
   .sn-toolbar .field { display: flex; flex-direction: column; gap: 4px; }
-  .sn-toolbar label { font-size: 0.78em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .sn-toolbar label { font-size: var(--text-xs); color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
   .sn-toolbar input, .sn-toolbar select { background: var(--bg-input); color: var(--text-0); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 6px 10px; }
 
   .sn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
@@ -24,7 +24,7 @@
   .card .row input:read-only { background: var(--bg-1); color: var(--text-1); }
 
   .das-tabela { width: 100%; border-collapse: collapse; }
-  .das-tabela th { text-align: left; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-2); padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .das-tabela th { text-align: left; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-2); padding: 8px 10px; border-bottom: 1px solid var(--border); }
   .das-tabela td { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 0.93em; font-variant-numeric: tabular-nums; }
   .das-tabela td.num { text-align: right; }
   .das-tabela tfoot td { font-weight: 700; color: var(--accent); border-top: 2px solid var(--border-strong); }
@@ -36,18 +36,18 @@
   .alerta.info   { background: var(--accent-soft); color: var(--accent); border-left: 3px solid var(--accent); }
 
   .timeline { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  .timeline th { text-align: left; font-size: 0.76em; text-transform: uppercase; color: var(--text-2); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .timeline th { text-align: left; font-size: var(--text-xs); text-transform: uppercase; color: var(--text-2); padding: 6px 8px; border-bottom: 1px solid var(--border); }
   .timeline td { padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 0.9em; }
   .timeline td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .timeline tr:hover { background: var(--bg-hover); cursor: pointer; }
 
-  .status-badge { padding: 3px 9px; border-radius: 10px; font-weight: 700; text-transform: uppercase; font-size: 0.72em; }
+  .status-badge { padding: 3px 9px; border-radius: 10px; font-weight: 700; text-transform: uppercase; font-size: var(--text-xs); }
   .status-badge.rascunho { background: var(--warn-soft);    color: var(--warn); }
   .status-badge.fechada  { background: var(--accent-soft);  color: var(--accent); }
   .status-badge.reaberta { background: var(--bg-hover);     color: var(--text-1); }
   .status-badge.paga     { background: var(--success-soft); color: var(--success); }
 
-  .fator-r-info { font-size: 0.85em; color: var(--text-2); margin-top: 4px; }
+  .fator-r-info { font-size: var(--text-xs); color: var(--text-2); margin-top: 4px; }
   .fator-r-info.ativo { color: var(--success); }
 
   .acoes-apuracao { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
@@ -60,14 +60,14 @@
   .subl-fill.desenquadrado { background: var(--danger); animation: pulse 2s infinite; }
   @keyframes pulse { 50% { opacity: 0.6; } }
   .subl-marca { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.6); }
-  .subl-legenda { display: flex; justify-content: space-between; font-size: 0.78em; color: var(--text-2); margin-top: -4px; }
+  .subl-legenda { display: flex; justify-content: space-between; font-size: var(--text-xs); color: var(--text-2); margin-top: -4px; }
   .subl-mensagem { padding: 10px; border-radius: var(--r-md); font-size: 0.92em; margin-top: 8px; }
   .subl-mensagem.ok { background: var(--success-soft); color: var(--success); }
   .subl-mensagem.aviso, .subl-mensagem.sublimite, .subl-mensagem.projecao_sublimite { background: var(--warn-soft); color: var(--warn); }
   .subl-mensagem.critico, .subl-mensagem.projecao_estourou, .subl-mensagem.desenquadrado { background: var(--danger-soft); color: var(--danger); }
   .subl-numeros { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 8px 0; }
   .subl-numeros .item { background: var(--bg-1); padding: 8px 10px; border-radius: var(--r-sm); }
-  .subl-numeros .item .lb { font-size: 0.75em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .subl-numeros .item .lb { font-size: var(--text-xs); color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
   .subl-numeros .item .vl { font-size: 1.1em; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
 </style>
 </head>
@@ -287,14 +287,14 @@ async function carregarSublimite(){
         <div class="item"><div class="lb">RBA (ano ${comp.slice(0,4)}, ${d.mesesDecorridos} meses)</div><div class="vl">R$ ${fmt(d.rbaAnoAtual)}</div></div>
         <div class="item"><div class="lb">Projeção anual (linear)</div><div class="vl">R$ ${fmt(d.projecaoAnual)}</div></div>
       </div>
-      <div style="font-size:0.82em;color:var(--text-2);margin-top:14px;">RBT12 vs limite nacional (R$ 4,8M)</div>
+      <div style="font-size:var(--text-xs);color:var(--text-2);margin-top:14px;">RBT12 vs limite nacional (R$ 4,8M)</div>
       <div class="subl-barra" title="RBT12">
         <div class="subl-fill ${d.nivel}" style="width:${pctRbt}%;"></div>
         <div class="subl-marca" style="left:${pctSublimite}%;" title="Sublimite estadual R$ 3,6M"></div>
       </div>
       <div class="subl-legenda"><span>0</span><span>R$ 3,6M (sublimite)</span><span>R$ 4,8M (limite)</span></div>
 
-      <div style="font-size:0.82em;color:var(--text-2);margin-top:14px;">Projeção anual vs limite nacional</div>
+      <div style="font-size:var(--text-xs);color:var(--text-2);margin-top:14px;">Projeção anual vs limite nacional</div>
       <div class="subl-barra" title="Projeção">
         <div class="subl-fill ${d.nivel.includes('projecao') ? d.nivel : (pctProj > 75 ? 'projecao_sublimite' : 'ok')}" style="width:${pctProj}%;"></div>
         <div class="subl-marca" style="left:${pctSublimite}%;"></div>

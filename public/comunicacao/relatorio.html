@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Relatório · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<link rel="stylesheet" href="/css/comunicacao.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Relatório</h1></div>
+  </div>
+  <div id="alertGlobal"></div>
+
+  <!-- Existe para responder "por que hoje não saiu nada?". O volume sozinho não
+       responde: silêncio da IA quase nunca é falha, é uma das portas do
+       autoResponder fechando. Daí o funil vir antes do gráfico. -->
+    <div class="toolbar">
+      <label style="font-size:var(--text-xs);color:var(--text-2);">Período
+        <select id="relDias" onchange="carregarRelatorio()" style="margin-left:6px;">
+          <option value="7">7 dias</option>
+          <option value="14" selected>14 dias</option>
+          <option value="30">30 dias</option>
+        </select>
+      </label>
+      <span class="spacer"></span>
+      <button class="btn btn-secondary btn-sm" onclick="carregarRelatorio()">Atualizar</button>
+    </div>
+
+    <div id="relDiagnostico"></div>
+
+    <h3 style="font-size:1em;margin:18px 0 8px;">Quem escreveu hoje, e o que aconteceu</h3>
+    <div class="kpis" id="relFunil"></div>
+    <small style="color:var(--text-3);display:block;margin-top:-4px;">
+      A resposta automática passa por estas portas, nesta ordem. Quem para numa delas não chega na seguinte.
+    </small>
+
+    <h3 style="font-size:1em;margin:22px 0 8px;">Volume por dia</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Dia</th><th style="text-align:right;">Recebidas</th>
+          <th style="text-align:right;">Enviadas (pessoa)</th><th style="text-align:right;">Enviadas (IA)</th>
+          <th style="text-align:right;">Disparos de campanha</th><th style="text-align:right;">Falhas de envio</th>
+          <th style="text-align:right;">Conversas novas</th>
+        </tr></thead>
+        <tbody id="tbRelSerie"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+
+    <h3 style="font-size:1em;margin:22px 0 8px;">Falhas de envio no período</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Motivo</th><th style="text-align:right;">Ocorrências</th><th>Último</th><th>Números</th></tr></thead>
+        <tbody id="tbRelErros"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+
+    <h3 style="font-size:1em;margin:22px 0 8px;">Atendimento</h3>
+    <div class="kpis" id="relConversas"></div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+<script>initSidebar('comunicacao-relatorio');</script>
+<script src="/js/comunicacao-comum.js"></script>
+<script>
+// ---------- relatório ----------
+//
+// O diagnóstico vem antes dos números de propósito: quem abre esta página está
+// perguntando "por que não saiu nada?", e ler isso numa tabela exige saber de
+// antemão qual coluna olhar. As regras abaixo são as portas do autoResponder
+// (whatsapp-webhook.js), na mesma ordem em que ele as aplica.
+function diagnosticar(d){
+  const { config: c, funil: f, serie, erros } = d;
+  const avisos = [];
+  const hoje = serie[serie.length - 1] || {};
+
+  if (!c.canalLigado) {
+    avisos.push(['erro', 'O canal de WhatsApp está desligado.',
+      'Nada entra nem sai enquanto estiver assim. Ligue em <a href="/comunicacao/canal.html">Canal</a>.']);
+  } else if (!c.iaLigada) {
+    avisos.push(['erro', 'A resposta automática está desligada.',
+      'As mensagens chegam e ficam esperando atendimento humano. Ligue em <a href="/comunicacao/canal.html">Canal</a>.']);
+  } else if (!c.temChaveIA) {
+    avisos.push(['erro', 'O tenant não tem chave de IA configurada.',
+      'Sem chave a IA não é chamada e ninguém recebe resposta automática.']);
+  }
+
+  // O caso que mais confunde: tudo ligado, mensagens chegando, e mesmo assim
+  // silêncio — porque o escopo limita a IA a quem a campanha abordou.
+  if (c.iaLigada && c.escopo === 'campanha' && f.escreveram > 0 && f.foraDeCampanha === f.escreveram) {
+    avisos.push(['erro',
+      `Nenhuma das ${f.escreveram} pessoas que escreveram hoje veio de campanha.`,
+      'A IA está no escopo <strong>"só quem a campanha abordou"</strong>, então ela não respondeu a ninguém hoje — '
+      + 'por regra, não por falha. Para atender também quem chega por fora, mude o escopo em <a href="/comunicacao/canal.html">Canal</a>; '
+      + 'para manter a regra, o atendimento de hoje é humano.']);
+  } else if (c.iaLigada && c.escopo === 'campanha' && f.foraDeCampanha > 0) {
+    avisos.push(['aviso',
+      `${f.foraDeCampanha} de ${f.escreveram} que escreveram hoje não vieram de campanha.`,
+      'Essas ficam sem resposta automática pelo escopo configurado.']);
+  }
+
+  if (c.escopo === 'campanha' && !c.campanhasAtivas) {
+    avisos.push(['aviso', 'Nenhuma campanha ativa.',
+      'Com o escopo em "só campanha" e nenhuma campanha enviando, a IA tende a ficar sem ninguém para atender.']);
+  }
+  if (hoje.recebidas > 0 && hoje.enviadasHumano === 0 && hoje.enviadasIA === 0) {
+    avisos.push(['aviso', `Chegaram ${hoje.recebidas} mensagens hoje e nenhuma resposta saiu — nem da IA, nem de pessoa.`,
+      'Vale conferir a fila de não lidas no Atendimento.']);
+  }
+  if (erros.length) {
+    const t = erros.reduce((s, e) => s + e.n, 0);
+    avisos.push(['aviso', `${t} falha(s) de envio no período.`, 'Detalhe na tabela de falhas abaixo.']);
+  }
+  if (!avisos.length) {
+    avisos.push(['ok', 'Nada travado.', 'Canal ligado, IA respondendo e nenhuma falha de envio no período.']);
+  }
+  return avisos;
+}
+
+async function carregarRelatorio(){
+  const dias = document.getElementById('relDias').value || 14;
+  const box = document.getElementById('relDiagnostico');
+  box.innerHTML = '<div class="alert info" style="display:block;">Apurando…</div>';
+  let d;
+  try {
+    d = await fetch('/api/conversas/painel/relatorio?dias=' + dias).then(r => r.json());
+    if (!d.success) throw new Error(d.error);
+  } catch (e) {
+    box.innerHTML = `<div class="alert error" style="display:block;">Erro ao apurar: ${esc(e.message)}</div>`;
+    return;
+  }
+
+  const CORES = { erro: 'error', aviso: 'warn', ok: 'success' };
+  box.innerHTML = diagnosticar(d).map(([tipo, titulo, texto]) =>
+    `<div class="alert ${CORES[tipo] || 'info'}" style="display:block;margin-bottom:8px;">
+       <strong>${esc(titulo)}</strong><br><span style="font-size:0.92em;">${texto}</span></div>`).join('');
+
+  const f = d.funil;
+  const card = (rot, val, alerta) =>
+    `<div class="c${alerta ? ' alerta' : ''}"><span class="v">${val}</span>${rot}</div>`;
+  document.getElementById('relFunil').innerHTML = [
+    card('escreveram hoje', f.escreveram || 0, false),
+    card('fora de campanha', f.foraDeCampanha || 0, d.config.escopo === 'campanha' && f.foraDeCampanha > 0),
+    card('pessoa já respondeu (4h)', f.humanoAssumiu || 0, false),
+    card('IA desligada na conversa', f.iaDesligada || 0, false),
+    card('respondidas pela IA', f.respondidasPelaIA || 0, (f.escreveram > 0 && !f.respondidasPelaIA)),
+  ].join('');
+
+  const num = (v) => Number(v || 0).toLocaleString('pt-BR');
+  document.getElementById('tbRelSerie').innerHTML = d.serie.length
+    ? d.serie.slice().reverse().map(s => `<tr>
+        <td>${esc(s.dia)}</td>
+        <td style="text-align:right;">${num(s.recebidas)}</td>
+        <td style="text-align:right;">${num(s.enviadasHumano)}</td>
+        <td style="text-align:right;${s.recebidas > 0 && !s.enviadasIA ? 'color:var(--warn);' : ''}">${num(s.enviadasIA)}</td>
+        <td style="text-align:right;">${num(s.disparosCampanha)}</td>
+        <td style="text-align:right;${s.filaErro ? 'color:var(--danger);' : ''}">${num(s.filaErro)}</td>
+        <td style="text-align:right;">${num(s.conversasNovas)}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="7" class="empty">Sem movimento no período</td></tr>';
+
+  document.getElementById('tbRelErros').innerHTML = d.erros.length
+    ? d.erros.map(e => `<tr>
+        <td>${esc(e.motivo)}</td>
+        <td style="text-align:right;">${num(e.n)}</td>
+        <td>${esc((e.ultimoEm || '').slice(0, 16))}</td>
+        <td style="font-size:var(--text-xs);color:var(--text-2);">${esc(e.telefones || '—')}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="4" class="empty">Nenhuma falha de envio no período</td></tr>';
+
+  const c = d.conversas || {}, tr = d.tempoResposta || {};
+  const tempo = tr.minutos == null ? '—'
+    : (tr.minutos >= 60 ? Math.round(tr.minutos / 60) + 'h' : tr.minutos + 'min');
+  document.getElementById('relConversas').innerHTML = [
+    card('abertas', num(c.abertas), false),
+    card('nunca respondidas', num(c.semResposta), (c.semResposta || 0) > 0),
+    card('com não lidas', num(c.comNaoLidas), (c.comNaoLidas || 0) > 0),
+    card('IA desligada', num(c.iaDesligada), false),
+    card(`1ª resposta (média de ${num(tr.base)})`, tempo, false),
+  ].join('');
+}
+
+carregarRelatorio();
+</script>
+</body>
+</html>

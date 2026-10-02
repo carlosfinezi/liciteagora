@@ -189,19 +189,19 @@ function renderTabela(){
     const dnp = (r.dnp_od||r.dnp_oe) ? `${r.dnp_od||'—'} / ${r.dnp_oe||'—'}` : '—';
     const venc = vencida(r.dataValidade);
     const validadeCelula = r.dataValidade
-      ? `${fmtData(r.dataValidade)}${venc ? ' <span class="badge" style="background:var(--danger);color:#fff;">vencida</span>' : ''}`
+      ? `${fmtData(r.dataValidade)}${venc ? ' <span class="badge" style="background:var(--danger);color:var(--bg-2);">vencida</span>' : ''}`
       : '—';
     let statusCelula;
     if (!r.ativo) statusCelula = '<span class="badge">inativa</span>';
-    else if (venc) statusCelula = '<span class="badge" style="background:var(--danger);color:#fff;">vencida</span>';
+    else if (venc) statusCelula = '<span class="badge" style="background:var(--danger);color:var(--bg-2);">vencida</span>';
     else statusCelula = '<span class="badge success">ativa</span>';
     return `<tr style="${r.ativo?'':'opacity:0.5;'}">
       <td>${fmtData(r.dataReceita)}</td>
       <td><strong>${escTxt(r.pessoaNome||'—')}</strong>${r.pessoaCpfCnpj?'<br><small class="muted">'+escTxt(r.pessoaCpfCnpj)+'</small>':''}</td>
       <td>${escTxt(r.medico||'—')}${r.crm?' <small class="muted">('+escTxt(r.crm)+')</small>':''}</td>
-      <td><code style="font-size:11px;">${od}</code></td>
-      <td><code style="font-size:11px;">${oe}</code></td>
-      <td><code style="font-size:11px;">${dnp}</code></td>
+      <td><code style="font-size:var(--text-xs);">${od}</code></td>
+      <td><code style="font-size:var(--text-xs);">${oe}</code></td>
+      <td><code style="font-size:var(--text-xs);">${dnp}</code></td>
       <td>${validadeCelula}</td>
       <td>${statusCelula}</td>
       <td><button class="btn btn-ghost btn-sm" onclick="editar(${r.id})">Editar</button></td>

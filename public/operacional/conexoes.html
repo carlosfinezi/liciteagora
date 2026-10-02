@@ -10,18 +10,18 @@
     <style>
         /* page-local: vocabulário canônico (.step*, .status-cards/.status-card, .btn-group, .spinner, cores, .log-view) vem de app-modern.css */
         .input-group { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
-        .input-group label { color: var(--text-2); font-size: 0.85em; white-space: nowrap; }
+        .input-group label { color: var(--text-2); font-size: var(--text-xs); white-space: nowrap; }
         .input-group input[type=text] { padding: 8px 12px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--bg-1); color: var(--text-0); font-size: 0.9em; font-family: monospace; min-width: 260px; }
         .input-group input:focus { outline: none; border-color: var(--accent); }
         /* overrides page-local de .log-area: show/hide + font menor + altura custom */
-        .log-area { display: none; font-size: 0.8em; max-height: 250px; margin-top: 12px; }
+        .log-area { display: none; font-size: var(--text-xs); max-height: 250px; margin-top: 12px; }
         .log-area.visivel { display: block; }
         /* .resumo-final — veredicto do teste de conectividade */
         .resumo-final { margin-top: 16px; padding: 16px; border-radius: var(--r-md); font-size: 0.95em; display: none; }
         .resumo-final.sucesso { display: block; background: var(--success-soft); border: 1px solid var(--success); color: var(--success); }
         .resumo-final.falha   { display: block; background: var(--danger-soft);  border: 1px solid var(--danger);  color: var(--danger); }
         /* .testes-table — tabela compacta de endpoints testados */
-        .testes-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.85em; }
+        .testes-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: var(--text-xs); }
         .testes-table th { color: var(--text-3); text-align: left; padding: 8px; border-bottom: 1px solid var(--border); font-weight: 500; }
         .testes-table td { padding: 8px; border-bottom: 1px solid var(--border); }
         .badge-ok    { background: var(--success-soft); color: var(--success); }
@@ -48,29 +48,29 @@
         </p>
 
         <div class="input-group">
-            <input type="text" id="inputApiKey" readonly style="min-width: 440px; font-size: 0.85em;" value="Carregando...">
+            <input type="text" id="inputApiKey" readonly style="min-width: 440px; font-size: var(--text-xs);" value="Carregando...">
             <button class="btn btn-secondary btn-sm" id="btnCopiarApiKey" onclick="copiarApiKey()">📋 Copiar</button>
-            <button class="btn btn-ghost btn-sm" id="btnMostrarApiKey" onclick="toggleMostrarApiKey()" style="font-size:0.8em;">👁️ Mostrar</button>
+            <button class="btn btn-ghost btn-sm" id="btnMostrarApiKey" onclick="toggleMostrarApiKey()" style="font-size:var(--text-xs);">👁️ Mostrar</button>
             <button class="btn btn-danger btn-sm" onclick="rotacionarApiKey()" style="margin-left:auto;">🔄 Gerar nova</button>
         </div>
-        <p style="color: var(--warn); font-size: 0.78em; margin-top: 8px; display:none;" id="avisoRotacao">
+        <p style="color: var(--warn); font-size: var(--text-xs); margin-top: 8px; display:none;" id="avisoRotacao">
             ⚠️ Ao gerar uma chave nova, o Electron que está instalado com a chave antiga será desconectado. Você precisará abrir o setup dialog dele e colar a nova.
         </p>
-        <div id="statusApiKey" style="font-size:0.8em; margin-top:6px; color:var(--text-3);"></div>
+        <div id="statusApiKey" style="font-size:var(--text-xs); margin-top:6px; color:var(--text-3);"></div>
 
         <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border);">
             <a class="btn btn-primary btn-sm" href="/api/electron/download-installer" download>⬇️ Baixar Electron (Windows)</a>
-            <span style="color: var(--text-3); font-size: 0.8em; margin-left: 10px;">LiciteAgora-Setup.exe — instalador recomendado (atalho + inicialização automática)</span>
+            <span style="color: var(--text-3); font-size: var(--text-xs); margin-left: 10px;">LiciteAgora-Setup.exe — instalador recomendado (atalho + inicialização automática)</span>
         </div>
         <div style="margin-top: 8px;">
             <a class="btn btn-ghost btn-sm" href="/api/electron/download-exe" download>📦 Versão portátil</a>
-            <span style="color: var(--text-3); font-size: 0.8em; margin-left: 10px;">LiciteAgora-Browser.exe — roda sem instalação (diagnóstico/dev)</span>
+            <span style="color: var(--text-3); font-size: var(--text-xs); margin-left: 10px;">LiciteAgora-Browser.exe — roda sem instalação (diagnóstico/dev)</span>
         </div>
 
         <!-- Upload genérico de arquivos para o tenant -->
         <div style="margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border);">
             <h3 style="font-size: 0.95em; margin-bottom: 6px;">📁 Enviar arquivos</h3>
-            <p style="color: var(--text-2); font-size: 0.8em; margin-bottom: 10px; line-height: 1.4;">
+            <p style="color: var(--text-2); font-size: var(--text-xs); margin-bottom: 10px; line-height: 1.4;">
                 Envie qualquer arquivo (até 500 MB) — salvo em <code style="background:var(--bg-2);padding:1px 5px;border-radius:3px;">/tmp/uploads-&lt;tenant&gt;/</code> no servidor.
                 O nome original é preservado (com caracteres especiais sanitizados).
             </p>
@@ -78,7 +78,7 @@
                 <input type="file" id="fileAsar" style="padding:6px;">
                 <button class="btn btn-secondary btn-sm" onclick="enviarAsar()">📤 Enviar arquivo</button>
             </div>
-            <div id="statusAsar" style="font-size:0.8em; margin-top:8px; color:var(--text-3);"></div>
+            <div id="statusAsar" style="font-size:var(--text-xs); margin-top:8px; color:var(--text-3);"></div>
             <div id="listaUploads" style="margin-top:12px;"></div>
         </div>
     </div>
@@ -97,7 +97,7 @@
 
         <div class="btn-group">
             <button class="btn btn-primary" id="btnTestarServidor" onclick="testarServidor()">Testar Conexão ao Servidor</button>
-            <span id="statusServidor" style="font-size:0.85em;color:var(--text-3);"></span>
+            <span id="statusServidor" style="font-size:var(--text-xs);color:var(--text-3);"></span>
         </div>
 
         <div id="resultServidor" class="step-result"></div>
@@ -130,7 +130,7 @@
             </div>
         </div>
 
-        <p style="color:var(--text-2);font-size:0.85em;margin-bottom:14px;">
+        <p style="color:var(--text-2);font-size:var(--text-xs);margin-bottom:14px;">
             O teste de conectividade verifica se o Bearer token é válido consultando a API do Comprasnet.
             Opcionalmente, informe um CompraId para verificar se é possível ler dados de participação dessa compra.
         </p>
@@ -143,7 +143,7 @@
         <div class="btn-group" style="margin-top:14px">
             <button class="btn btn-success" id="btnTestarComprasnet" onclick="testarComprasnet()">Testar Conexão com Comprasnet</button>
             <button class="btn btn-ghost" id="btnTestarTudo" onclick="testarTudo()">Testar Tudo</button>
-            <span id="statusComprasnet" style="font-size:0.85em;color:var(--text-3);"></span>
+            <span id="statusComprasnet" style="font-size:var(--text-xs);color:var(--text-3);"></span>
         </div>
 
         <!-- Log de testes -->
@@ -354,7 +354,7 @@ async function testarComprasnet() {
                 <td>${teste.nome}</td>
                 <td><span class="badge ${statusCls}">${statusTxt}</span> ${httpBadge}</td>
                 <td>${tempo}</td>
-                <td style="color:${teste.sucesso ? '#4caf50' : '#f44336'};font-size:0.85em">${detalhe}</td>
+                <td style="color:${teste.sucesso ? '#4caf50' : '#f44336'};font-size:var(--text-xs)">${detalhe}</td>
             </tr>`;
 
             addLog('logArea', `${teste.sucesso ? 'OK' : 'FALHA'} — ${teste.nome} (${tempo})`, teste.sucesso ? 'ok' : 'erro');
@@ -541,15 +541,15 @@ async function carregarUploads() {
         const d = await r.json();
         if (!d.success) throw new Error(d.error || 'Falha');
         if (!d.files.length) {
-            box.innerHTML = '<div style="color:var(--text-3);font-size:0.8em;">Nenhum arquivo enviado.</div>';
+            box.innerHTML = '<div style="color:var(--text-3);font-size:var(--text-xs);">Nenhum arquivo enviado.</div>';
             return;
         }
         const linhas = d.files.map(f => `
             <tr>
-                <td style="font-family:monospace;font-size:0.85em;">${f.filename}</td>
-                <td style="font-size:0.85em;">${formatSize(f.size)}</td>
-                <td style="font-size:0.8em;color:var(--text-3);">${new Date(f.mtime).toLocaleString('pt-BR')}</td>
-                <td><button class="btn btn-ghost btn-sm" onclick="deletarUpload('${encodeURIComponent(f.filename)}')" style="font-size:0.75em;">🗑️</button></td>
+                <td style="font-family:monospace;font-size:var(--text-xs);">${f.filename}</td>
+                <td style="font-size:var(--text-xs);">${formatSize(f.size)}</td>
+                <td style="font-size:var(--text-xs);color:var(--text-3);">${new Date(f.mtime).toLocaleString('pt-BR')}</td>
+                <td><button class="btn btn-ghost btn-sm" onclick="deletarUpload('${encodeURIComponent(f.filename)}')" style="font-size:var(--text-xs);">🗑️</button></td>
             </tr>
         `).join('');
         box.innerHTML = `
@@ -559,7 +559,7 @@ async function carregarUploads() {
             </table>
         `;
     } catch (e) {
-        box.innerHTML = `<div class="vermelho" style="font-size:0.8em;">Erro: ${e.message}</div>`;
+        box.innerHTML = `<div class="vermelho" style="font-size:var(--text-xs);">Erro: ${e.message}</div>`;
     }
 }
 

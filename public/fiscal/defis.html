@@ -10,7 +10,7 @@
 <style>
   .df-toolbar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
   .df-toolbar .field { display: flex; flex-direction: column; gap: 4px; }
-  .df-toolbar label { font-size: 0.78em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .df-toolbar label { font-size: var(--text-xs); color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
   .df-toolbar input, .df-toolbar select { background: var(--bg-input); color: var(--text-0); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 6px 10px; }
 
   .df-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
@@ -19,17 +19,17 @@
   .card { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 16px; }
   .card h3 { margin: 0 0 12px 0; color: var(--accent); font-size: 1em; }
   .card .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; align-items: center; }
-  .card .row label { color: var(--text-2); font-size: 0.85em; }
+  .card .row label { color: var(--text-2); font-size: var(--text-xs); }
   .card .row input, .card .row textarea { background: var(--bg-input); color: var(--text-0); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 6px 10px; width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
   .card .row input.full, .card .row textarea.full { text-align: left; grid-column: 1 / -1; }
 
   .df-tbl { width: 100%; border-collapse: collapse; }
-  .df-tbl th { text-align: left; font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-2); padding: 7px 10px; border-bottom: 1px solid var(--border); }
+  .df-tbl th { text-align: left; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-2); padding: 7px 10px; border-bottom: 1px solid var(--border); }
   .df-tbl td { padding: 7px 10px; border-bottom: 1px solid var(--border); font-size: 0.9em; }
   .df-tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .df-tbl tfoot td { background: var(--bg-1); font-weight: 700; color: var(--accent); }
 
-  .status-pill { padding: 2px 8px; border-radius: 10px; font-weight: 700; text-transform: uppercase; font-size: 0.7em; }
+  .status-pill { padding: 2px 8px; border-radius: 10px; font-weight: 700; text-transform: uppercase; font-size: var(--text-xs); }
   .status-pill.paga { background: var(--success-soft); color: var(--success); }
   .status-pill.fechada { background: var(--accent-soft); color: var(--accent); }
   .status-pill.rascunho { background: var(--warn-soft); color: var(--warn); }
@@ -137,7 +137,7 @@
       <button class="btn btn-secondary btn-sm" onclick="adicionarSocio()">+ Adicionar</button>
     </h3>
     <div class="socios-area" id="sociosArea">
-      <div class="socio-linha" style="font-size:0.76em;color:var(--text-2);text-transform:uppercase;">
+      <div class="socio-linha" style="font-size:var(--text-xs);color:var(--text-2);text-transform:uppercase;">
         <span>Nome</span><span>CPF</span><span>% Capital</span><span>Tipo</span><span></span>
       </div>
       <div id="sociosRows"></div>

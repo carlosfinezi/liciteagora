@@ -305,12 +305,12 @@ function renderizarItem(item, licitacaoKey) {
             <div class="item-descricao">
                 <div class="item-numero">Item ${item.numeroItem}</div>
                 ${item.descricao}
-                <div style="color: #888; font-size: 0.85em; margin-top: 5px;">
+                <div style="color: #888; font-size: var(--text-xs); margin-top: 5px;">
                     Qtd: ${item.quantidade} ${item.unidadeMedida}
                 </div>
             </div>
             <div class="item-valor-ref">
-                <div style="color: #888; font-size: 0.8em;">Valor Ref.</div>
+                <div style="color: #888; font-size: var(--text-xs);">Valor Ref.</div>
                 <span>${formatarValor(valorRef)}</span>
             </div>
             <div class="item-input">

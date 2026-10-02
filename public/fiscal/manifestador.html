@@ -33,7 +33,7 @@
       <option value="ignorada">Ignoradas</option>
     </select>
     <input type="text" id="filtBusca" placeholder="CNPJ, razão social, nº…" oninput="debounce(carregar)" style="flex:1;min-width:200px;">
-    <small id="cursorInfo" style="color:var(--text-3);font-size:0.78em;"></small>
+    <small id="cursorInfo" style="color:var(--text-3);font-size:var(--text-xs);"></small>
   </div>
 
   <div class="tbl-wrap" data-grid="manifestador">
@@ -152,7 +152,7 @@ function render(items){
     <td>${fmtData(i.dataEmissao)}</td>
     <td><strong>${i.emitenteRazaoSocial||'—'}</strong><br><small class="muted">CNPJ ${i.emitenteCnpj||'—'}</small></td>
     <td>${i.numeroNF||'-'} / ${i.serie||'-'}</td>
-    <td class="mono" style="font-size:0.78em;" title="${i.chaveAcesso}">${chaveFmt(i.chaveAcesso)}</td>
+    <td class="mono" style="font-size:var(--text-xs);" title="${i.chaveAcesso}">${chaveFmt(i.chaveAcesso)}</td>
     <td style="text-align:right;">R$ ${fmt(i.valorTotal)}</td>
     <td>${prazoBadge(i)}</td>
     <td><span class="badge ${i.situacao}">${i.situacao}</span>${i.temXmlCompleto?' <small style="color:var(--success);">✓ XML</small>':' <small class="muted">só resumo</small>'}</td>

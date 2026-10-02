@@ -1,0 +1,23 @@
+/* O que as páginas de IA e campanhas (/comunicacao/) usam em comum. Moravam
+   no <style> do ia.html até 2026-09-28, quando cada guia virou página. */
+
+.kpis { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0; }
+.kpis .c { background:var(--bg-2); border:1px solid var(--border); border-radius:var(--r-md); padding:8px 14px; font-size:var(--text-xs); color:var(--text-2); }
+.kpis .c .v { display:block; font-size:1.35em; font-weight:600; color:var(--text-1); }
+.kpis .c.alerta { border-color:var(--danger); }
+
+/* ações da linha: uma principal + menu, para a tabela não virar fileira de botões */
+.acoes { display:flex; gap:6px; justify-content:flex-end; align-items:center; }
+.menu { position:relative; }
+.menu > summary { list-style:none; cursor:pointer; padding:5px 9px; border:1px solid var(--border);
+  border-radius:6px; font-size:var(--text-xs); color:var(--text-2); user-select:none; line-height:1; }
+.menu > summary::-webkit-details-marker { display:none; }
+.menu[open] > summary { background:var(--bg-2); border-color:var(--accent); color:var(--accent); }
+.menu .itens { position:absolute; right:0; top:calc(100% + 4px); z-index:20; min-width:180px;
+  background:var(--bg-2); border:1px solid var(--border); border-radius:var(--r-md);
+  box-shadow:0 8px 24px -10px rgba(0,0,0,.5); padding:4px; display:flex; flex-direction:column; }
+.menu .itens button { text-align:left; background:none; border:0; color:var(--text-1);
+  padding:7px 10px; font-size:var(--text-xs); cursor:pointer; border-radius:5px; white-space:nowrap; }
+.menu .itens button:hover { background:var(--accent-soft); color:var(--accent); }
+.menu .itens button.perigo { color:var(--danger); }
+.menu .itens hr { border:0; border-top:1px solid var(--border); margin:4px 0; }

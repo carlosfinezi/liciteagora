@@ -17,15 +17,15 @@
   .etapa-num {
     display:inline-flex; align-items:center; justify-content:center;
     width:20px; height:20px; border-radius:50%; background:var(--bg-2);
-    border:1px solid var(--border-strong); font-size:0.72em; color:var(--text-2);
+    border:1px solid var(--border-strong); font-size:var(--text-xs); color:var(--text-2);
   }
   .etapa.ok { border-left-color: var(--success); }
   .etapa.ok .etapa-num { background:var(--success); border-color:var(--success); color:#fff; }
-  .exig { display:flex; align-items:flex-start; gap:8px; padding:5px 0; font-size:0.84em; }
+  .exig { display:flex; align-items:flex-start; gap:8px; padding:5px 0; font-size:var(--text-xs); }
   .exig .marca { flex:none; width:16px; text-align:center; }
   .ctx-bloco { margin-bottom:14px; }
-  .ctx-bloco h4 { margin:0 0 6px; font-size:0.7em; text-transform:uppercase; letter-spacing:.06em; color:var(--text-3); }
-  .chk-preview { font-size:0.84em; color:var(--text-2); }
+  .ctx-bloco h4 { margin:0 0 6px; font-size:var(--text-xs); text-transform:uppercase; letter-spacing:.06em; color:var(--text-3); }
+  .chk-preview { font-size:var(--text-xs); color:var(--text-2); }
   .chk-preview div { padding:3px 0; }
 </style>
 </head>
@@ -49,7 +49,7 @@
       <!-- 1. TIPO -->
       <div class="etapa" id="et1">
         <h3><span class="etapa-num">1</span> Tipo de OS
-          <a href="/os/cadastro-os-tipos.html" target="_blank" style="font-size:11px;font-weight:normal;">⚙ gerenciar</a></h3>
+          <a href="/os/cadastro-os-tipos.html" target="_blank" style="font-size:var(--text-xs);font-weight:normal;">⚙ gerenciar</a></h3>
         <div class="form-row">
           <div class="form-group" style="flex:2;">
             <label>Tipo *</label>
@@ -86,8 +86,8 @@
       <!-- 3. EQUIPAMENTO -->
       <div class="etapa" id="et3">
         <h3><span class="etapa-num">3</span> Equipamento
-          <a href="/os/equipamentos.html" target="_blank" style="font-size:11px;font-weight:normal;">⚙ cadastro completo</a>
-          <a id="linkFichaEquip" href="#" target="_blank" style="font-size:11px;font-weight:normal;display:none;">🔎 abrir ficha</a></h3>
+          <a href="/os/equipamentos.html" target="_blank" style="font-size:var(--text-xs);font-weight:normal;">⚙ cadastro completo</a>
+          <a id="linkFichaEquip" href="#" target="_blank" style="font-size:var(--text-xs);font-weight:normal;display:none;">🔎 abrir ficha</a></h3>
         <div class="form-row">
           <div class="form-group full-width">
             <label>Base instalada do cliente <small class="muted">+ máquinas da empresa</small></label>
@@ -178,7 +178,7 @@
     <div class="panel">
       <div class="ctx-bloco">
         <h4>O que este tipo exige</h4>
-        <div id="ctxExigencias" class="muted" style="font-size:0.85em;">Escolha o tipo de OS.</div>
+        <div id="ctxExigencias" class="muted" style="font-size:var(--text-xs);">Escolha o tipo de OS.</div>
       </div>
 
       <div class="ctx-bloco" id="ctxChecklistBloco" style="display:none;">
@@ -188,12 +188,12 @@
 
       <div class="ctx-bloco" id="ctxGarantiaBloco" style="display:none;">
         <h4>Garantia</h4>
-        <div id="ctxGarantia" style="font-size:0.85em;"></div>
+        <div id="ctxGarantia" style="font-size:var(--text-xs);"></div>
       </div>
 
       <div class="ctx-bloco" id="ctxHistBloco" style="display:none;">
         <h4>Histórico do equipamento</h4>
-        <div id="ctxHist" style="font-size:0.85em;"></div>
+        <div id="ctxHist" style="font-size:var(--text-xs);"></div>
       </div>
     </div>
   </div>

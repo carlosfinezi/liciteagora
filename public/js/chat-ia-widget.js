@@ -21,7 +21,7 @@
 
   // ===== CSS injetado =====
   const css = `
-    #chat-ia-btn{position:fixed;bottom:20px;right:20px;padding:10px 16px 10px 12px;border-radius:999px;background:var(--accent,#1a5f7a);background:linear-gradient(135deg,var(--accent,#1a5f7a),var(--accent-strong,#0f4359));color:#fff;border:none;cursor:pointer;font-family:inherit;font-size:0.85em;font-weight:500;letter-spacing:.01em;box-shadow:0 2px 8px rgba(0,0,0,.12),0 6px 20px rgba(26,95,122,.25);z-index:9998;display:inline-flex;align-items:center;gap:7px;line-height:1;transition:transform .15s ease,box-shadow .15s ease}
+    #chat-ia-btn{position:fixed;bottom:20px;right:20px;padding:10px 16px 10px 12px;border-radius:999px;background:var(--accent,#1a5f7a);background:linear-gradient(135deg,var(--accent,#1a5f7a),var(--accent-strong,#0f4359));color:#fff;border:none;cursor:pointer;font-family:inherit;font-size:var(--text-xs, 12px);font-weight:500;letter-spacing:.01em;box-shadow:0 2px 8px rgba(0,0,0,.12),0 6px 20px rgba(26,95,122,.25);z-index:9998;display:inline-flex;align-items:center;gap:7px;line-height:1;transition:transform .15s ease,box-shadow .15s ease}
     #chat-ia-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.16),0 8px 24px rgba(26,95,122,.35)}
     #chat-ia-btn:active{transform:translateY(0)}
     #chat-ia-btn svg{width:18px;height:18px;flex:none}
@@ -33,14 +33,14 @@
     #chat-ia-header h3{margin:0;font-size:0.95em;flex:1;color:var(--text-0,#222)}
     #chat-ia-header button{background:none;border:none;cursor:pointer;color:var(--text-2,#666);font-size:18px;padding:4px 8px;border-radius:4px}
     #chat-ia-header button:hover{background:var(--bg-3,#eee)}
-    #chat-ia-ctx{padding:6px 16px;background:var(--accent-soft,#e8f0f5);color:var(--accent,#1a5f7a);font-size:0.8em;border-bottom:1px solid var(--border,#ddd);display:none}
+    #chat-ia-ctx{padding:6px 16px;background:var(--accent-soft,#e8f0f5);color:var(--accent,#1a5f7a);font-size:var(--text-xs, 12px);border-bottom:1px solid var(--border,#ddd);display:none}
     #chat-ia-ctx.ativo{display:block}
     #chat-ia-msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;background:var(--bg-0,#fafafa)}
     .chat-ia-msg{max-width:85%;padding:10px 14px;border-radius:12px;font-size:0.9em;line-height:1.45;white-space:pre-wrap;word-wrap:break-word}
     .chat-ia-msg.user{background:var(--accent,#1a5f7a);color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
     .chat-ia-msg.assistant{background:var(--bg-1,#fff);color:var(--text-0,#222);align-self:flex-start;border:1px solid var(--border,#ddd);border-bottom-left-radius:4px}
-    .chat-ia-msg.system{align-self:center;background:transparent;color:var(--text-3,#999);font-size:0.78em;font-style:italic;padding:4px 10px;text-align:center}
-    .chat-ia-msg .provider{display:block;font-size:0.7em;color:var(--text-3,#999);margin-top:4px;font-style:italic}
+    .chat-ia-msg.system{align-self:center;background:transparent;color:var(--text-3,#999);font-size:var(--text-xs, 12px);font-style:italic;padding:4px 10px;text-align:center}
+    .chat-ia-msg .provider{display:block;font-size:var(--text-xs, 12px);color:var(--text-3,#999);margin-top:4px;font-style:italic}
     #chat-ia-form{padding:12px 14px;border-top:1px solid var(--border,#ddd);background:var(--bg-1,#fff);display:flex;gap:8px}
     #chat-ia-input{flex:1;padding:10px 12px;border:1px solid var(--border,#ddd);border-radius:8px;font-family:inherit;font-size:0.9em;resize:none;max-height:120px;background:var(--bg-1,#fff);color:var(--text-0,#222)}
     #chat-ia-input:focus{outline:none;border-color:var(--accent,#1a5f7a)}
@@ -48,7 +48,7 @@
     #chat-ia-send:disabled{opacity:.4;cursor:not-allowed}
     #chat-ia-empty{text-align:center;color:var(--text-2,#666);padding:40px 20px;font-size:0.9em}
     #chat-ia-empty .ex{margin-top:14px;text-align:left;display:flex;flex-direction:column;gap:6px}
-    #chat-ia-empty .ex button{text-align:left;padding:8px 12px;background:var(--bg-1,#fff);border:1px solid var(--border,#ddd);border-radius:8px;cursor:pointer;font-size:0.85em;color:var(--text-1,#444)}
+    #chat-ia-empty .ex button{text-align:left;padding:8px 12px;background:var(--bg-1,#fff);border:1px solid var(--border,#ddd);border-radius:8px;cursor:pointer;font-size:var(--text-xs, 12px);color:var(--text-1,#444)}
     #chat-ia-empty .ex button:hover{border-color:var(--accent,#1a5f7a);color:var(--accent,#1a5f7a)}
     @media (prefers-color-scheme:dark){#chat-ia-panel{background:#1f2937;color:#f3f4f6}.chat-ia-msg.assistant{background:#374151;color:#f3f4f6;border-color:#4b5563}#chat-ia-input,#chat-ia-form{background:#1f2937;color:#f3f4f6;border-color:#4b5563}}
   `;

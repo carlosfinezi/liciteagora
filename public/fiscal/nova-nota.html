@@ -20,23 +20,23 @@
         .itens-tabela .col-un { width: 70px; }
         .itens-tabela .col-acao { width: 90px; white-space: nowrap; }
         .linha-total { font-weight: 700; }
-        .badge-trib { display: inline-block; padding: 2px 7px; border-radius: var(--r-sm); font-size: 0.78em; font-weight: 600; }
+        .badge-trib { display: inline-block; padding: 2px 7px; border-radius: var(--r-sm); font-size: var(--text-xs); font-weight: 600; }
         .badge-trib.ok { background: var(--success-bg, rgba(40,167,69,.15)); color: var(--success, #28a745); }
         .badge-trib.erro { background: var(--danger-bg, rgba(220,53,69,.15)); color: var(--danger, #dc3545); }
         .badge-trib.manual { background: var(--warn-bg, rgba(255,193,7,.18)); color: var(--warn, #ffc107); }
-        .memoria { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8em;
+        .memoria { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-xs);
                    white-space: pre-wrap; color: var(--text-2); background: var(--bg-2);
                    padding: 8px 10px; border-radius: var(--r-sm); margin-top: 6px; }
         .totais-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
         .totais-grid .box { background: var(--bg-2); padding: 10px 12px; border-radius: var(--r-sm); }
-        .totais-grid .box small { color: var(--text-3); display: block; font-size: 0.8em; }
+        .totais-grid .box small { color: var(--text-3); display: block; font-size: var(--text-xs); }
         .totais-grid .box strong { font-size: 1.05em; }
         .autocomplete-list { position: absolute; z-index: 40; left: 0; right: 0; background: var(--bg-1);
                              border: 1px solid var(--border); border-radius: var(--r-sm); max-height: 240px;
                              overflow-y: auto; display: none; }
         .autocomplete-list div { padding: 7px 10px; cursor: pointer; font-size: 0.88em; }
         .autocomplete-list div:hover { background: var(--bg-2); }
-        .status-chip { padding: 3px 10px; border-radius: 999px; font-size: 0.8em; font-weight: 600; }
+        .status-chip { padding: 3px 10px; border-radius: 999px; font-size: var(--text-xs); font-weight: 600; }
         .status-chip.rascunho { background: var(--warn-bg, rgba(255,193,7,.18)); color: var(--warn, #ffc107); }
         .status-chip.emitida { background: var(--success-bg, rgba(40,167,69,.15)); color: var(--success, #28a745); }
     </style>
@@ -177,7 +177,7 @@
                 <!-- ─── Memória de cálculo ───────────────────────────────── -->
                 <div class="panel" id="panelMemoria" style="display:none;">
                     <h3>Memória de cálculo</h3>
-                    <small class="muted">Por que cada imposto deu esse valor — o mesmo que a auditoria de um ERP mostra.</small>
+                    <small class="muted">Por que cada imposto deu esse valor.</small>
                     <div id="memoriaConteudo" style="margin-top: 10px;"></div>
                 </div>
             </div>

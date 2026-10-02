@@ -80,7 +80,7 @@
         <input type="text" id="fPedidoBusca" placeholder="Digite número, cliente ou compraId…" oninput="acPedido()" autocomplete="off">
         <input type="hidden" id="fPedidoId">
         <div id="acPedidoList" class="ac-list"></div>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="limparPedido()" id="btnLimparPedido" style="display:none;position:absolute;right:6px;top:28px;padding:2px 8px;font-size:11px;" title="Desvincular pedido">× limpar</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="limparPedido()" id="btnLimparPedido" style="display:none;position:absolute;right:6px;top:28px;padding:2px 8px;font-size:var(--text-xs);" title="Desvincular pedido">× limpar</button>
       </div>
       <div class="form-group">
         <label>Status</label>
@@ -252,7 +252,7 @@ function renderReceitaCell(o){
   if (!lentes) return '<span class="muted">—</span>';
   const data = o.receitaUltimaData ? fmtData(o.receitaUltimaData) : '';
   if (comReceita === 0) {
-    return `<span class="badge" style="background:var(--danger);color:#fff;" title="${lentes} lente(s) sem receita anexada">0/${lentes}</span>`;
+    return `<span class="badge" style="background:var(--danger);color:var(--bg-2);" title="${lentes} lente(s) sem receita anexada">0/${lentes}</span>`;
   }
   if (comReceita < lentes) {
     return `<span class="badge warn" title="${comReceita} de ${lentes} lentes com receita">${comReceita}/${lentes}</span>${data ? ` <small class="muted">${data}</small>` : ''}`;

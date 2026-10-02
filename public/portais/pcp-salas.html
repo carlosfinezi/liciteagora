@@ -23,14 +23,14 @@
 
   <div class="panel" id="painelSalas">
     <h2>Sessões públicas</h2>
-    <p style="color: var(--text-2); font-size: 0.85em;">
+    <p style="color: var(--text-2); font-size: var(--text-xs);">
       Suas sessões no PCP (as que têm disputa). Clique em <em>Abrir sala</em>.
       <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="carregarSalas()">🔄 Atualizar</button>
-      <a href="#" style="margin-left:8px; font-size:0.9em;" onclick="event.preventDefault(); toggleManual()">informar chave/URL ▾</a>
+      <a href="#" style="margin-left:8px; font-size:var(--text-sm);" onclick="event.preventDefault(); toggleManual()">informar chave/URL ▾</a>
     </p>
-    <div id="listaSalas" style="font-size:0.85em;">carregando…</div>
+    <div id="listaSalas" style="font-size:var(--text-xs);">carregando…</div>
     <div id="painelManual" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
-      <p style="color: var(--text-3); font-size: 0.8em; margin:0 0 6px;">A URL da sessão (<code>…/SessaoPublica/?ttCD_CHAVE=…</code>) ou só o número da chave:</p>
+      <p style="color: var(--text-3); font-size: var(--text-xs); margin:0 0 6px;">A URL da sessão (<code>…/SessaoPublica/?ttCD_CHAVE=…</code>) ou só o número da chave:</p>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <input id="inpUrl" class="form-control" style="flex:1; min-width:320px;" placeholder="493366  ou  https://operacao.portaldecompraspublicas.com.br/4/SessaoPublica/?ttCD_CHAVE=493366">
         <button class="btn btn-primary btn-sm" onclick="abrirSalaManual()">Abrir sala</button>
@@ -42,9 +42,9 @@
     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
       <div>
         <h2 style="margin-bottom:4px;">Sala <span id="salaChave"></span></h2>
-        <div id="ctxSala" style="font-size:0.85em; color:var(--text-2);"></div>
+        <div id="ctxSala" style="font-size:var(--text-xs); color:var(--text-2);"></div>
       </div>
-      <div style="text-align:right; font-size:0.8em; color:var(--text-2);">
+      <div style="text-align:right; font-size:var(--text-xs); color:var(--text-2);">
         <div>Hora do portal: <strong id="horaPortal">—</strong></div>
         <label style="display:block; margin-top:6px; cursor:pointer;">
           <input type="checkbox" id="chkAuto" checked onchange="agendarPoll()"> atualizar a cada 10s
@@ -90,18 +90,18 @@
         <tbody></tbody>
       </table>
     </div>
-    <div id="roboRodape" style="font-size:0.8em; color:var(--text-3); margin-top:8px;"></div>
+    <div id="roboRodape" style="font-size:var(--text-xs); color:var(--text-3); margin-top:8px;"></div>
     <details style="margin-top:10px;">
-      <summary style="cursor:pointer; font-size:0.85em;">Histórico do robô</summary>
-      <div id="roboHistorico" style="font-size:0.8em; margin-top:6px;"></div>
+      <summary style="cursor:pointer; font-size:var(--text-xs);">Histórico do robô</summary>
+      <div id="roboHistorico" style="font-size:var(--text-xs); margin-top:6px;"></div>
     </details>
   </div>
 
   <div class="panel" id="painelResultado" style="display:none;">
     <div id="outResultado"></div>
     <details style="margin-top:10px;">
-      <summary style="cursor:pointer; font-size:0.8em; color:var(--text-3);">detalhes técnicos</summary>
-      <pre id="outJson" style="white-space:pre-wrap; word-break:break-all; font-size:0.75em; background:var(--bg-2); padding:12px; border-radius:var(--r-sm); margin-top:6px;"></pre>
+      <summary style="cursor:pointer; font-size:var(--text-xs); color:var(--text-3);">detalhes técnicos</summary>
+      <pre id="outJson" style="white-space:pre-wrap; word-break:break-all; font-size:var(--text-xs); background:var(--bg-2); padding:12px; border-radius:var(--r-sm); margin-top:6px;"></pre>
     </details>
   </div>
 </main></div>
@@ -132,7 +132,7 @@ function alerta(msg, tipo) {
   if (tipo === 'ok') setTimeout(() => { el.innerHTML = ''; }, 4000);
 }
 function mostrarResultado(kind, corpoHtml, jsonObj) {
-  const cor = kind === 'ok' ? '#1a7f37' : (kind === 'err' ? '#c0392b' : '#2563eb');
+  const cor = kind === 'ok' ? 'var(--success)' : (kind === 'err' ? 'var(--danger)' : 'var(--accent)');
   document.getElementById('painelResultado').style.display = '';
   document.getElementById('outResultado').innerHTML =
     '<div style="padding:14px 16px; border-radius:var(--r-sm); background:' + cor + '14; border-left:4px solid ' + cor + '; line-height:1.5;">' + corpoHtml + '</div>';
@@ -154,7 +154,7 @@ async function carregarSessao() {
     const b = document.getElementById('sessaoBadge');
     if (d.configurado) {
       b.textContent = 'sessão: ' + (d.sessaoAtiva ? (d.expirando ? '⚠ expirando' : '✅ ok') : '⏻ dorme') + (d.usuario ? ' (' + d.usuario + ')' : '');
-    } else { b.textContent = 'sessão: ❌ credenciais PCP não configuradas'; }
+    } else { b.textContent = 'sessão: ❌ sem credenciais'; }
   } catch (e) { document.getElementById('sessaoBadge').textContent = 'sessão: erro'; }
 }
 
@@ -175,7 +175,7 @@ async function carregarSalas() {
         '<td>' + escapeHtml(p.situacao) + '</td>' +
         '<td>' + (p.chaveId ? '<button class="btn btn-primary btn-sm" onclick="abrirSala(\'' + p.chaveId + '\')">Abrir sala</button>' : '') + '</td>' +
       '</tr>').join('') + '</tbody></table>';
-  } catch (e) { el.innerHTML = '<span style="color:#c0392b">Erro: ' + escapeHtml(e.message) + '</span>'; }
+  } catch (e) { el.innerHTML = '<span style="color:var(--danger)">Erro: ' + escapeHtml(e.message) + '</span>'; }
 }
 
 function abrirSalaManual() {
@@ -289,7 +289,7 @@ function renderRobo(forcar) {
         '<option value="1"' + sel(sim, 1) + '>Simulação</option>' +
         '<option value="0"' + sel(sim, 0) + '>Real</option></select></td>' +
       '<td><button class="btn btn-sm ' + (c.ativo ? 'btn-primary' : 'btn-ghost') + '" data-item="' + id + '" data-acao="ligar">' + (c.ativo ? 'Ligado' : 'Desligado') + '</button></td>' +
-      '<td data-situacao="' + id + '" style="font-size:0.85em;"></td>' +
+      '<td data-situacao="' + id + '" style="font-size:var(--text-xs);"></td>' +
     '</tr>';
   }).join('');
 }
@@ -417,7 +417,7 @@ function renderItens(itens) {
   tb.innerHTML = itens.map((i) => {
     // Preserva o que o usuário já digitou entre os polls de 10s.
     const digitado = document.getElementById('val-' + i.idItem)?.value || '';
-    const cor = i.vencendo ? '#1a7f37' : (i.posicao ? '#c0392b' : 'var(--text-2)');
+    const cor = i.vencendo ? 'var(--success)' : (i.posicao ? 'var(--danger)' : 'var(--text-2)');
     const fechado = !i.podeLance && i.podeLanceFechado;
     const celLance = (i.podeLance || fechado)
       ? '<div style="display:flex; gap:4px;">' +

@@ -45,7 +45,7 @@
       </div>
       <button class="btn btn-ghost btn-sm" onclick="fecharNfe()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
-    <p class="muted" style="font-size:0.85em;margin:0 0 12px;">
+    <p class="muted" style="font-size:var(--text-xs);margin:0 0 12px;">
       O custo já vem da nota com IPI e frete somados e desconto abatido.
       Quantidade maior que 1 gera um bem por unidade — patrimônio se controla por bem, não por linha de nota.
     </p>
@@ -93,7 +93,7 @@
       </div>
       <button class="btn btn-ghost btn-sm" onclick="fecharContas()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
-    <p class="muted" style="font-size:0.85em;margin:0 0 12px;">
+    <p class="muted" style="font-size:var(--text-xs);margin:0 0 12px;">
       Deixe a categoria em branco para o mapeamento padrão. Só contas analíticas aceitam lançamento.
     </p>
     <div class="form-row">
@@ -106,7 +106,7 @@
     </div>
     <div class="form-row">
       <div class="form-group"><label>Resultado na baixa</label><select id="ctResult"></select>
-        <small class="muted" style="font-size:11px;">Sem ela, baixar bem com valor contábil restante é recusado.</small>
+        <small class="muted" style="font-size:var(--text-xs);">Sem ela, baixar bem com valor contábil restante é recusado.</small>
       </div>
     </div>
     <div id="ctLista" style="margin-top:12px;"></div>
@@ -418,13 +418,13 @@ async function abrirContas(){
 
   document.getElementById('ctLista').innerHTML = d.contasAnaliticas.length
     ? (d.mapas.length ? `<h4 style="font-size:0.9em;margin:0 0 6px;">Mapeamentos atuais</h4>
-        <div style="font-size:0.85em;line-height:1.8;">${d.mapas.map(m =>
+        <div style="font-size:var(--text-xs);line-height:1.8;">${d.mapas.map(m =>
           `<div><strong>${escP(m.categoria || '(padrão)')}</strong> — imob. ${escP(m.imobilizadoCodigo||'?')} ·
            acum. ${escP(m.acumuladaCodigo||'?')} · despesa ${escP(m.despesaCodigo||'?')}
            ${m.resultadoCodigo ? '· baixa ' + escP(m.resultadoCodigo) : '<span style="color:var(--warn);">· sem conta de baixa</span>'}</div>`
         ).join('')}</div>`
-      : '<p class="muted" style="font-size:0.85em;">Nenhum mapeamento ainda — nada será contabilizado até configurar o padrão.</p>')
-    : `<p style="font-size:0.85em;color:var(--warn);">O plano contábil não tem contas analíticas.
+      : '<p class="muted" style="font-size:var(--text-xs);">Nenhum mapeamento ainda — nada será contabilizado até configurar o padrão.</p>')
+    : `<p style="font-size:var(--text-xs);color:var(--warn);">O plano contábil não tem contas analíticas.
        Cadastre-as em <a href="/contabilidade/plano-contabil.html">Plano Contábil</a> antes de mapear.</p>`;
 }
 

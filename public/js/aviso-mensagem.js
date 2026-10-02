@@ -41,7 +41,7 @@
       + 'transform:translateY(8px);opacity:0;transition:opacity .18s ease,transform .18s ease}'
       + '#aviso-msg.vendo{opacity:1;transform:translateY(0)}'
       + '#aviso-msg strong{display:block;color:var(--text-0,#0f172a);margin-bottom:2px}'
-      + '#aviso-msg .mais{display:block;margin-top:6px;font-size:11px;color:var(--text-3,#64748b);'
+      + '#aviso-msg .mais{display:block;margin-top:6px;font-size:var(--text-xs,12px);color:var(--text-3,#64748b);'
       + 'text-transform:uppercase;letter-spacing:.06em}';
     document.head.appendChild(s);
   }

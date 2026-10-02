@@ -110,7 +110,7 @@ function render(f){
           <div><label class="muted">Status SEFAZ</label><div>${STATUS_SEFAZ[f.statusSefaz] || '<small class="muted">—</small>'}</div></div>
           <div><label class="muted">Número/Série NF-e</label><div>${escTxt(f.numeroNFe || '—')}${f.serieNFe ? ' / ' + escTxt(f.serieNFe) : ''}</div></div>
           <div><label class="muted">Data autorização</label><div>${fmtData(f.dataAutorizacaoSefaz)}</div></div>
-          <div style="grid-column:1/-1;"><label class="muted">Chave de acesso</label><div><code style="font-size:11px;cursor:pointer;" onclick="copiar('${escTxt(f.chaveAcesso || '')}')">${escTxt(f.chaveAcesso || '—')}</code></div></div>
+          <div style="grid-column:1/-1;"><label class="muted">Chave de acesso</label><div><code style="font-size:var(--text-xs);cursor:pointer;" onclick="copiar('${escTxt(f.chaveAcesso || '')}')">${escTxt(f.chaveAcesso || '—')}</code></div></div>
           <div style="grid-column:1/-1;"><label class="muted">Protocolo de autorização</label><div><code>${escTxt(f.protocoloAutorizacao || '—')}</code></div></div>
         </div>
       </div>
@@ -164,7 +164,7 @@ function render(f){
     ${avisoNfeOutra}
     <style>
       .grid-info { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:14px 18px; }
-      .grid-info label { display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px; }
+      .grid-info label { display:block; font-size:var(--text-xs); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px; }
       .grid-info > div > div { font-size:14px; }
       .totais-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:8px 24px; max-width:480px; margin-left:auto; }
       .totais-grid .label { color:var(--text-2); }

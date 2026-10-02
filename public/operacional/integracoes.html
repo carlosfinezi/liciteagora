@@ -82,7 +82,7 @@ function renderCards(portais) {
           <div>
             <h3 style="margin:0 0 4px 0;">${escapeHtml(p.label)}</h3>
             <small class="muted">${escapeHtml(p.descricao)}</small>
-            ${p.site ? ` · <a href="${escapeHtml(p.site)}" target="_blank" rel="noopener" style="font-size:0.85em;">abrir portal ↗</a>` : ''}
+            ${p.site ? ` · <a href="${escapeHtml(p.site)}" target="_blank" rel="noopener" style="font-size:var(--text-xs);">abrir portal ↗</a>` : ''}
           </div>
           <div style="text-align:right;">${status}</div>
         </div>
@@ -157,7 +157,7 @@ async function testar(key, label) {
         <div class="alert error" style="margin:0;">
           <strong>Falha em <code>${escapeHtml(res.etapa || '?')}</code></strong>${res.status ? ` (HTTP ${res.status})` : ''}<br>
           <small>${escapeHtml(res.error || '—')}</small>
-          ${res.trace ? `<details style="margin-top:6px;"><summary><small>trace</small></summary><pre style="font-size:11px; margin:4px 0 0 0; white-space:pre-wrap;">${escapeHtml(res.trace.join('\n'))}</pre></details>` : ''}
+          ${res.trace ? `<details style="margin-top:6px;"><summary><small>trace</small></summary><pre style="font-size:var(--text-xs); margin:4px 0 0 0; white-space:pre-wrap;">${escapeHtml(res.trace.join('\n'))}</pre></details>` : ''}
         </div>`;
     }
   } catch (e) {

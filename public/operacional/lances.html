@@ -13,12 +13,12 @@
         /* override page-local de .status-item: cards uniformes com flex:1 (diferente do padrão .status-bar) */
         .status-bar { gap: 12px; margin-bottom: 16px; padding: 0; background: transparent; border: none; }
         .status-item { background: var(--bg-2); padding: 10px 14px; border-radius: var(--r-md); flex: 1; min-width: 100px; text-align: center; display: block; font-size: 1em; }
-        .status-item .label { color: var(--text-3); font-size: 0.75em; margin-bottom: 3px; }
+        .status-item .label { color: var(--text-3); font-size: var(--text-xs); margin-bottom: 3px; }
         .status-item .value { font-size: 1em; font-weight: 600; }
 
         /* Filters */
         .filtros { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
-        .filtros label { font-size: 0.85em; cursor: pointer; display: flex; align-items: center; gap: 4px; color: var(--text-1); }
+        .filtros label { font-size: var(--text-xs); cursor: pointer; display: flex; align-items: center; gap: 4px; color: var(--text-1); }
         .filtros label:hover { color: var(--accent); }
 
         /* Licitação rows */
@@ -27,22 +27,22 @@
         .lic-header:hover { background: var(--bg-hover); }
         .lic-header.aberta { background: var(--bg-3); border-bottom: 1px solid var(--border); }
         .lic-left { flex: 1; min-width: 0; }
-        .lic-id { font-size: 0.85em; font-weight: 600; color: var(--accent); }
-        .lic-obj { font-size: 0.8em; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 550px; margin-top: 2px; }
-        .lic-org { font-size: 0.72em; color: var(--text-3); margin-top: 1px; }
+        .lic-id { font-size: var(--text-xs); font-weight: 600; color: var(--accent); }
+        .lic-obj { font-size: var(--text-xs); color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 550px; margin-top: 2px; }
+        .lic-org { font-size: var(--text-xs); color: var(--text-3); margin-top: 1px; }
         .lic-right { text-align: right; flex-shrink: 0; margin-left: 12px; }
-        .lic-etapa { font-size: 0.8em; font-weight: 600; padding: 2px 8px; border-radius: var(--r-sm); }
+        .lic-etapa { font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: var(--r-sm); }
         .etapa-disputa { background: var(--success-soft); color: var(--success); }
         .etapa-encerrada { background: var(--bg-3); color: var(--text-3); }
         .etapa-outra { background: var(--warn-soft); color: var(--warn); }
-        .lic-data { font-size: 0.72em; color: var(--text-3); margin-top: 3px; }
+        .lic-data { font-size: var(--text-xs); color: var(--text-3); margin-top: 3px; }
         .lic-body { display: none; padding: 12px 14px; background: var(--bg-0); }
         .lic-body.aberta { display: block; }
-        .lic-arrow { color: var(--text-3); font-size: 0.8em; transition: transform 0.2s; margin-left: 8px; }
+        .lic-arrow { color: var(--text-3); font-size: var(--text-xs); transition: transform 0.2s; margin-left: 8px; }
         .lic-arrow.aberta { transform: rotate(180deg); }
 
         /* Item table */
-        .itens-table { width: 100%; border-collapse: collapse; font-size: 0.82em; table-layout: auto; }
+        .itens-table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); table-layout: auto; }
         .itens-table th { color: var(--text-3); text-align: left; padding: 4px 5px; border-bottom: 1px solid var(--border); font-weight: 500; white-space: nowrap; font-size: 0.9em; }
         .itens-table td { padding: 4px 5px; border-bottom: 1px solid #0f346030; vertical-align: middle; }
         .itens-table tr:hover { background: #0f346020; }
@@ -50,41 +50,41 @@
         .itens-table input:focus { outline: none; border-color: var(--accent); }
         .itens-table .desc-cell { max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .stacked-cell { line-height: 1.5; }
-        .stacked-cell .sub { color: var(--text-3); font-size: 0.85em; }
+        .stacked-cell .sub { color: var(--text-3); font-size: var(--text-xs); }
         .blitz-row { display: flex; align-items: center; gap: 3px; margin-top: 3px; }
         .blitz-row input[type=text] { width: 85px; }
         .valor-melhor { color: var(--success); font-weight: 600; }
         .valor-nosso { color: var(--accent); font-weight: 600; }
         .valor-nosso.melhor { color: var(--warn); }
-        .badge-sit { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 0.75em; font-weight: 600; margin-left: 4px; }
+        .badge-sit { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: var(--text-xs); font-weight: 600; margin-left: 4px; }
         .badge-G { background: #4caf5030; color: var(--success); }
         .badge-P { background: #4dabf730; color: var(--accent); }
         .badge-C { background: #ff980030; color: var(--warn); }
         .badge-D, .badge-A, .badge-F, .badge-I, .badge-R { background: #f4433630; color: var(--danger); }
-        .badge-filtro { display: inline-block; padding: 1px 4px; border-radius: 3px; font-size: 0.7em; font-weight: 700; margin-left: 3px; letter-spacing: 0.3px; }
+        .badge-filtro { display: inline-block; padding: 1px 4px; border-radius: 3px; font-size: var(--text-xs); font-weight: 700; margin-left: 3px; letter-spacing: 0.3px; }
         .badge-perd { background: #f4433630; color: var(--danger); }
         .badge-aleat { background: #e91e6330; color: var(--purple); }
         .badge-2min { background: #9c27b030; color: var(--purple); }
 
         /* Auto-lance select */
-        .auto-select { padding: 3px 4px; border-radius: 4px; border: 1px solid #444; cursor: pointer; font-size: 0.78em; font-weight: 600; background: var(--bg-0); color: var(--text-3); appearance: auto; }
+        .auto-select { padding: 3px 4px; border-radius: 4px; border: 1px solid #444; cursor: pointer; font-size: var(--text-xs); font-weight: 600; background: var(--bg-0); color: var(--text-3); appearance: auto; }
         .auto-select.continuo { color: var(--success); border-color: var(--success); background: #4caf5015; }
         .auto-select.sniper { color: var(--warn); border-color: var(--warn); background: #ff980015; }
         .auto-select:focus { outline: none; }
 
         /* Countdown */
-        .countdown { font-size: 0.75em; font-weight: 600; font-variant-numeric: tabular-nums; }
+        .countdown { font-size: var(--text-xs); font-weight: 600; font-variant-numeric: tabular-nums; }
         .countdown.verde { color: var(--success); }
         .countdown.amarelo { color: var(--warn); }
         .countdown.vermelho { color: var(--danger); animation: pulse 1s infinite; }
         @keyframes pulse { 50% { opacity: 0.5; } }
 
         /* .auto-log-area vem do app-modern.css (.log-view aliased). Override page-local: menor (200px). */
-        .auto-log-area { max-height: 200px; font-size: 0.75em; padding: 8px; margin-top: 8px; }
+        .auto-log-area { max-height: 200px; font-size: var(--text-xs); padding: 8px; margin-top: 8px; }
         /* .btn-group vem do app-modern.css; override page-local só para margin-top e gap menor */
         .btn-group { gap: 6px; margin-top: 10px; }
 
-        .result-msg { padding: 6px 10px; border-radius: 4px; margin-top: 6px; font-size: 0.82em; }
+        .result-msg { padding: 6px 10px; border-radius: 4px; margin-top: 6px; font-size: var(--text-xs); }
         .result-sucesso { background: var(--success-soft); border: 1px solid var(--success); color: var(--success); }
         .result-erro    { background: var(--danger-soft);  border: 1px solid var(--danger);  color: var(--danger); }
         /* .spinner vem do app-modern.css; override page-local só para 12px */
@@ -92,15 +92,15 @@
         /* .toast vem do app-modern.css; animação de entrada é page-local */
         .toast { animation: fadeIn 0.3s; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; } }
-        .info-msg { color: var(--text-3); text-align: center; padding: 12px; font-size: 0.85em; }
-        .contagem { font-size: 0.72em; color: var(--text-3); margin-top: 2px; }
+        .info-msg { color: var(--text-3); text-align: center; padding: 12px; font-size: var(--text-xs); }
+        .contagem { font-size: var(--text-xs); color: var(--text-3); margin-top: 2px; }
 
         /* Custo / Lucro */
         .valor-lucro { font-weight: 600; font-size: 0.9em; }
         .valor-lucro.positivo { color: var(--success); }
         .valor-lucro.negativo { color: var(--danger); }
         .valor-lucro.zero { color: var(--text-3); }
-        .config-imposto { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-2); padding: 6px 12px; border-radius: var(--r-sm); font-size: 0.82em; margin-left: 12px; }
+        .config-imposto { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-2); padding: 6px 12px; border-radius: var(--r-sm); font-size: var(--text-xs); margin-left: 12px; }
         .config-imposto label { color: var(--text-1); font-weight: 500; }
         .config-imposto input { width: 65px; padding: 3px 6px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-0); color: var(--warn); font-size: 0.95em; font-weight: 600; text-align: center; }
         .config-imposto input:focus { outline: none; border-color: var(--warn); }
@@ -114,27 +114,27 @@
 
         /* Barra Blitz Global */
         .blitz-bar { display: flex; gap: 8px; align-items: center; margin-top: 8px; padding: 8px 10px; background: var(--bg-3); border-radius: var(--r-sm); flex-wrap: wrap; }
-        .blitz-label { color: var(--text-1); font-weight: 600; font-size: 0.85em; }
+        .blitz-label { color: var(--text-1); font-weight: 600; font-size: var(--text-xs); }
         .blitz-label svg { color: var(--warn); }
-        .blitz-hora { padding: 3px 6px; border-radius: var(--r-sm); border: 1px solid #ff8c42; background: var(--bg-2); color: var(--text-0); font-size: 0.85em; width: auto; }
-        .blitz-modo { padding: 3px 6px; border-radius: var(--r-sm); background: var(--bg-2); color: var(--text-0); font-size: 0.82em; width: auto; }
-        .blitz-btn-agendar  { background: var(--warn); color: var(--bg-0); border: none; padding: 4px 12px; font-size: 0.82em; font-weight: 600; }
+        .blitz-hora { padding: 3px 6px; border-radius: var(--r-sm); border: 1px solid #ff8c42; background: var(--bg-2); color: var(--text-0); font-size: var(--text-xs); width: auto; }
+        .blitz-modo { padding: 3px 6px; border-radius: var(--r-sm); background: var(--bg-2); color: var(--text-0); font-size: var(--text-xs); width: auto; }
+        .blitz-btn-agendar  { background: var(--warn); color: var(--bg-0); border: none; padding: 4px 12px; font-size: var(--text-xs); font-weight: 600; }
         .blitz-btn-agendar:hover  { background: var(--warn); }
-        .blitz-btn-cancelar { background: var(--danger); color: #fff; border: none; padding: 4px 10px; font-size: 0.78em; }
+        .blitz-btn-cancelar { background: var(--danger); color: var(--bg-2); border: none; padding: 4px 10px; font-size: var(--text-xs); }
         .blitz-btn-cancelar:hover { background: var(--danger); }
-        .blitz-status { font-size: 0.82em; color: var(--text-3); }
+        .blitz-status { font-size: var(--text-xs); color: var(--text-3); }
 
         /* Barra Guard (polling ativo no Comprasnet) */
         .guard-bar { display: flex; gap: 12px; align-items: center; margin-top: 8px; padding: 8px 12px; background: var(--bg-3); border-radius: var(--r-sm); flex-wrap: wrap; }
         .guard-bar label { display: flex; align-items: center; gap: 8px; font-size: 0.88em; color: var(--text-1); cursor: pointer; user-select: none; }
         .guard-bar input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; }
-        .guard-bar small { color: var(--text-3); font-size: 0.76em; flex: 1; }
+        .guard-bar small { color: var(--text-3); font-size: var(--text-xs); flex: 1; }
 
         /* Label das configs por item na tabela (Quando agir / Como lançar) */
-        .auto-label { display: block; font-size: 0.66em; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; font-weight: 600; }
+        .auto-label { display: block; font-size: var(--text-xs); color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; font-weight: 600; }
 
         /* Checkbox inline estilizada para encaixar em barras horizontais */
-        .chk-inline { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--r-sm); background: var(--bg-2); border: 1px solid var(--border); color: var(--text-2); font-size: 0.82em; cursor: pointer; user-select: none; white-space: nowrap; transition: all 0.15s; }
+        .chk-inline { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--r-sm); background: var(--bg-2); border: 1px solid var(--border); color: var(--text-2); font-size: var(--text-xs); cursor: pointer; user-select: none; white-space: nowrap; transition: all 0.15s; }
         .chk-inline:hover { border-color: var(--accent-soft); color: var(--text-1); }
         .chk-inline input[type=checkbox] { margin: 0; cursor: pointer; accent-color: var(--warn); }
         .chk-inline input[type=checkbox]:checked ~ span { color: var(--warn); font-weight: 600; }
@@ -144,7 +144,7 @@
             display: inline-flex; align-items: center; gap: 5px;
             padding: 4px 10px; border-radius: 6px;
             background: linear-gradient(135deg, #ff6b00 0%, #ff8c42 100%);
-            color: #fff; border: none; font-size: 0.78em; font-weight: 600;
+            color: #fff; border: none; font-size: var(--text-xs); font-weight: 600;
             cursor: pointer; white-space: nowrap; line-height: 1;
             box-shadow: 0 1px 2px rgba(255,107,0,0.25);
             transition: transform 0.12s, box-shadow 0.12s, filter 0.12s;
@@ -156,7 +156,7 @@
             display: inline-flex; align-items: center; gap: 5px;
             padding: 4px 10px; border-radius: 6px;
             background: var(--bg-2); color: var(--accent);
-            border: 1px solid #2a3554; font-size: 0.78em; font-weight: 500;
+            border: 1px solid #2a3554; font-size: var(--text-xs); font-weight: 500;
             cursor: pointer; white-space: nowrap; line-height: 1;
             transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.12s;
         }
@@ -165,7 +165,7 @@
         .btn-historico .ic-sm { width: 13px; height: 13px; }
         .lance-badge {
             display: inline-block; padding: 2px 8px; border-radius: 10px;
-            font-size: 0.76em; font-weight: 600; letter-spacing: 0.2px;
+            font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.2px;
             border: 1px solid transparent; cursor: help;
         }
         .lance-ok     { background: rgba(76,175,80,0.15);  color: var(--success); border-color: rgba(76,175,80,0.35); }
@@ -212,9 +212,9 @@
     <!-- ===== BNC: salas de disputa BNC (acima do Comprasnet) ===== -->
     <div class="panel" id="panelBNC" style="display:none;">
         <h3>📡 BNC — Salas de Disputa
-            <a href="/portais/bnc-salas.html" class="btn btn-ghost btn-sm" style="float:right; font-size:0.75em;">⚙️ Cadastrar</a>
+            <a href="/portais/bnc-salas.html" class="btn btn-ghost btn-sm" style="float:right; font-size:var(--text-xs);">⚙️ Cadastrar</a>
         </h3>
-        <div id="bncStatus" style="font-size:0.78em; color:var(--text-3); margin-bottom:6px;"></div>
+        <div id="bncStatus" style="font-size:var(--text-xs); color:var(--text-3); margin-bottom:6px;"></div>
         <div id="bncSalas"></div>
     </div>
 
@@ -247,7 +247,7 @@
         <div class="blitz-bar">
             <span class="blitz-label"><svg class="ic-sm"><use href="#i-zap"/></svg> Rajada Global</span>
             <input type="time" id="blitz-global-hora" step="1" class="blitz-hora" title="Horário da rajada (milésimo calculado automaticamente pelo servidor com base no RTT)">
-            <span style="font-size:0.75em;color:var(--text-3);">Como lançar:</span>
+            <span style="font-size:var(--text-xs);color:var(--text-3);">Como lançar:</span>
             <select id="blitz-global-modo" class="blitz-modo" title="Cobrir concorrente = 1 lance acima do melhor concorrente. Esgotar desconto = desce degrau-por-degrau até o valor mínimo, ignorando o concorrente.">
                 <option value="cobrir">Cobrir concorrente</option>
                 <option value="sequencial">Esgotar desconto</option>
@@ -390,7 +390,7 @@ function renderBNC(disputas, updatedAt) {
     container.innerHTML = disputas.map(function(s) {
         var lotesHtml;
         if (!s.lotes || !s.lotes.length) {
-            lotesHtml = '<div style="color:var(--text-3); font-size:0.8em; padding:8px;">⏳ Aguardando primeiro updateStatus do SignalR — abra a sala no Electron BNC pra forçar evento.</div>';
+            lotesHtml = '<div style="color:var(--text-3); font-size:var(--text-xs); padding:8px;">⏳ Aguardando primeiro updateStatus do SignalR — abra a sala no Electron BNC pra forçar evento.</div>';
         } else {
             lotesHtml = '<table class="itens-table" style="margin-top:6px;"><thead><tr>'+
                 '<th>Lote</th><th>Título</th><th>Base</th><th>Melhor lance</th><th>Líder</th><th>Ofertas</th><th>Valor</th><th>Ação</th>'+
@@ -421,7 +421,7 @@ function renderBNC(disputas, updatedAt) {
                      '<div class="lic-etapa etapa-disputa">'+esc(s.statusName||'—')+'</div>'+
                    '</div>'+
                  '</div>'+
-                 '<div class="lic-body aberta">'+lotesHtml+'<div id="bnc-resultado-'+esc(s.compraId)+'" style="margin-top:6px;font-size:0.85em;"></div></div>'+
+                 '<div class="lic-body aberta">'+lotesHtml+'<div id="bnc-resultado-'+esc(s.compraId)+'" style="margin-top:6px;font-size:var(--text-xs);"></div></div>'+
                '</div>';
     }).join('');
 }
@@ -615,14 +615,14 @@ function renderLista(lista) {
     var div = document.getElementById('listaCompras');
     if(!lista.length) { div.innerHTML='<p class="info-msg">Nenhuma participação encontrada.</p>'; return; }
 
-    div.innerHTML = '<div style="color: var(--text-2);font-size:0.75em;margin-bottom:6px">'+lista.length+' participações</div>' +
+    div.innerHTML = '<div style="color: var(--text-2);font-size:var(--text-xs);margin-bottom:6px">'+lista.length+' participações</div>' +
         lista.map(function(p) {
             var et = etapaInfo(p);
             var isAberta = abertas.has(p.compraId);
             return '<div class="lic-row" id="lic-'+p.compraId+'">' +
                 '<div class="lic-header'+(isAberta?' aberta':'')+'" onclick="toggleLic(\''+p.compraId+'\')">' +
                     '<div class="lic-left">' +
-                        '<div class="lic-id">'+esc(fmtCompraId(p.compraId))+' <span style="color: var(--text-3);font-weight:400;font-size:0.85em">'+p.compraId+'</span></div>' +
+                        '<div class="lic-id">'+esc(fmtCompraId(p.compraId))+' <span style="color: var(--text-3);font-weight:400;font-size:var(--text-xs)">'+p.compraId+'</span></div>' +
                         '<div class="lic-obj" title="'+esc(p.objeto)+'">'+esc((p.objeto||'(sem objeto)').substring(0,120))+'</div>' +
                         '<div class="lic-org">'+esc(p.orgao||'')+'</div>' +
                     '</div>' +
@@ -849,15 +849,15 @@ function renderItens(compraId, itensLive) {
                 '<td><strong data-num="'+m.numero+'" style="color: var(--accent)" title="Grupo — disputa pelo TOTAL; o lance é por item abaixo">'+esc(m.identificador||'G')+'</strong></td>' +
                 '<td class="desc-cell" title="'+esc(m.descricao)+'"><strong style="color: var(--accent)">Grupo</strong> '+esc((m.descricao||'').substring(0,45))+'</td>' +
                 '<td class="stacked-cell"><span class="valor-melhor">'+fmtR$(m.melhorValor)+'</span><br><span class="'+nossoClass+'">'+nossoLabel+'</span><br><span class="sub" title="V.Estimado total">Est '+fmtR$(m.valorEstimado)+'</span></td>' +
-                '<td colspan="4" style="color: var(--purple);font-size:0.82em;line-height:1.35">⬇ Disputa pelo <strong>total</strong> do grupo. O <strong>lance é por item</strong> (valor unitário) nas linhas abaixo — o total é recalculado a cada lance.</td>' +
+                '<td colspan="4" style="color: var(--purple);font-size:var(--text-xs);line-height:1.35">⬇ Disputa pelo <strong>total</strong> do grupo. O <strong>lance é por item</strong> (valor unitário) nas linhas abaixo — o total é recalculado a cada lance.</td>' +
                 '<td>' +
                     '<button class="btn btn-sm '+(m.modoAuto==='continuo'?'btn-success':'btn-ghost')+'" onclick="toggleGrupoAuto(\''+compraId+'\','+(m.modoAuto==='continuo'?'false':'true')+')" title="Auto-lance do grupo: distribui lances por item preservando margem, respeitando o piso de CADA item. Requer piso definido nos itens + Motor de lances ligado.">🤖 Auto grupo: '+(m.modoAuto==='continuo'?'ON':'OFF')+'</button> ' +
                     '<button class="btn-historico" onclick="toggleHistorico(\''+compraId+'\','+m.numero+')" title="Histórico do grupo">'+icon('file-text','ic-sm')+'<span>Histórico</span></button>' +
                     '<div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin-top:3px">' +
-                        '<input type="time" step="1" id="agendar-hora-grupo-'+compraId+'" value="'+defaultHoraRajada(compraId, m.fimContagem)+'" style="font-size:0.72em;padding:2px;font-family:monospace;border:1px solid #0f3460;background: var(--bg-3);color: var(--text-1);border-radius:4px;width:82px" title="Horário do disparo (default: encerramento − 1s)">' +
+                        '<input type="time" step="1" id="agendar-hora-grupo-'+compraId+'" value="'+defaultHoraRajada(compraId, m.fimContagem)+'" style="font-size:var(--text-xs);padding:2px;font-family:monospace;border:1px solid #0f3460;background: var(--bg-3);color: var(--text-1);border-radius:4px;width:82px" title="Horário do disparo (default: encerramento − 1s)">' +
                         '<button class="btn-rajada" onclick="agendarRajadaGrupo(\''+compraId+'\')" title="No horário, desce CADA item do grupo ao seu Mínimo (piso). Requer Mín definido nos itens + Motor de lances ligado.">'+icon('rocket','ic-sm')+'<span>Agendar piso</span></button>' +
                     '</div>' +
-                    '<div id="fim-'+compraId+'-'+m.numero+'" data-fim="'+(m.fimContagem||'')+'" style="font-size:0.72em;color: var(--warn);margin-top:2px;font-family:monospace"></div>' +
+                    '<div id="fim-'+compraId+'-'+m.numero+'" data-fim="'+(m.fimContagem||'')+'" style="font-size:var(--text-xs);color: var(--warn);margin-top:2px;font-family:monospace"></div>' +
                 '</td>' +
                 '</tr>' +
                 '<tr id="historico-'+compraId+'-'+m.numero+'" style="display:none"><td colspan="9"></td></tr>';
@@ -865,10 +865,10 @@ function renderItens(compraId, itensLive) {
         }
 
         html += '<tr>' +
-            '<td><strong>'+m.numero+'</strong>'+(m.tipo==='S'?' <span style="color: var(--accent);font-size:0.7em">SUB</span>':'')+'</td>' +
+            '<td><strong>'+m.numero+'</strong>'+(m.tipo==='S'?' <span style="color: var(--accent);font-size:var(--text-xs)">SUB</span>':'')+'</td>' +
             '<td class="desc-cell" title="'+esc(m.descricao)+'">'+esc((m.descricao||'').substring(0,50))+'</td>' +
             '<td class="stacked-cell"><span class="valor-melhor">'+fmtR$(m.melhorValor)+'</span><br><span class="'+nossoClass+'">'+nossoLabel+'</span><br><span class="sub" title="V.Estimado">Est '+fmtR$(m.valorEstimado)+'</span></td>' +
-            '<td class="stacked-cell"><input type="number" step="0.01" value="'+(m.custo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'custo\',this.value);recalcLucro(\''+compraId+'\','+m.numero+')" placeholder="Custo" style="width:72px"><br><span class="sub mv-cell" id="mv-'+compraId+'-'+m.numero+'">--</span> · <span class="sugerido-cell" id="sg-'+compraId+'-'+m.numero+'" style="font-size:0.85em">--</span></td>' +
+            '<td class="stacked-cell"><input type="number" step="0.01" value="'+(m.custo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'custo\',this.value);recalcLucro(\''+compraId+'\','+m.numero+')" placeholder="Custo" style="width:72px"><br><span class="sub mv-cell" id="mv-'+compraId+'-'+m.numero+'">--</span> · <span class="sugerido-cell" id="sg-'+compraId+'-'+m.numero+'" style="font-size:var(--text-xs)">--</span></td>' +
             '<td><input type="number" step="0.01" id="vm-'+compraId+'-'+m.numero+'" value="'+(m.valorMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorMinimo\',this.value)" placeholder="Mín" style="width:72px">' +
                 '<br><input type="number" min="0" max="100" step="5" id="merg-'+compraId+'-'+m.numero+'" value="'+(m.agressividadePct!=null?m.agressividadePct:20)+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'agressividadePct\',this.value)" title="Mergulho %: quão fundo mergulhar rumo ao piso quando perdendo. 0 = cobre o concorrente no talo (margem máx, risco máx); 100 = vai ao piso (vitória máx). Vale na rajada Cobrir e no contínuo." placeholder="merg%" style="width:72px;margin-top:3px;color: var(--purple)"></td>' +
             '<td><input type="text" inputmode="decimal" value="'+(m.variacaoMinima||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'variacaoMinima\',this.value)" placeholder="Var" style="width:55px" title="Variação mínima entre lances (R$) — aceita vírgula"></td>' +
@@ -881,15 +881,15 @@ function renderItens(compraId, itensLive) {
             '<td>' +
                 '<div style="display:flex;gap:4px;align-items:center;flex-wrap:nowrap">' +
                     '<button class="btn btn-sm '+(m.modoAuto==='continuo'?'btn-success':'btn-ghost')+'" onclick="setAuto(\''+compraId+'\','+m.numero+','+(m.modoAuto==='continuo'?'null':'\'continuo\'')+')" title="Auto-Lance Contínuo: cobre o concorrente sempre que você está perdendo, respeitando o Valor Mínimo (piso). Requer Valor Mínimo + Variação mínima + Motor de lances ligado.">🤖 Contínuo: '+(m.modoAuto==='continuo'?'ON':'OFF')+'</button>' +
-                    '<input type="time" step="1" id="agendar-hora-'+compraId+'-'+m.numero+'" value="'+defaultHoraRajada(compraId, m.fimContagem)+'" style="font-size:0.75em;padding:2px 4px;font-family:monospace;border:1px solid #0f3460;background: var(--bg-3);color: var(--text-1);border-radius:4px;width:90px" title="Horário agendamento (dispensa: pré-preenchido = encerramento − 1s)">' +
-                    '<input type="number" min="1" max="50" id="max-lances-'+compraId+'-'+m.numero+'" value="'+(m.maxLances||5)+'" style="width:40px;font-size:0.75em;padding:2px;border:1px solid #0f3460;background: var(--bg-3);color: var(--warn);border-radius:4px;text-align:center;font-weight:600" title="Máx lances na rajada" onchange="salvar(\''+compraId+'\','+m.numero+',\'maxLances\',this.value)">' +
-                    '<label style="font-size:0.7em;color: var(--text-3);display:inline-flex;align-items:center;gap:2px;cursor:pointer" title="Ignorar Máx e descer até o Valor Mínimo"><input type="checkbox" id="ignore-max-'+compraId+'-'+m.numero+'" style="margin:0">∞</label>' +
+                    '<input type="time" step="1" id="agendar-hora-'+compraId+'-'+m.numero+'" value="'+defaultHoraRajada(compraId, m.fimContagem)+'" style="font-size:var(--text-xs);padding:2px 4px;font-family:monospace;border:1px solid #0f3460;background: var(--bg-3);color: var(--text-1);border-radius:4px;width:90px" title="Horário agendamento (dispensa: pré-preenchido = encerramento − 1s)">' +
+                    '<input type="number" min="1" max="50" id="max-lances-'+compraId+'-'+m.numero+'" value="'+(m.maxLances||5)+'" style="width:40px;font-size:var(--text-xs);padding:2px;border:1px solid #0f3460;background: var(--bg-3);color: var(--warn);border-radius:4px;text-align:center;font-weight:600" title="Máx lances na rajada" onchange="salvar(\''+compraId+'\','+m.numero+',\'maxLances\',this.value)">' +
+                    '<label style="font-size:var(--text-xs);color: var(--text-3);display:inline-flex;align-items:center;gap:2px;cursor:pointer" title="Ignorar Máx e descer até o Valor Mínimo"><input type="checkbox" id="ignore-max-'+compraId+'-'+m.numero+'" style="margin:0">∞</label>' +
                     '<button class="btn-rajada" onclick="agendarBlitz(\''+compraId+'\','+m.numero+')" title="Agendar rajada (blitz) — milésimo auto-calculado (alvo 970ms)">'+icon('rocket','ic-sm')+'<span>Rajada</span></button>' +
                     '<button class="btn-historico" onclick="toggleEscada(\''+compraId+'\','+m.numero+')" title="Posição — lances dos concorrentes e sugestão do lance para a melhor colocação possível preservando margem">🪜<span>Posição</span></button>' +
                     '<button class="btn-historico" onclick="toggleHistorico(\''+compraId+'\','+m.numero+')" title="Histórico do item '+m.numero+'">'+icon('file-text','ic-sm')+'<span>Histórico</span></button>' +
                 '</div>' +
-                '<div id="fim-'+compraId+'-'+m.numero+'" data-fim="'+(m.fimContagem||'')+'" style="font-size:0.72em;color: var(--warn);margin-top:2px;font-family:monospace"></div>' +
-                '<div id="agendado-'+compraId+'-'+m.numero+'" style="font-size:0.78em;color: var(--purple);margin-top:2px"></div>' +
+                '<div id="fim-'+compraId+'-'+m.numero+'" data-fim="'+(m.fimContagem||'')+'" style="font-size:var(--text-xs);color: var(--warn);margin-top:2px;font-family:monospace"></div>' +
+                '<div id="agendado-'+compraId+'-'+m.numero+'" style="font-size:var(--text-xs);color: var(--purple);margin-top:2px"></div>' +
             '</td>' +
             '</tr>' +
             '<tr id="historico-'+compraId+'-'+m.numero+'" style="display:none"><td colspan="9"></td></tr>' +
@@ -1001,13 +1001,13 @@ async function abrirHistoricoBlitz(compraId, itemNumero) {
             var cor = statusCor[h.status] || '#aaa';
             var fim = h.executadoEm || h.canceladoEm || '--';
             html += '<tr>' +
-                '<td style="color: var(--text-3);font-size:0.85em">'+esc(h.agendadoEm||'')+'</td>' +
+                '<td style="color: var(--text-3);font-size:var(--text-xs)">'+esc(h.agendadoEm||'')+'</td>' +
                 '<td>'+esc(h.horarioAlvo||'')+'</td>' +
                 '<td><span style="color:'+cor+';font-weight:600">'+esc(h.status)+'</span></td>' +
                 '<td style="text-align:right">'+(h.lancesEnviados||0)+(h.maxLances?'/'+h.maxLances:'')+'</td>' +
-                '<td style="color: var(--text-3);font-size:0.85em">'+esc(h.modoBlitz||'')+'</td>' +
-                '<td style="color: var(--text-3);font-size:0.85em">'+esc(fim)+'</td>' +
-                '<td style="color: var(--text-3);font-size:0.85em">'+esc(h.observacao||'')+'</td>' +
+                '<td style="color: var(--text-3);font-size:var(--text-xs)">'+esc(h.modoBlitz||'')+'</td>' +
+                '<td style="color: var(--text-3);font-size:var(--text-xs)">'+esc(fim)+'</td>' +
+                '<td style="color: var(--text-3);font-size:var(--text-xs)">'+esc(h.observacao||'')+'</td>' +
             '</tr>';
         });
         html += '</tbody></table>';
@@ -1135,7 +1135,7 @@ async function dispararBlitz(compraId, itemNumero) {
         resDiv.innerHTML = '<div class="result-msg" style="color: var(--warn);border:1px solid #ff6b0030;padding:8px;border-radius:6px">' +
             '<strong>Blitz:</strong> '+d.totalLances+' lances, R$ '+primeiro.valor.toFixed(2)+' &rarr; R$ '+ultimo.valor.toFixed(2)+
             ' (~'+(d.estimativaMs/1000).toFixed(1)+'s)' +
-            '<div id="blitz-progress-'+compraId+'-'+itemNumero+'" style="margin-top:6px;font-size:0.85em;color: var(--text-3)"></div></div>';
+            '<div id="blitz-progress-'+compraId+'-'+itemNumero+'" style="margin-top:6px;font-size:var(--text-xs);color: var(--text-3)"></div></div>';
 
         // Poll fila-status para mostrar progresso lance a lance
         var lanceIds = d.lances.map(function(l){return l.id;});
@@ -1234,7 +1234,7 @@ function recarregarBlitzesAgendadas(compraId, itemNumero) {
             var safeKey = b.blitzKey.replace(/'/g, "\\'");
             return '<div style="display:inline-flex;align-items:center;gap:4px;margin-right:6px;padding:2px 6px;background:var(--purple-soft);border:1px solid var(--purple);border-radius:4px">' +
                 '<span style="color: var(--warn)">🚀 '+(b.maxLances||50)+'x'+modoLabel+' às '+b.horario+'</span>' +
-                '<button class="btn btn-sm" style="background: var(--danger);color:#fff;border:none;font-size:0.7em;padding:0 5px;line-height:1.4;border-radius:3px" ' +
+                '<button class="btn btn-sm" style="background: var(--danger);color:var(--bg-2);border:none;font-size:var(--text-xs);padding:0 5px;line-height:1.4;border-radius:3px" ' +
                 'onclick="cancelarBlitzPorKey(\''+safeKey+'\',\''+compraId+'\','+itemNumero+')" title="Cancelar esta blitz">X</button>' +
                 '</div>';
         }).join('');
@@ -1534,25 +1534,25 @@ function renderEscada(compraId, itemNumero, d) {
     // Tabela da escada (marca a nossa linha)
     var html = '<div style="padding:8px">';
     if(d && d.fonte === 'propostas-iniciais') {
-        html += '<div style="font-size:0.78em;color: var(--warn);margin-bottom:6px;padding:6px;border-radius:6px;background:#f0a02015;border:1px solid #f0a02040">' +
+        html += '<div style="font-size:var(--text-xs);color: var(--warn);margin-bottom:6px;padding:6px;border-radius:6px;background:#f0a02015;border:1px solid #f0a02040">' +
             '⚠ Concorrentes = <b>propostas iniciais</b> (ranking ao vivo por fornecedor exige captcha). ' +
             (d.liderAoVivo!=null?('Líder <b>ao vivo</b>: '+fmtR$(d.liderAoVivo)+'. '):'') +
             (d.nossoAoVivo!=null?('Você <b>ao vivo</b>: '+fmtR$(d.nossoAoVivo)+'.'):'') +
         '</div>';
     } else if(d && (d.liderAoVivo!=null || d.nossoAoVivo!=null)) {
-        html += '<div style="font-size:0.78em;color: var(--accent);margin-bottom:6px">Ao vivo — ' +
+        html += '<div style="font-size:var(--text-xs);color: var(--accent);margin-bottom:6px">Ao vivo — ' +
             (d.liderAoVivo!=null?('líder <b>'+fmtR$(d.liderAoVivo)+'</b>'):'') +
             (d.nossoAoVivo!=null?(' · você <b>'+fmtR$(d.nossoAoVivo)+'</b>'):'') + '</div>';
     }
     var rotuloLinha = (d && d.fonte === 'propostas-iniciais') ? 'proposta(s) inicial(is)' : 'participante(s) com lance';
-    html += '<div style="font-size:0.82em;color: var(--accent);font-weight:600;margin-bottom:4px">🪜 Posição — '+escada.length+' '+rotuloLinha+'</div>';
+    html += '<div style="font-size:var(--text-xs);color: var(--accent);font-weight:600;margin-bottom:4px">🪜 Posição — '+escada.length+' '+rotuloLinha+'</div>';
     html += '<table class="itens-table" style="max-width:420px"><thead><tr><th>#</th><th>Valor</th><th>Quando</th><th></th></tr></thead><tbody>';
     escada.forEach(function(e, idx){
         var nosso = nossoValor!=null && Math.abs(e.valor - nossoValor) <= eps;
         html += '<tr'+(nosso?' style="background:#0f346040"':'')+'>' +
             '<td>'+(idx+1)+'º</td>' +
             '<td>'+fmtR$(e.valor)+'</td>' +
-            '<td style="color: var(--text-2);font-size:0.85em">'+(e.dataHora?e.dataHora.substring(11,19):'--')+'</td>' +
+            '<td style="color: var(--text-2);font-size:var(--text-xs)">'+(e.dataHora?e.dataHora.substring(11,19):'--')+'</td>' +
             '<td>'+(nosso?'<span style="color: var(--accent);font-weight:600">você</span>':'')+'</td>' +
         '</tr>';
     });
@@ -1560,9 +1560,9 @@ function renderEscada(compraId, itemNumero, d) {
 
     // Vetor B: melhor colocação possível pelo maior preço
     if(piso == null || varMin == null) {
-        html += '<p style="color: var(--warn);font-size:0.82em;margin-top:6px">Defina <b>Mín (piso)</b> e <b>Var</b> no item para calcular o lance sugerido por colocação.</p>';
+        html += '<p style="color: var(--warn);font-size:var(--text-xs);margin-top:6px">Defina <b>Mín (piso)</b> e <b>Var</b> no item para calcular o lance sugerido por colocação.</p>';
     } else if(competidores.length === 0) {
-        html += '<p style="color: var(--success);font-size:0.82em;margin-top:6px">Sem concorrentes — você já é 1º. Não precisa baixar.</p>';
+        html += '<p style="color: var(--success);font-size:var(--text-xs);margin-top:6px">Sem concorrentes — você já é 1º. Não precisa baixar.</p>';
     } else {
         // quantos concorrentes NÃO dá pra ultrapassar respeitando o piso (prefixo do topo da escada)
         var bloqueados = competidores.filter(function(c){ return _cobrir(c, varMin, tipoVar) < piso - eps; }).length;
@@ -1580,12 +1580,12 @@ function renderEscada(compraId, itemNumero, d) {
             cor = '#f0a020';
             msg = 'Nem no piso ('+fmtR$(piso)+') você passa algum concorrente — o piso não melhora a colocação.';
         }
-        html += '<div style="margin-top:8px;padding:8px;border-radius:6px;background:'+cor+'18;border:1px solid '+cor+'55;font-size:0.85em;color:'+cor+'">' +
+        html += '<div style="margin-top:8px;padding:8px;border-radius:6px;background:'+cor+'18;border:1px solid '+cor+'55;font-size:var(--text-xs);color:'+cor+'">' +
             (nossaPos!=null?('Sua posição atual: <b>'+nossaPos+'º</b> · '):'') + msg +
             ' <button class="btn btn-sm btn-ghost" style="margin-left:6px" onclick="aplicarAlvoEscada(\''+compraId+'\','+itemNumero+','+alvo+')">↧ Usar no Lance Manual</button>' +
         '</div>';
     }
-    html += '<p style="color: var(--text-3);font-size:0.75em;margin-top:6px">Análise sob demanda — não envia lance. Use o ⚡ para enviar o valor.</p>';
+    html += '<p style="color: var(--text-3);font-size:var(--text-xs);margin-top:6px">Análise sob demanda — não envia lance. Use o ⚡ para enviar o valor.</p>';
     html += '</div>';
     return html;
 }
@@ -1613,7 +1613,7 @@ async function toggleHistorico(compraId, itemNumero) {
         var r = await fetch(API+'/api/sniper/historico?compraId='+compraId+'&itemNumero='+itemNumero+'&limit=30');
         var d = await r.json();
         if(d.success && d.historico && d.historico.length > 0) {
-            html += '<div style="margin-top:8px"><strong style="color: var(--accent);font-size:0.82em">Histórico de Lances</strong>';
+            html += '<div style="margin-top:8px"><strong style="color: var(--accent);font-size:var(--text-xs)">Histórico de Lances</strong>';
             html += '<table class="itens-table" style="margin-top:4px"><thead><tr><th>Comprasnet</th><th>Valor</th><th>Resultado</th><th>Latência</th><th>Fonte</th></tr></thead><tbody>';
             d.historico.forEach(function(h) {
                 var cor = h.sucesso ? '#4caf50' : '#f44336';
@@ -1638,13 +1638,13 @@ async function toggleHistorico(compraId, itemNumero) {
             });
             html += '</tbody></table></div>';
         } else {
-            html += '<div style="color: var(--text-2);font-size:0.8em;padding:6px">Nenhum lance registrado.</div>';
+            html += '<div style="color: var(--text-2);font-size:var(--text-xs);padding:6px">Nenhum lance registrado.</div>';
         }
     } catch(e) {
-        html += '<div style="color: var(--danger);font-size:0.8em;padding:6px">Erro ao carregar histórico: '+esc(e.message)+'</div>';
+        html += '<div style="color: var(--danger);font-size:var(--text-xs);padding:6px">Erro ao carregar histórico: '+esc(e.message)+'</div>';
     }
 
-    if(!html) html = '<div style="color: var(--text-2);font-size:0.8em;padding:6px">Sem dados de histórico.</div>';
+    if(!html) html = '<div style="color: var(--text-2);font-size:var(--text-xs);padding:6px">Sem dados de histórico.</div>';
     div.innerHTML = html;
 }
 

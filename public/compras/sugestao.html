@@ -314,7 +314,7 @@ async function carregarMercado() {
       const icone = o.decisao === 'ESTOCAR' ? '🟢' : o.decisao === 'SOB_DEMANDA' ? '🟡' : '🔴';
       const decisaoLabel = o.decisao === 'SOB_DEMANDA' ? 'SOB DEMANDA' : o.decisao;
       return `<tr>
-        <td><strong>${o.modelo}</strong><div style="color:var(--text-3);font-size:11px">UFs: ${(o.topUFs||[]).join(', ')}</div></td>
+        <td><strong>${o.modelo}</strong><div style="color:var(--text-3);font-size:var(--text-xs)">UFs: ${(o.topUFs||[]).join(', ')}</div></td>
         <td style="text-align:right">${o.pedidos}</td>
         <td style="text-align:right">${o.vendidos}</td>
         <td style="text-align:right">${o.taxaVendaPct}%</td>
@@ -332,7 +332,7 @@ async function carregarMercado() {
 // Sparkline SVG: barras dos últimos 6 meses. Tooltip mostra valor exato por mês.
 // Última barra (mês corrente) destacada em cor de acento.
 function sparkline(valores, labels) {
-  if (!valores || valores.length === 0) return '<span style="color:var(--text-3);font-size:11px">-</span>';
+  if (!valores || valores.length === 0) return '<span style="color:var(--text-3);font-size:var(--text-xs)">-</span>';
   const max = Math.max(...valores, 1);
   const W = 90, H = 24, gap = 2;
   const bw = (W - gap * (valores.length - 1)) / valores.length;
@@ -347,7 +347,7 @@ function sparkline(valores, labels) {
   }).join('');
   return `<div style="display:flex;align-items:center;gap:6px" title="${tooltip}">
     <svg width="${W}" height="${H}" style="display:block">${bars}</svg>
-    <span style="color:var(--text-3);font-size:10px;white-space:nowrap">${total} em 6m</span>
+    <span style="color:var(--text-3);font-size:var(--text-xs);white-space:nowrap">${total} em 6m</span>
   </div>`;
 }
 

@@ -24,7 +24,7 @@
         .logo-actions .btn { justify-content: center; }
         .required::after { content: ' *'; color: var(--danger); }
         /* texto de apoio: abaixo do campo (small) e no topo do painel (p) */
-        .hint { display: block; margin-top: 4px; color: var(--text-3); font-size: 0.78em; }
+        .hint { display: block; margin-top: 4px; color: var(--text-3); font-size: var(--text-xs); }
         p.hint { margin: 0 0 15px; font-size: 0.9em; }
         /* .card-info do app-modern.css é ambígua (a definição do kanban vence e
            aplica flex): o fundo do bloco de status vem daqui. */
@@ -392,7 +392,7 @@
                             <option value="unico">Único — todas as seções numa lista rolável</option>
                             <option value="modulos">Por módulo — um módulo por vez, com seletor</option>
                         </select>
-                        <small class="muted" id="menuModoTenantHint" style="font-size:11px;"></small>
+                        <small class="muted" id="menuModoTenantHint" style="font-size:var(--text-xs);"></small>
                     </div>
                 </div>
                 </div>
@@ -859,7 +859,7 @@
                 if (result.success && result.configurado) {
                     statusDiv.innerHTML = `
                         <span class="text-success">✓ Certificado configurado</span><br>
-                        <span class="muted" style="font-size: 0.85em;">
+                        <span class="muted" style="font-size: var(--text-xs);">
                             Titular: ${result.titular || 'N/A'}<br>
                             Validade: ${result.validade || 'N/A'}
                         </span>

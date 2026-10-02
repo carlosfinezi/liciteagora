@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roteiros · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<link rel="stylesheet" href="/css/comunicacao.css">
+<style>
+/* Roteiro de qualificação (29/09/2026): as etapas que a IA percorre com o
+   lead de uma campanha. Cada resposta soma pontos e pode encerrar o roteiro
+   (desqualificado) ou pular para uma etapa mais adiante. A campanha escolhe o
+   roteiro na página dela. */
+.secao { padding:18px 20px; margin-bottom:16px; }
+.secao > h2 { font-size:1.05em; margin:0 0 4px; }
+.secao > .sub { font-size:0.88em; color:var(--text-2); margin-bottom:12px; line-height:1.5; }
+.etapa { border:1px solid var(--border); border-radius:var(--r-md); padding:12px 14px; margin-bottom:12px; background:var(--bg-1); }
+.etapa .cab { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+.etapa .cab strong { font-size:0.9em; color:var(--text-2); }
+.etapa .cab .espaco { margin-left:auto; }
+.etapa textarea { width:100%; }
+.resp { display:grid; grid-template-columns:minmax(160px,2fr) 70px minmax(170px,1.4fr) minmax(160px,2fr) 32px;
+  gap:6px; align-items:center; margin-top:6px; }
+.resp.titulos { font-size:var(--text-xs); color:var(--text-3); margin-top:10px; }
+.resp input, .resp select { width:100%; }
+@media (max-width: 760px) {
+  .resp { grid-template-columns:1fr 70px 32px; grid-template-areas:"rot peso x" "dep dep dep" "dor dor dor";
+    padding-bottom:8px; border-bottom:1px solid var(--border); }
+  .resp > [data-campo="rotulo"] { grid-area:rot; }
+  .resp > [data-campo="peso"] { grid-area:peso; }
+  .resp > [data-tirar-resp] { grid-area:x; }
+  .resp > [data-campo="depois"] { grid-area:dep; }
+  .resp > [data-campo="dor"] { grid-area:dor; }
+  .resp.titulos { display:none; }
+}
+#editor { display:none; }
+.topo-editor { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+.topo-editor .espaco { margin-left:auto; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div id="alertGlobal"></div>
+
+  <div id="lista">
+    <div class="page-header">
+      <div><h1>Roteiros de qualificação</h1></div>
+      <button class="btn btn-primary" id="btnNovo">Novo roteiro</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Nome</th><th style="text-align:right;">Etapas</th><th>Campanhas que usam</th><th></th></tr></thead>
+        <tbody id="tbRoteiros"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="editor">
+    <div class="topo-editor">
+      <button class="btn btn-ghost btn-sm" id="btnVoltar">← Roteiros</button>
+      <h1 id="tituloEditor" style="font-size:1.15em;margin:0;">Roteiro</h1>
+      <span class="espaco"></span>
+      <button class="btn btn-primary" id="btnSalvar">Salvar</button>
+    </div>
+
+    <section class="secao">
+      <h2>Identificação</h2>
+      <div class="form-row"><div class="form-group full-width"><label>Nome *</label>
+        <input type="text" id="rNome" maxlength="120"></div></div>
+    </section>
+
+    <section class="secao">
+      <h2>Etapas</h2>
+      <div class="sub">A IA segue as etapas em ordem, uma pergunta por vez, e marca a resposta que o lead deu.
+        Uma resposta pode encerrar o roteiro, e o lead fica desqualificado, ou pular para uma etapa mais adiante.</div>
+      <div id="etapas"></div>
+      <button class="btn btn-secondary btn-sm" id="btnEtapa">Acrescentar etapa</button>
+    </section>
+
+    <section class="secao">
+      <h2>Resultado</h2>
+      <div class="sub">Ao fim das etapas, o lead que somou os pontos mínimos fica qualificado e vira oportunidade no CRM.</div>
+      <div class="form-row">
+        <div class="form-group"><label>Pontos para qualificar *</label>
+          <input type="number" id="rCorte" min="0" step="1"></div>
+        <div class="form-group"><label>Funil do CRM</label>
+          <select id="rFunil"></select></div>
+      </div>
+      <div class="form-row"><div class="form-group full-width"><label>O que a IA faz com o qualificado</label>
+        <textarea id="rProximo" rows="2" placeholder="Ofereça o teste de 14 dias e diga que um consultor vai chamar."></textarea></div></div>
+    </section>
+
+    <section class="secao">
+      <h2>Quando o lead sai do roteiro</h2>
+      <div class="sub">Estas duas respostas saem como estão escritas aqui, sem passar pela IA. Deixe em branco para
+        a IA responder do jeito dela.</div>
+      <div class="form-row"><div class="form-group full-width">
+        <label>Ele pede para falar com uma pessoa</label>
+        <small class="muted">A IA é desligada nesta conversa e ela sobe para as não lidas, à espera de um atendente.</small>
+        <textarea id="rDesvioAtendente" rows="2" placeholder="Claro, só um momento. Já estou chamando alguém para falar com você."></textarea></div></div>
+      <div class="form-row"><div class="form-group full-width">
+        <label>Ele pede o link, o site, o aplicativo ou um arquivo</label>
+        <small class="muted">A pergunta da etapa vai na mesma mensagem, e a conversa continua. O endereço pode vir
+          escrito aqui, ou como variável do roteiro.</small>
+        <textarea id="rDesvioMaterial" rows="2" placeholder="Segue o link: liciteagora.app"></textarea></div></div>
+    </section>
+
+    <section class="secao">
+      <h2>Como a IA pergunta</h2>
+      <div class="form-row"><div class="form-group full-width"><label>Uma regra por linha</label>
+        <textarea id="rConducao" rows="4"></textarea></div></div>
+      <details>
+        <summary style="cursor:pointer;font-size:0.88em;color:var(--text-2);">Variáveis do roteiro</summary>
+        <div class="form-row" style="margin-top:8px;"><div class="form-group full-width">
+          <label>Variáveis</label><small class="muted">Uma por linha, no formato nome = valor. No texto, escreva {{nome}}.</small>
+          <textarea id="rValores" rows="4"></textarea></div></div>
+      </details>
+    </section>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+<script>initSidebar('comunicacao-roteiros');</script>
+<script src="/js/comunicacao-comum.js"></script>
+<script>
+let roteiros = [], funis = [];
+// O roteiro em edição: `cfg` é o config inteiro, e o que a tela não edita
+// (objeções, desfechos) volta ao servidor como veio.
+let atual = null;
+
+async function api(url, opts = {}) {
+  const r = await fetch(url, { ...opts, headers: { 'Content-Type': 'application/json' } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.success === false) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+
+async function carregar() {
+  try {
+    const j = await api('/api/roteiros');
+    roteiros = j.roteiros || []; funis = j.funis || [];
+    const tb = document.getElementById('tbRoteiros');
+    if (!roteiros.length) { tb.innerHTML = '<tr><td colspan="4" class="empty">Nenhum roteiro cadastrado.</td></tr>'; return; }
+    tb.innerHTML = roteiros.map((r, i) => `<tr>
+      <td>${esc(r.nome)}</td>
+      <td style="text-align:right;">${numBR(r.etapas)}</td>
+      <td>${r.campanhas.length ? r.campanhas.map(esc).join(', ') : '<span class="muted">nenhuma</span>'}</td>
+      <td><div class="acoes">
+        <button class="btn btn-secondary btn-sm" data-editar="${i}">Editar</button>
+        <details class="menu"><summary>⋯</summary><div class="itens">
+          <button class="perigo" data-remover="${i}">Remover</button>
+        </div></details>
+      </div></td></tr>`).join('');
+  } catch (e) {
+    document.getElementById('tbRoteiros').innerHTML = `<tr><td colspan="4" class="empty">Não foi possível carregar: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+const slug = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  .replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
+const chaveNova = () => 'etapa_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+
+function abrirEditor(roteiro) {
+  atual = roteiro;
+  const c = atual.cfg;
+  document.getElementById('tituloEditor').textContent = atual.id ? atual.nome : 'Novo roteiro';
+  document.getElementById('rNome').value = atual.nome || '';
+  document.getElementById('rCorte').value = c.corte ?? 0;
+  document.getElementById('rProximo').value = c.proximoPasso || '';
+  document.getElementById('rConducao').value = (c.conducao || []).join('\n');
+  document.getElementById('rDesvioAtendente').value = (c.desvios && c.desvios.atendente) || '';
+  document.getElementById('rDesvioMaterial').value = (c.desvios && c.desvios.material) || '';
+  document.getElementById('rValores').value = Object.entries(c.valores || {}).map(([k, v]) => `${k} = ${v}`).join('\n');
+  document.getElementById('rFunil').innerHTML = '<option value="">Primeiro funil</option>'
+    + funis.map(f => `<option value="${f.id}"${Number(c.funilId) === f.id ? ' selected' : ''}>${esc(f.nome)}</option>`).join('');
+  desenharEtapas();
+  document.getElementById('lista').style.display = 'none';
+  document.getElementById('editor').style.display = 'block';
+  window.scrollTo(0, 0);
+}
+
+function fecharEditor() {
+  atual = null;
+  document.getElementById('editor').style.display = 'none';
+  document.getElementById('lista').style.display = 'block';
+}
+
+function desenharEtapas() {
+  const ps = atual.cfg.perguntas;
+  document.getElementById('etapas').innerHTML = ps.map((p, i) => {
+    const destinos = ps.slice(i + 1).map((q, k) =>
+      `<option value="pula:${esc(q.chave)}">Pula para a etapa ${i + k + 2}</option>`).join('');
+    const respostas = (p.opcoes || []).map((o, j) => {
+      const depois = o.encerra ? 'encerra' : (o.vaiPara ? 'pula:' + o.vaiPara : '');
+      return `<div class="resp">
+        <input type="text" data-e="${i}" data-r="${j}" data-campo="rotulo" value="${esc(o.rotulo)}" placeholder="Resposta">
+        <input type="number" min="0" step="1" data-e="${i}" data-r="${j}" data-campo="peso" value="${esc(o.peso ?? 0)}" title="Pontos">
+        <select data-e="${i}" data-r="${j}" data-campo="depois">
+          <option value="">Segue para a próxima</option>
+          <option value="encerra"${depois === 'encerra' ? ' selected' : ''}>Encerra e desqualifica</option>
+          ${destinos.replace(`value="${esc(depois)}"`, `value="${esc(depois)}" selected`)}
+        </select>
+        <input type="text" data-e="${i}" data-r="${j}" data-campo="dor" value="${esc(o.dor || '')}" placeholder="O que isso revela (opcional)">
+        <button class="btn btn-ghost btn-sm" data-tirar-resp="${i}:${j}" title="Tirar a resposta">✕</button>
+      </div>`;
+    }).join('');
+    return `<div class="etapa">
+      <div class="cab">
+        <strong>Etapa ${i + 1}</strong>
+        <span class="espaco"></span>
+        <button class="btn btn-ghost btn-sm" data-subir="${i}" ${i === 0 ? 'disabled' : ''} title="Subir">↑</button>
+        <button class="btn btn-ghost btn-sm" data-descer="${i}" ${i === ps.length - 1 ? 'disabled' : ''} title="Descer">↓</button>
+        <button class="btn btn-ghost btn-sm" data-tirar-etapa="${i}">Tirar</button>
+      </div>
+      <textarea rows="2" data-e="${i}" data-campo="texto" placeholder="O que a IA precisa descobrir">${esc(p.texto || '')}</textarea>
+      <div class="resp titulos"><span>Resposta</span><span>Pontos</span><span>Depois</span><span>O que isso revela</span><span></span></div>
+      ${respostas}
+      <button class="btn btn-ghost btn-sm" data-mais-resp="${i}" style="margin-top:6px;">Acrescentar resposta</button>
+    </div>`;
+  }).join('') || '<p class="muted">Nenhuma etapa ainda.</p>';
+}
+
+// Os campos gravam no roteiro em edição à medida que se digita; a tela só se
+// redesenha quando muda a estrutura (etapa ou resposta a mais ou a menos).
+document.getElementById('etapas').addEventListener('input', ev => {
+  const el = ev.target, i = el.dataset.e;
+  if (i == null) return;
+  const p = atual.cfg.perguntas[+i];
+  if (el.dataset.r == null) { p[el.dataset.campo] = el.value; return; }
+  const o = p.opcoes[+el.dataset.r];
+  const campo = el.dataset.campo;
+  if (campo === 'peso') o.peso = Number(el.value);
+  else if (campo === 'depois') {
+    delete o.encerra; delete o.vaiPara;
+    if (el.value === 'encerra') o.encerra = true;
+    else if (el.value.startsWith('pula:')) o.vaiPara = el.value.slice(5);
+  } else if (campo === 'dor') { if (el.value.trim()) o.dor = el.value; else delete o.dor; }
+  else o[campo] = el.value;
+});
+
+document.getElementById('etapas').addEventListener('click', ev => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  const ps = atual.cfg.perguntas;
+  const d = b.dataset;
+  if (d.subir != null) { const i = +d.subir; [ps[i - 1], ps[i]] = [ps[i], ps[i - 1]]; }
+  else if (d.descer != null) { const i = +d.descer; [ps[i + 1], ps[i]] = [ps[i], ps[i + 1]]; }
+  else if (d.tirarEtapa != null) {
+    const [tirada] = ps.splice(+d.tirarEtapa, 1);
+    // Resposta que pulava para a etapa tirada volta a seguir para a próxima.
+    for (const p of ps) for (const o of p.opcoes || []) if (o.vaiPara === tirada.chave) delete o.vaiPara;
+  }
+  else if (d.maisResp != null) ps[+d.maisResp].opcoes.push({ id: '', rotulo: '', peso: 0 });
+  else if (d.tirarResp != null) { const [i, j] = d.tirarResp.split(':').map(Number); ps[i].opcoes.splice(j, 1); }
+  else return;
+  desenharEtapas();
+});
+
+document.getElementById('btnEtapa').onclick = () => {
+  atual.cfg.perguntas.push({ chave: chaveNova(), texto: '', opcoes: [{ id: '', rotulo: '', peso: 0 }, { id: '', rotulo: '', peso: 0 }] });
+  desenharEtapas();
+};
+
+function lerValores(texto) {
+  const v = {};
+  for (const linha of texto.split('\n')) {
+    const m = linha.match(/^\s*(\w+)\s*=\s*(.*?)\s*$/);
+    if (m) v[m[1]] = m[2];
+    else if (linha.trim()) throw new Error(`Variável fora do formato nome = valor: "${linha.trim()}"`);
+  }
+  return v;
+}
+
+async function salvar() {
+  const c = atual.cfg;
+  try {
+    // A resposta ganha um id tirado do rótulo; a que já tinha id o mantém, porque
+    // as qualificações gravadas guardam o id da resposta.
+    for (const p of c.perguntas) {
+      const usados = new Set(p.opcoes.map(o => o.id).filter(Boolean));
+      for (const o of p.opcoes) {
+        if (o.id) continue;
+        let id = slug(o.rotulo) || 'resposta', n = 2;
+        while (usados.has(id)) id = slug(o.rotulo) + '_' + n++;
+        o.id = id; usados.add(id);
+      }
+    }
+    c.corte = Number(document.getElementById('rCorte').value);
+    const funil = document.getElementById('rFunil').value;
+    if (funil) c.funilId = Number(funil); else delete c.funilId;
+    const prox = document.getElementById('rProximo').value.trim();
+    if (prox) c.proximoPasso = prox; else delete c.proximoPasso;
+    c.conducao = document.getElementById('rConducao').value.split('\n').map(s => s.trim()).filter(Boolean);
+    const desvios = {};
+    for (const [chave, campo] of [['atendente', 'rDesvioAtendente'], ['material', 'rDesvioMaterial']]) {
+      const v = document.getElementById(campo).value.trim();
+      if (v) desvios[chave] = v;
+    }
+    if (Object.keys(desvios).length) c.desvios = desvios; else delete c.desvios;
+    c.valores = lerValores(document.getElementById('rValores').value);
+    const nome = document.getElementById('rNome').value.trim();
+    if (!nome) throw new Error('Dê um nome ao roteiro');
+    const corpo = JSON.stringify({ nome, config: c });
+    if (atual.id) await api('/api/roteiros/' + atual.id, { method: 'PUT', body: corpo });
+    else await api('/api/roteiros', { method: 'POST', body: corpo });
+    showAlert('Roteiro salvo.');
+    fecharEditor();
+    carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+document.getElementById('btnSalvar').onclick = salvar;
+document.getElementById('btnVoltar').onclick = fecharEditor;
+document.getElementById('btnNovo').onclick = () => abrirEditor({ id: null, nome: '', cfg: { corte: 0, perguntas: [], conducao: [
+  'Responda primeiro o que a pessoa perguntou. A pergunta do roteiro vem depois.',
+  'Uma pergunta por mensagem, e só quando ela couber no assunto.',
+] } });
+
+document.getElementById('tbRoteiros').addEventListener('click', async ev => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  if (b.dataset.editar != null) {
+    const r = roteiros[+b.dataset.editar];
+    try {
+      const j = await api('/api/roteiros/' + r.id + '?cru=1');
+      const cfg = j.roteiro.config || {};
+      cfg.perguntas = cfg.perguntas || [];
+      for (const p of cfg.perguntas) p.opcoes = p.opcoes || [];
+      abrirEditor({ id: r.id, nome: j.roteiro.nome, cfg });
+    } catch (e) { showAlert(e.message, 'error'); }
+  } else if (b.dataset.remover != null) {
+    fecharMenus();
+    const r = roteiros[+b.dataset.remover];
+    if (!await Aviso.confirmar(`Remover o roteiro "${r.nome}"?`)) return;
+    try { await api('/api/roteiros/' + r.id, { method: 'DELETE' }); showAlert('Roteiro removido.'); carregar(); }
+    catch (e) { showAlert(e.message, 'error'); }
+  }
+});
+
+carregar();
+</script>
+</body>
+</html>

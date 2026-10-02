@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Canal · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<link rel="stylesheet" href="/css/comunicacao.css">
+<style>
+/* tom e limites: a escolha fica à vista, e embaixo dela a frase exata que a IA
+   recebe. Sem balão de ajuda — o efeito do botão é o próprio texto. */
+.estilo-grupo { margin:0 0 14px; }
+.estilo-opts { display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 4px; }
+.estilo-opts .opt { padding:6px 14px; font-size:var(--text-xs); border:1px solid var(--border);
+  background:transparent; color:var(--text-2); border-radius:999px; cursor:pointer; }
+.estilo-opts .opt:hover { border-color:var(--accent); }
+.estilo-opts .opt.sel { background:var(--accent-soft); color:var(--accent); border-color:var(--accent); }
+
+.msg { max-width:72%; padding:8px 12px; border-radius:12px; font-size:0.88em; line-height:1.45; white-space:pre-wrap; word-break:break-word; }
+.msg.deles { background:var(--bg-2); border:1px solid var(--border); align-self:flex-start; border-bottom-left-radius:3px; }
+
+/* Os números da empresa, um cartão cada; o escolhido é o que o bloco de baixo
+   configura. */
+.numeros { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:12px; margin-bottom:12px; }
+.numero { border:1px solid var(--border); border-radius:var(--r-md); padding:12px 14px; background:var(--bg-2);
+  display:flex; flex-direction:column; gap:8px; }
+.numero.sel { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+.numero .topo { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.numero .estado { font-size:var(--text-xs); }
+.numero .estado.on { color:var(--success); }
+.numero .estado.off { color:var(--warn); }
+.numero .acoes { justify-content:flex-start; flex-wrap:wrap; }
+.secao-canal { margin-top:26px; padding-top:16px; border-top:1px solid var(--border); }
+.secao-canal > h2 { font-size:1.05em; margin:0 0 14px; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Canal</h1></div>
+  </div>
+  <div id="alertGlobal"></div>
+
+  <!-- Vários números desde 28/09: cada um com atendente de IA, horário e ritmo
+       próprios. Em cima, os números; no meio, a configuração do escolhido; em
+       baixo, o que vale para a empresa inteira (pop-up e agenda de reunião). -->
+  <section id="blocoNumeros">
+    <h2 style="font-size:1.05em;margin:0 0 12px;">Números</h2>
+    <div class="numeros" id="listaNumeros"><small class="muted">Carregando…</small></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;max-width:520px;">
+      <input type="text" id="novoNome" maxlength="60" placeholder="Nome do número novo (ex.: Suporte)" style="flex:1;min-width:200px;">
+      <button class="btn btn-secondary btn-sm" onclick="adicionarNumero()">+ Adicionar número</button>
+    </div>
+    <div id="canalQr" style="text-align:center;margin-top:12px;"></div>
+  </section>
+
+  <div class="secao-canal" id="blocoDoNumero">
+    <h2 id="tituloNumero">Atendente de IA</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px 26px;align-items:start;">
+      <div>
+        <h3 style="font-size:1em;margin:0 0 10px;">Ritmo de envio</h3>
+        <div id="ritmoBox"><small class="muted">Carregando…</small></div>
+        <div class="form-row" id="ritmoCampos">
+          <div class="form-group"><label>Por hora</label><input type="number" id="rtHora" min="1" max="200" step="1"></div>
+          <div class="form-group"><label>Intervalo (s)</label><input type="number" id="rtIntervalo" min="1" max="3600" step="5"></div>
+          <div class="form-group"><label>Por dia</label><input type="number" id="rtDia" min="1" max="2000" step="10"></div>
+        </div>
+        <small class="muted" id="rtPadrao">Protege o número. Resposta a quem escreveu nunca é segurada.</small>
+
+        <h3 style="font-size:1em;margin:22px 0 10px;">Atendente de IA</h3>
+        <div class="form-row"><div class="form-group full-width">
+          <label><input type="checkbox" id="iaLigada" style="width:auto;"> IA responde automaticamente</label>
+          <small class="muted">Vale para conversas novas. Em cada conversa dá para desligar individualmente.</small>
+        </div></div>
+        <div class="form-row"><div class="form-group full-width">
+          <label>Responde para quem</label>
+          <select id="iaEscopo">
+            <option value="todos">Todos que escreverem</option>
+            <option value="campanha">Só quem recebeu uma campanha</option>
+          </select>
+          <small class="muted">Com a segunda opção, quem chega por fora da campanha (indicação, site, cliente
+            antigo) não recebe resposta automática — fica esperando o atendente.</small>
+        </div></div>
+        <div id="iaEstilo"></div>
+      </div>
+
+      <div>
+        <div class="form-row"><div class="form-group full-width">
+          <label>Instruções do atendente</label>
+          <textarea id="iaPrompt" rows="10" placeholder="Quem é o atendente, o que a empresa vende e o que ele precisa saber para responder"></textarea>
+          <small class="muted">O que a IA pode afirmar sai da <a href="/comunicacao/ia.html">Base da IA</a>, que é a
+            mesma para todos os números. Aqui fica quem ela é neste número.</small>
+        </div></div>
+        <!-- Some inteiro enquanto o servidor não souber de horário. Metade do
+             formulário visível seria pior que nenhum: a pessoa marcaria a caixa,
+             escreveria a mensagem, salvaria, e nada disso seria gravado. -->
+        <div id="horBloco" style="display:none;">
+          <h3 style="font-size:1em;margin:18px 0 10px;">Horário de atendimento</h3>
+          <div class="form-row"><div class="form-group full-width">
+            <label><input type="checkbox" id="horAtivo" style="width:auto;" onchange="mostrarAgenda()">
+              Fora do horário, a IA não responde</label>
+            <small class="muted">Desligado, ela atende a qualquer hora. Vale só para quem já passa pela regra
+              acima: quem o escopo não alcança continua sem receber nada.</small>
+          </div></div>
+          <div id="horAgenda" style="display:none;">
+            <div id="horDias"></div>
+            <div class="form-row"><div class="form-group full-width">
+              <label>Mensagem fora do horário</label>
+              <textarea id="horMsg" rows="2" placeholder="Ex.: Recebemos sua mensagem. Nosso atendimento é de segunda a sexta, das 8h às 18h."></textarea>
+              <small class="muted">Enviada uma vez a cada 8 horas por pessoa. Em branco, a IA apenas não responde.</small>
+            </div></div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary btn-sm" onclick="salvarIA()">Salvar este número</button>
+
+        <h3 style="font-size:1em;margin:22px 0 10px;">Testar antes de ligar</h3>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="simTexto" placeholder="Escreva como um cliente escreveria" style="flex:1;">
+          <button class="btn btn-secondary btn-sm" onclick="simular()">Testar</button>
+        </div>
+        <div id="simResposta" style="margin-top:10px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="secao-canal">
+    <h2>Para todos os números</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px 26px;align-items:start;">
+      <div>
+        <h3 style="font-size:1em;margin:0 0 10px;">Pop-up de mensagem nova</h3>
+        <div class="form-row"><div class="form-group full-width">
+          <label><input type="checkbox" id="popupAtivo" style="width:auto;" onchange="salvarPopup()">
+            Avisar mensagem de lead</label>
+          <small class="muted">Quem atende recebe o aviso em qualquer tela do sistema, com o nome e o começo
+            da mensagem. Cada pessoa pode silenciar no próprio computador.</small>
+        </div></div>
+        <div id="popupAparelho"></div>
+      </div>
+      <div>
+        <h3 style="font-size:1em;margin:0 0 10px;">Agendar reunião pelo link</h3>
+        <div class="form-row"><div class="form-group full-width">
+          <label><input type="checkbox" id="agAtivo" style="width:auto;" onchange="mostrarAgendaReuniao()">
+            Marcar reunião pela conversa</label>
+          <small class="muted">O contato escolhe o horário sozinho. Ligado, a conversa ganha o botão que manda um link. O contato vê os próximos
+            horários livres de quem atende e confirma. A reunião entra na agenda e no funil.</small>
+        </div></div>
+        <div id="agBloco" style="display:none;">
+          <div class="form-row">
+            <div class="form-group"><label>Duração (min)</label>
+              <input type="number" id="agDuracao" min="10" max="240" step="5"></div>
+            <div class="form-group"><label>Antecedência (min)</label>
+              <input type="number" id="agAntecedencia" min="0" max="2880" step="30"></div>
+            <div class="form-group"><label>Até quantos dias</label>
+              <input type="number" id="agJanela" min="1" max="30" step="1"></div>
+          </div>
+          <div id="agDias"></div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="salvarAgenda()">Salvar agenda</button>
+      </div>
+    </div>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+<script>initSidebar('comunicacao-canal');</script>
+<script src="/js/comunicacao-comum.js"></script>
+<script>
+// ---------- os números ----------
+// CANAL_SEL é o número que o bloco do meio configura. Empresa sem número
+// cadastrado fica com null, e o atendente grava na configuração da empresa,
+// como antes de haver vários números (o servidor faz o mesmo).
+let CANAIS = [], CANAL_SEL = null;
+const ESTADOS = { open: ['on', 'Conectado'], close: ['off', 'Desconectado'], connecting: ['off', 'Aguardando o QR'],
+                  inexistente: ['off', 'Ainda não conectado'], 'sem-resposta': ['off', 'Sem resposta da Evolution'] };
+const qs = () => CANAL_SEL ? '?canal=' + CANAL_SEL : '';
+
+async function carregarCanal(){
+  const d = await fetch('/api/whatsapp/canais').then(r=>r.json()).catch(()=>null);
+  CANAIS = d?.success ? d.canais : [];
+  // Servidor que ainda não conhece vários números (a tela entra no ar ao
+  // salvar; o servidor, no restart): some o bloco dos números, em vez de dizer
+  // "nenhum número conectado" a quem tem um. O atendente segue funcionando com
+  // a configuração da empresa, que é o que o servidor antigo lê.
+  document.getElementById('blocoNumeros').style.display = d?.success ? '' : 'none';
+  if (!CANAIS.some(c => c.id === CANAL_SEL)) CANAL_SEL = (CANAIS.find(c => c.padrao) || CANAIS[0] || {}).id || null;
+  renderNumeros();
+  await carregarNumero();
+  carregarAgendaReuniao();
+}
+
+function renderNumeros(){
+  const el = document.getElementById('listaNumeros');
+  if (!CANAIS.length) {
+    el.innerHTML = '<small class="muted">Nenhum número conectado. Dê um nome e adicione o primeiro.</small>';
+    return;
+  }
+  el.innerHTML = CANAIS.map(c => {
+    const [cls, rotulo] = ESTADOS[c.state] || ['off', c.state || 'Desconhecido'];
+    return `<div class="numero${c.id === CANAL_SEL ? ' sel' : ''}">
+      <div class="topo"><strong>${esc(c.nome)}</strong>${c.padrao ? '<span class="badge ativo">padrão</span>' : ''}</div>
+      <span class="estado ${cls}">${esc(rotulo)}</span>
+      <div class="acoes">
+        ${c.id === CANAL_SEL ? '' : `<button class="btn btn-secondary btn-sm" onclick="escolherNumero(${c.id})">Configurar</button>`}
+        ${c.state === 'open' ? '' : `<button class="btn btn-primary btn-sm" onclick="conectarCanal(${c.id})">Conectar / ver QR</button>`}
+        ${c.padrao ? '' : `<details class="menu"><summary title="Mais ações">⋯</summary><div class="itens">
+          <button onclick="fecharMenus(); tornarPadrao(${c.id})">Tornar padrão</button>
+          <hr><button class="perigo" onclick="fecharMenus(); removerNumero(${c.id})">Remover número</button>
+        </div></details>`}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function escolherNumero(id){
+  CANAL_SEL = id;
+  document.getElementById('simResposta').innerHTML = '';
+  renderNumeros();
+  carregarNumero();
+}
+
+async function carregarNumero(){
+  const c = CANAIS.find(x => x.id === CANAL_SEL);
+  document.getElementById('tituloNumero').textContent = c ? `Número ${c.nome}` : 'Atendente de IA';
+  // Ritmo só existe com número: sem ele não há o que proteger.
+  document.getElementById('ritmoCampos').style.display = c ? '' : 'none';
+  const [rit, ia] = await Promise.all([
+    fetch('/api/whatsapp/ritmo' + qs()).then(r=>r.json()).catch(()=>null),
+    fetch('/api/whatsapp/ai-config' + qs()).then(r=>r.json()).catch(()=>null),
+  ]);
+  if (rit?.success) {
+    document.getElementById('ritmoBox').innerHTML = `
+      <div class="kpis">
+        <div class="c"><span class="v">${rit.hora}</span>na última hora (teto ${rit.limiteHora})</div>
+        <div class="c"><span class="v">${rit.dia}</span>hoje${rit.limiteDia ? ` (teto ${rit.limiteDia})` : ''}</div>
+        ${rit.segurados ? `<div class="c alerta"><span class="v">${rit.segurados}</span>seguradas na fila</div>` : ''}
+        ${rit.diasDeUso != null ? `<div class="c"><span class="v">${rit.diasDeUso}</span>dia(s) de uso do número</div>` : ''}
+      </div>
+      ${rit.podeEnviarAgora ? '' : `<div class="alert warn" style="display:block;">${esc(rit.motivo||'')}</div>`}`;
+  }
+  // Os tetos que valem hoje ficam nos campos vazios, e a linha de baixo diz de
+  // onde vem o do dia: ele sobe com a idade do número (40, 90, 180, 300).
+  const pd = rit?.padrao;
+  if (rit?.success && pd && pd.limiteDia) {
+    document.getElementById('rtPadrao').textContent = `Em branco, vale o padrão: ${pd.limiteHora} por hora, `
+      + `${pd.intervaloMinS} s entre envios e ${pd.limiteDia} por dia hoje, teto que sobe com a idade do número `
+      + `(40 nos 3 primeiros dias, 90 até o 7º, 180 até o 14º e 300 depois). Resposta a quem escreveu nunca é segurada.`;
+  }
+  if (ia?.success !== false && ia) {
+    document.getElementById('iaLigada').checked = !!(ia.enabled || ia.ativo);
+    document.getElementById('iaPrompt').value = ia.prompt || ia.system || '';
+    document.getElementById('iaEscopo').value = ia.escopo === 'campanha' ? 'campanha' : 'todos';
+    const rt = ia.ritmo || {};
+    document.getElementById('rtHora').value = rt.limiteHora ?? '';
+    document.getElementById('rtIntervalo').value = rt.intervaloMinS ?? '';
+    document.getElementById('rtDia').value = rt.limiteDia ?? '';
+    document.getElementById('rtHora').placeholder = pd?.limiteHora ?? rt.padrao?.limiteHora ?? '';
+    document.getElementById('rtIntervalo').placeholder = pd?.intervaloMinS ?? rt.padrao?.intervaloMinS ?? '';
+    document.getElementById('rtDia').placeholder = pd?.limiteDia ?? '';
+    // `horario` só vem do servidor novo. Sem ele, a agenda não é desenhada: um
+    // formulário vazio que o "Salvar" ignora faria a pessoa configurar o
+    // expediente e achar que ligou alguma coisa.
+    renderEstilo(ia.estilo);
+    if (ia.horario) renderHorario(ia.horario);
+    if (ia.popupAtivo !== undefined) {
+      document.getElementById('popupAtivo').checked = !!ia.popupAtivo;
+      renderAparelho();
+    }
+  }
+}
+
+async function adicionarNumero(){
+  const nome = document.getElementById('novoNome').value.trim();
+  if (!nome) return showAlert('Dê um nome ao número (ex.: Comercial, Suporte)','error');
+  const d = await fetch('/api/whatsapp/canais', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ nome }) }).then(r=>r.json()).catch(()=>null);
+  if (!d?.success) return showAlert(d?.error || 'Não foi possível adicionar','error');
+  document.getElementById('novoNome').value = '';
+  CANAL_SEL = d.canal.id;
+  await carregarCanal();
+  conectarCanal(d.canal.id);
+}
+
+async function tornarPadrao(id){
+  const d = await fetch('/api/whatsapp/canais/' + id, { method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ padrao: true }) }).then(r=>r.json()).catch(()=>null);
+  if (!d?.success) return showAlert(d?.error || 'Não foi possível','error');
+  showAlert(`${d.canal.nome} agora é o padrão: as mensagens do sistema saem por ele`);
+  carregarCanal();
+}
+
+async function removerNumero(id){
+  const c = CANAIS.find(x => x.id === id);
+  if (!await Aviso.confirmar(`Remover o número ${c ? c.nome : ''}?\n\nO aparelho é desconectado. As conversas dele continuam na caixa.`)) return;
+  const d = await fetch('/api/whatsapp/canais/' + id, { method:'DELETE' }).then(r=>r.json()).catch(()=>null);
+  if (!d?.success) return showAlert(d?.error || 'Não foi possível remover','error');
+  if (CANAL_SEL === id) CANAL_SEL = null;
+  carregarCanal();
+}
+
+/* ---------- tom e limites ----------
+ *
+ * Os botões saem do catálogo que o servidor manda, e não de uma lista escrita
+ * aqui: opção nova entra sem editar esta tela, e não existe o caso de a tela
+ * oferecer algo que o servidor recusa ao salvar.
+ *
+ * Embaixo de cada grupo fica a frase exata que a IA recebe. É o que responde
+ * "o que este botão faz" sem inventar balão de ajuda nesta tela. */
+let ESTILO_CAT = null, ESTILO_SEL = {};
+let AG_CFG = null;
+
+function renderEstilo(estilo){
+  const el = document.getElementById('iaEstilo');
+  // Servidor antigo não manda catálogo. Melhor nada do que um bloco de botões
+  // que o "Salvar" ignoraria em silêncio.
+  if (!estilo?.catalogo) { el.innerHTML = ''; ESTILO_CAT = null; return; }
+  ESTILO_CAT = estilo.catalogo;
+  ESTILO_SEL = estilo.escolhas || {};
+  el.innerHTML = Object.entries(ESTILO_CAT).map(([grupo, def]) => `
+    <div class="estilo-grupo">
+      <label>${esc(def.rotulo)}</label>
+      <div class="estilo-opts">
+        ${def.opcoes.map(o => `<button type="button" class="opt${estiloMarcado(grupo, o.id) ? ' sel' : ''}"
+            data-grupo="${esc(grupo)}" data-id="${esc(o.id)}"
+            aria-pressed="${estiloMarcado(grupo, o.id)}"
+            onclick="alternarEstilo(this)">${esc(o.rotulo)}</button>`).join('')}
+      </div>
+      <small class="muted" id="frase-${esc(grupo)}"></small>
+    </div>`).join('');
+  Object.keys(ESTILO_CAT).forEach(renderFraseEstilo);
+}
+
+function estiloMarcado(grupo, id){
+  const sel = ESTILO_SEL[grupo];
+  return Array.isArray(sel) ? sel.includes(id) : sel === id;
+}
+
+function renderFraseEstilo(grupo){
+  const def = ESTILO_CAT[grupo];
+  const frases = def.opcoes.filter(o => estiloMarcado(grupo, o.id)).map(o => o.frase);
+  document.getElementById('frase-' + grupo).textContent = frases.join(' ');
+}
+
+/** Grupo de escolha única alterna; marcar de novo o que já estava desmarca. */
+function alternarEstilo(botao){
+  const grupo = botao.dataset.grupo, id = botao.dataset.id;
+  const def = ESTILO_CAT[grupo];
+  if (def.escolha === 'varias') {
+    const atual = new Set(Array.isArray(ESTILO_SEL[grupo]) ? ESTILO_SEL[grupo] : []);
+    atual.has(id) ? atual.delete(id) : atual.add(id);
+    ESTILO_SEL[grupo] = [...atual];
+  } else {
+    ESTILO_SEL[grupo] = ESTILO_SEL[grupo] === id ? null : id;
+  }
+  botao.parentElement.querySelectorAll('.opt').forEach(b => {
+    const on = estiloMarcado(grupo, b.dataset.id);
+    b.classList.toggle('sel', on);
+    b.setAttribute('aria-pressed', on);
+  });
+  renderFraseEstilo(grupo);
+}
+
+/* ---------- horário de atendimento ----------
+ *
+ * Um dia desmarcado é um dia fechado, e é assim que se fecha o domingo: não há
+ * um terceiro estado. O padrão oferecido a quem nunca configurou é o horário
+ * comercial, porque é o de quase toda empresa que usa isto — e ainda assim ele
+ * só passa a valer depois de a pessoa marcar a caixa e salvar.
+ */
+const HOR_DIAS = [['seg','Segunda'],['ter','Terça'],['qua','Quarta'],['qui','Quinta'],
+                  ['sex','Sexta'],['sab','Sábado'],['dom','Domingo']];
+const HOR_PADRAO = { seg:['08:00','18:00'], ter:['08:00','18:00'], qua:['08:00','18:00'],
+                     qui:['08:00','18:00'], sex:['08:00','18:00'], sab:null, dom:null };
+
+function renderHorario(h){
+  document.getElementById('horBloco').style.display = '';
+  document.getElementById('horAtivo').checked = !!h.ativo;
+  document.getElementById('horMsg').value = h.mensagem || '';
+  gradeDeDias('horDias', h.faixas || HOR_PADRAO, HOR_PADRAO, 'hor');
+  mostrarAgenda();
+}
+
+/**
+ * A agenda só aparece com o horário ligado. Desligada, ela ocupava sete linhas
+ * de dia e um campo de mensagem para um recurso que não vale — e era a maior
+ * mancha da coluna. As faixas continuam gravadas: esconder não apaga, e
+ * religar traz tudo de volta como estava.
+ */
+/* ---------- agendamento de reunião ----------
+ *
+ * Nasce desligado, como o horário de atendimento: ligar é decisão de quem
+ * configura, e um link de agendamento que aparece sozinho na conversa seria
+ * oferecido ao cliente antes de alguém ter definido os horários. */
+async function carregarAgendaReuniao(){
+  const d = await fetch('/api/agenda/config').then(r=>r.json()).catch(()=>null);
+  // Servidor antigo não conhece a rota: melhor o bloco sumir do que oferecer
+  // um formulário que o salvar ignora.
+  if (!d?.success) { document.getElementById('agAtivo').closest('.form-row').style.display = 'none';
+                     document.getElementById('agBloco').style.display = 'none'; AG_CFG = null; return; }
+  AG_CFG = d.config;
+  document.getElementById('agAtivo').checked = !!d.config.ativo;
+  document.getElementById('agDuracao').value = d.config.duracaoMin;
+  document.getElementById('agAntecedencia').value = d.config.antecedenciaMin;
+  document.getElementById('agJanela').value = d.config.janelaDias;
+  gradeDeDias('agDias', d.config.faixas || HOR_PADRAO, HOR_PADRAO, 'ag');
+  mostrarAgendaReuniao();
+}
+
+function mostrarAgendaReuniao(){
+  document.getElementById('agBloco').style.display =
+    document.getElementById('agAtivo').checked ? '' : 'none';
+}
+
+async function salvarAgendaReuniao(){
+  if (!AG_CFG) return true;
+  const n = (id) => Number(document.getElementById(id).value) || undefined;
+  const d = await fetch('/api/agenda/config', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ ativo: document.getElementById('agAtivo').checked,
+      duracaoMin: n('agDuracao'), antecedenciaMin: n('agAntecedencia'), janelaDias: n('agJanela'),
+      faixas: lerGradeDeDias('agDias', 'ag') }) }).then(r=>r.json()).catch(()=>null);
+  if (!d?.success) { showAlert(d?.error || 'Falha ao salvar o agendamento','error'); return false; }
+  return true;
+}
+
+function mostrarAgenda(){
+  document.getElementById('horAgenda').style.display =
+    document.getElementById('horAtivo').checked ? '' : 'none';
+}
+
+function alternarDia(k, pre = 'hor'){
+  const de = document.getElementById(pre+'-'+k+'-de'), ate = document.getElementById(pre+'-'+k+'-ate');
+  const ligado = de.disabled;
+  de.disabled = ate.disabled = !ligado;
+}
+
+/**
+ * A mesma grade de sete dias serve ao expediente da IA e à agenda de reunião.
+ * O prefixo dos ids é o que separa as duas: sem ele, os campos colidiriam e o
+ * segundo bloco sobrescreveria o primeiro ao salvar.
+ */
+function gradeDeDias(destino, faixas, padrao, pre){
+  document.getElementById(destino).innerHTML = HOR_DIAS.map(([k, rot]) => {
+    const faixa = Array.isArray(faixas[k]) ? faixas[k] : null;
+    const p = padrao[k] || ['08:00','18:00'];
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+      <label style="flex:0 0 130px;margin:0;">
+        <input type="checkbox" style="width:auto;" ${faixa?'checked':''} onchange="alternarDia('${k}','${pre}')"> ${rot}</label>
+      <input type="time" id="${pre}-${k}-de" value="${faixa?faixa[0]:p[0]}" ${faixa?'':'disabled'} style="width:auto;">
+      <span class="muted">até</span>
+      <input type="time" id="${pre}-${k}-ate" value="${faixa?faixa[1]:p[1]}" ${faixa?'':'disabled'} style="width:auto;">
+    </div>`;
+  }).join('');
+}
+
+/** As faixas de uma grade, no formato que o servidor grava. */
+function lerGradeDeDias(destino, pre){
+  if (!document.getElementById(destino).children.length) return null;
+  const faixas = {};
+  for (const [k] of HOR_DIAS) {
+    const de = document.getElementById(pre+'-'+k+'-de');
+    faixas[k] = de.disabled ? null : [de.value, document.getElementById(pre+'-'+k+'-ate').value];
+  }
+  return faixas;
+}
+
+function lerHorarioDaTela(){
+  const faixas = lerGradeDeDias('horDias', 'hor');
+  if (!faixas) return null;
+  return { ativo: document.getElementById('horAtivo').checked, faixas,
+           mensagem: document.getElementById('horMsg').value };
+}
+
+/* ---------- pop-up de mensagem nova ----------
+ *
+ * São DOIS interruptores, e a diferença importa:
+ *
+ *   - a CHAVE DA EMPRESA (`whatsapp_popup_ativo`, no banco) decide se o sistema
+ *     avisa alguém. Ligada uma vez, vale para todos os atendentes;
+ *   - a INSCRIÇÃO DO APARELHO é local e por navegador, porque quem recebe
+ *     notificação é o aparelho, não a pessoa. Quem atende no computador e no
+ *     celular liga nos dois; quem está numa reunião com a tela projetada desliga
+ *     só ali, sem tirar o aviso do resto da equipe.
+ *
+ * A permissão do navegador é pedida no clique, nunca no carregamento: pedido
+ * automático é o que faz o navegador — e a pessoa — negar por reflexo.
+ */
+async function salvarPopup(){
+  const ativo = document.getElementById('popupAtivo').checked;
+  const d = await fetch('/api/whatsapp/ai-config', { method:'POST',
+    headers:{'Content-Type':'application/json'},
+    // Só o pop-up, que é da empresa. Mandar o "IA ligada" junto gravaria no
+    // número padrão o que está na tela de OUTRO número.
+    body: JSON.stringify({ popupAtivo: ativo })
+  }).then(r=>r.json()).catch(()=>({success:false}));
+  if (!d.success) return showAlert(d.error || 'Não foi possível salvar','error');
+  showAlert(ativo ? 'Aviso ligado para a empresa' : 'Aviso desligado para a empresa');
+  renderAparelho();
+}
+
+function podePush(){
+  return 'serviceWorker' in navigator && 'PushManager' in window;
+}
+
+async function inscricaoAtual(){
+  if (!podePush()) return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+
+async function renderAparelho(){
+  const el = document.getElementById('popupAparelho');
+  if (!el) return;
+  if (!document.getElementById('popupAtivo').checked) { el.innerHTML = ''; return; }
+  if (!podePush()) {
+    el.innerHTML = '<small class="muted">Este navegador não recebe notificação com o sistema fechado.</small>';
+    return;
+  }
+  const inscrito = !!(await inscricaoAtual());
+  el.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <button class="btn btn-secondary btn-sm" onclick="alternarAparelho()">
+      ${inscrito ? 'Silenciar neste aparelho' : 'Receber neste aparelho'}</button>
+    <small class="muted">${inscrito
+      ? 'Este aparelho recebe o aviso mesmo com o sistema fechado.'
+      : 'Este aparelho ainda não recebe. No iPhone, é preciso instalar o app na tela de início.'}</small>
+  </div>`;
+}
+
+async function alternarAparelho(){
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const jaTem = await reg.pushManager.getSubscription();
+    if (jaTem) {
+      await fetch('/api/push/desinscrever', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ endpoint: jaTem.endpoint }) });
+      await jaTem.unsubscribe();
+      showAlert('Este aparelho não recebe mais o aviso');
+      return renderAparelho();
+    }
+    if (Notification.permission !== 'granted') {
+      const p = await Notification.requestPermission();
+      if (p !== 'granted') return showAlert('O navegador não autorizou a notificação','warn');
+    }
+    const k = await fetch('/api/push/chave').then(r=>r.json());
+    if (!k.success) return showAlert('Não foi possível obter a chave do servidor','error');
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: base64ParaBytes(k.chave),
+    });
+    const d = await fetch('/api/push/inscrever', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ endpoint: sub.endpoint, aparelho: navigator.userAgent.slice(0,120) })
+    }).then(r=>r.json());
+    if (!d.success) return showAlert(d.error || 'Falha ao inscrever','error');
+    showAlert('Pronto: este aparelho passa a avisar');
+    renderAparelho();
+  } catch (e) {
+    showAlert('Não foi possível ligar aqui: ' + e.message, 'error');
+  }
+}
+
+/** A chave vem em base64url e o `subscribe` exige bytes. */
+function base64ParaBytes(s){
+  const b64 = (s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g,'+').replace(/_/g,'/');
+  const bin = atob(b64);
+  return Uint8Array.from(bin, c => c.charCodeAt(0));
+}
+
+async function conectarCanal(id){
+  const d = await fetch('/api/whatsapp/connect', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ canalId: id || CANAL_SEL || undefined }) }).then(r=>r.json()).catch(()=>null);
+  if (!d?.success) return showAlert(d?.error || 'Não foi possível conectar','error');
+  if (d.connected) { showAlert('Já conectado'); return carregarCanal(); }
+  const c = CANAIS.find(x => x.id === d.canalId);
+  document.getElementById('canalQr').innerHTML = (c ? `<p style="margin:0 0 8px;"><strong>${esc(c.nome)}</strong></p>` : '') + (d.qr
+    ? `<img src="${d.qr.startsWith('data:')?d.qr:'data:image/png;base64,'+d.qr}" alt="QR Code"
+         style="max-width:260px;background:#fff;padding:8px;border-radius:8px;">
+       <p class="muted" style="font-size:var(--text-xs);">Abra o WhatsApp deste número → Aparelhos conectados → Conectar aparelho</p>`
+    : '<small class="muted">Sem QR no momento. Tente de novo em alguns segundos.</small>');
+}
+
+async function salvarIA(){
+  const body = { canalId: CANAL_SEL || undefined,
+                 enabled: document.getElementById('iaLigada').checked,
+                 prompt: document.getElementById('iaPrompt').value,
+                 escopo: document.getElementById('iaEscopo').value };
+  const horario = lerHorarioDaTela();
+  if (horario) body.horario = horario;
+  if (ESTILO_CAT) body.estilo = ESTILO_SEL;
+  if (CANAL_SEL) {
+    const v = (id) => document.getElementById(id).value.trim();
+    body.ritmo = { limiteHora: v('rtHora'), intervaloMinS: v('rtIntervalo'), limiteDia: v('rtDia') };
+  }
+  const d = await fetch('/api/whatsapp/ai-config', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(r=>r.json()).catch(()=>null);
+  if (!d?.success) return showAlert(d?.error || 'Falha ao salvar','error');
+  const c = CANAIS.find(x => x.id === CANAL_SEL);
+  showAlert(c ? `Número ${c.nome} salvo` : 'Configuração da IA salva');
+  carregarNumero();
+}
+
+async function salvarAgenda(){
+  if (await salvarAgendaReuniao()) showAlert('Agenda de reunião salva');
+}
+
+async function simular(){
+  const texto = document.getElementById('simTexto').value.trim();
+  if (!texto) return;
+  const el = document.getElementById('simResposta');
+  el.innerHTML = '<small class="muted">Consultando a IA com a base atual…</small>';
+  const d = await fetch('/api/whatsapp/sim-atendimento', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ texto, mensagem: texto, canalId: CANAL_SEL || undefined }) })
+    .then(r=>r.json()).catch(()=>null);
+  if (!d || d.success === false) { el.innerHTML = `<div class="alert error" style="display:block;">${esc(d?.error||'Falha na simulação')}</div>`; return; }
+  el.innerHTML = `<div class="msg deles" style="max-width:100%;">${esc(d.resposta || d.reply || d.texto || '(sem resposta)')}</div>`;
+}
+
+carregarCanal();
+</script>
+</body>
+</html>

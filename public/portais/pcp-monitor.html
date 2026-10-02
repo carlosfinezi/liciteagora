@@ -74,7 +74,7 @@ async function carregarPregoes() {
         '</tr>'
       ).join('') + '</tbody></table>';
   } catch (e) {
-    el.innerHTML = '<span style="color:#c0392b">Erro ao carregar: ' + escapeHtml(e.message) + '</span>';
+    el.innerHTML = '<span style="color:var(--danger)">Erro ao carregar: ' + escapeHtml(e.message) + '</span>';
   }
 }
 

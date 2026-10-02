@@ -11,9 +11,9 @@
         .mono { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-size: 1em; }
         .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 14px; }
         .kpi { padding: 12px 14px; border-radius: var(--r-md); background: var(--bg-2); border: 1px solid var(--border); }
-        .kpi .label { font-size: 0.75em; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+        .kpi .label { font-size: var(--text-xs); color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
         .kpi .value { font-size: 1.4em; font-weight: 700; color: var(--text-0); margin-top: 4px; font-family: 'SF Mono', Menlo, Monaco, monospace; }
-        .kpi .sub { font-size: 0.72em; color: var(--text-3); margin-top: 2px; }
+        .kpi .sub { font-size: var(--text-xs); color: var(--text-3); margin-top: 2px; }
         .kpi.good .value { color: var(--success); }
         .kpi.warn .value { color: var(--warn); }
         .kpi.danger .value { color: var(--danger); }
@@ -22,10 +22,10 @@
         .sugestao.warn { border-color: var(--warn); }
         .sugestao.danger { border-color: var(--danger); }
         .sugestao.good { border-color: var(--success); }
-        .sugestao .tipo { font-size: 0.7em; text-transform: uppercase; color: var(--text-3); font-weight: 700; letter-spacing: 0.06em; }
+        .sugestao .tipo { font-size: var(--text-xs); text-transform: uppercase; color: var(--text-3); font-weight: 700; letter-spacing: 0.06em; }
         .sugestao .msg { color: var(--text-0); margin-top: 2px; }
 
-        table.timing-table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+        table.timing-table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
         table.timing-table th { background: var(--bg-3); color: var(--text-2); text-align: left; padding: 8px 10px; font-weight: 600; border-bottom: 1px solid var(--border); position: sticky; top: 0; }
         table.timing-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
         table.timing-table tr:hover { background: var(--bg-hover); }
@@ -50,9 +50,9 @@
     </div>
 
     <div class="toolbar">
-        <label style="font-size:0.85em;color:var(--text-2)">Últimas <input type="number" id="filtUltimas" value="20" min="1" max="200" style="width:70px;" onchange="carregar()"> blitzes</label>
+        <label style="font-size:var(--text-xs);color:var(--text-2)">Últimas <input type="number" id="filtUltimas" value="20" min="1" max="200" style="width:70px;" onchange="carregar()"> blitzes</label>
         <input type="text" id="filtCompra" placeholder="Filtrar compraId…" style="width:200px;" onkeydown="if(event.key==='Enter')carregar()">
-        <span id="resumo" style="margin-left:auto;font-size:0.85em;color:var(--text-3)"></span>
+        <span id="resumo" style="margin-left:auto;font-size:var(--text-xs);color:var(--text-3)"></span>
     </div>
 
     <div id="kpis" class="kpi-grid"></div>

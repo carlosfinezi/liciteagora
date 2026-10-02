@@ -16,16 +16,16 @@
 .op-card:active { cursor:grabbing; }
 .op-card.dragging { opacity:.4; }
 .op-card .titulo { font-weight:600; color:var(--text-0); font-size:13px; line-height:1.3; }
-.op-card .cliente { color:var(--text-2); font-size:11px; margin-top:4px; }
+.op-card .cliente { color:var(--text-2); font-size:var(--text-xs); margin-top:4px; }
 .op-card .valor { color:var(--success); font-size:12px; font-weight:600; margin-top:4px; }
-.op-card .meta { color:var(--text-3); font-size:10px; margin-top:6px; display:flex; gap:8px; }
+.op-card .meta { color:var(--text-3); font-size:var(--text-xs); margin-top:6px; display:flex; gap:8px; }
 .op-card-top { display:flex; justify-content:space-between; align-items:flex-start; gap:6px; }
 .op-card-actions { display:flex; gap:2px; opacity:0; transition:opacity .12s; flex-shrink:0; }
 .op-card:hover .op-card-actions { opacity:1; }
 .op-card-actions button { background:none; border:none; cursor:pointer; padding:2px 4px; font-size:13px; line-height:1; border-radius:var(--r-sm); color:var(--text-2); }
 .op-card-actions button:hover { background:rgba(255,255,255,0.12); color:var(--text-0); }
 .op-card-actions button.del:hover { color:var(--danger); }
-.col-count { background:rgba(255,255,255,0.15); padding:1px 8px; border-radius:var(--r-lg); font-size:11px; }
+.col-count { background:rgba(255,255,255,0.15); padding:1px 8px; border-radius:var(--r-lg); font-size:var(--text-xs); }
 .toolbar .btn-icon { width:30px; height:30px; padding:0; display:inline-flex; align-items:center; justify-content:center; line-height:1; flex:0 0 auto; }
 .kanban-column h4 { cursor:grab; }
 .kanban-column h4:active { cursor:grabbing; }
@@ -37,7 +37,7 @@
 .col-actions button { background:none; border:none; cursor:pointer; padding:1px 3px; font-size:12px; line-height:1; border-radius:var(--r-sm); color:inherit; opacity:0; transition:opacity .12s; }
 .kanban-column h4:hover .col-actions button { opacity:0.85; }
 .col-actions button:hover { opacity:1; background:rgba(255,255,255,0.18); }
-.col-soma { font-size:11px; opacity:0.85; margin-top:2px; }
+.col-soma { font-size:var(--text-xs); opacity:0.85; margin-top:2px; }
 .col-mais { flex:0 0 auto; width:100%; justify-content:center; font-size:12px; }
 </style>
 </head>
@@ -269,7 +269,7 @@
           <label style="margin:0;">Itens / Produtos</label>
           <button type="button" class="btn btn-ghost btn-sm" onclick="addItem()">+ Adicionar item</button>
         </div>
-        <div id="opItensHeader" style="display:none;grid-template-columns:1fr 80px 110px 100px 30px;gap:6px;font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;padding:0 2px;">
+        <div id="opItensHeader" style="display:none;grid-template-columns:1fr 80px 110px 100px 30px;gap:6px;font-size:var(--text-xs);color:var(--text-3);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;padding:0 2px;">
           <div>Produto</div>
           <div style="text-align:right;">Quantidade</div>
           <div style="text-align:right;">Preço un</div>
@@ -1107,7 +1107,7 @@ async function carregarInteresses(){
             ${l.nomeOrgao ? `<span style="color:var(--text-1);font-size:0.9em;">${l.nomeOrgao}</span>` : ''}
           </div>
           ${l.objetoCompra ? `<div style="color:var(--text-2);font-size:0.88em;line-height:1.4;">${l.objetoCompra.slice(0,200)}${l.objetoCompra.length>200?'…':''}</div>` : ''}
-          <div style="color:var(--text-3);font-size:0.78em;margin-top:6px;display:flex;gap:12px;flex-wrap:wrap;">
+          <div style="color:var(--text-3);font-size:var(--text-xs);margin-top:6px;display:flex;gap:12px;flex-wrap:wrap;">
             ${l.dataEncerramentoProposta ? `<span style="color:${corPrazo};">📅 ${l.dataEncerramentoProposta}${diasRestantes!=null?` (${diasRestantes>=0?'em '+diasRestantes+'d':'venceu há '+Math.abs(diasRestantes)+'d'})`:''}</span>` : ''}
             ${l.valorTotalEstimado ? `<span>💰 ${fmtBRL(l.valorTotalEstimado)}</span>` : ''}
             ${l.qtdItens ? `<span>📦 ${l.qtdItens} item(ns)</span>` : ''}

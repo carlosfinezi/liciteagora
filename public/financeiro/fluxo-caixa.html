@@ -10,7 +10,7 @@
 <style>
   .fc-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 16px; }
   .fc-toolbar .field { display: flex; flex-direction: column; gap: 4px; }
-  .fc-toolbar label { font-size: 0.78em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .fc-toolbar label { font-size: var(--text-xs); color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
   .fc-toolbar input, .fc-toolbar select { background: var(--bg-input); color: var(--text-0); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 6px 10px; }
   .fc-contas-pick { position: relative; }
   .fc-contas-btn { background: var(--bg-input); color: var(--text-0); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 6px 10px; cursor: pointer; min-width: 220px; text-align: left; }
@@ -22,14 +22,14 @@
   .fc-grafico-wrap { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 16px; margin-bottom: 16px; height: 320px; position: relative; }
 
   .fc-tbl { width: 100%; border-collapse: collapse; background: var(--bg-2); border-radius: var(--r-lg); overflow: hidden; }
-  .fc-tbl th { text-align: left; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-2); padding: 10px 12px; background: var(--bg-1); border-bottom: 1px solid var(--border); }
+  .fc-tbl th { text-align: left; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-2); padding: 10px 12px; background: var(--bg-1); border-bottom: 1px solid var(--border); }
   .fc-tbl td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 0.93em; color: var(--text-0); }
   .fc-tbl tr.row-dia { cursor: pointer; }
   .fc-tbl tr.row-dia:hover { background: var(--bg-hover); }
   .fc-tbl tr.row-dia.open { background: var(--bg-hover); }
   .fc-tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .fc-tbl td.num .real { color: var(--text-0); }
-  .fc-tbl td.num .prev { color: var(--text-2); font-size: 0.85em; }
+  .fc-tbl td.num .prev { color: var(--text-2); font-size: var(--text-xs); }
   .fc-tbl td.saldo.neg { color: var(--danger); font-weight: 700; }
   .fc-tbl td.saldo.pos { color: var(--success); font-weight: 700; }
   .fc-tbl .toggle { display: inline-block; width: 14px; color: var(--text-2); transition: transform 0.15s; }
@@ -48,7 +48,7 @@
   .badge.previsto { background: var(--warn-soft); color: var(--warn); }
 
   .fc-empty { text-align: center; color: var(--text-2); padding: 40px; }
-  .kpi .sub { font-size: 0.78em; color: var(--text-2); margin-top: 2px; }
+  .kpi .sub { font-size: var(--text-xs); color: var(--text-2); margin-top: 2px; }
 </style>
 </head>
 <body>

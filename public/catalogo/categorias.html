@@ -174,13 +174,13 @@ function render() {
       : '<span class="badge">inativa</span>';
     const qtd = i.produtos > 0
       ? `<strong>${i.produtos}</strong>` + (i.produtosAtivos !== i.produtos
-          ? ` <span class="muted" style="font-size:.85em;">(${i.produtosAtivos} ativos)</span>` : '')
+          ? ` <span class="muted" style="font-size:var(--text-xs);">(${i.produtosAtivos} ativos)</span>` : '')
       : '<span class="muted">—</span>';
 
     if (i.reservada) {
       // Sem botões: a explicação é mais útil que um botão que vai recusar.
       return `<tr><td>${nome} <span class="badge">reservada</span></td><td>${qtd}</td><td>${status}</td>
-        <td><span class="muted" style="font-size:.85em;">Usada internamente pela Ótica — não pode ser renomeada nem excluída.</span></td></tr>`;
+        <td><span class="muted" style="font-size:var(--text-xs);">Usada internamente pela Ótica — não pode ser renomeada nem excluída.</span></td></tr>`;
     }
     const acoes = [
       `<button type="button" class="btn btn-ghost btn-sm" data-acao="renomear" data-valor="${nome}">Renomear</button>`,
@@ -331,7 +331,7 @@ function abrirExcluir(valor) {
           Deixar os produtos sem categoria
         </label>
       </div></div>
-      <p class="muted" style="font-size:.85em;margin-bottom:0;">
+      <p class="muted" style="font-size:var(--text-xs);margin-bottom:0;">
         As regras de comissão que usam esta categoria acompanham a mesma decisão.</p>`;
   }
   document.getElementById('modalExcluir').classList.add('open');

@@ -19,7 +19,7 @@
         .filtros-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; }
         .filtro-group { display: flex; flex-direction: column; gap: 4px; }
         .filtro-group label {
-            font-size: 0.72em;
+            font-size: var(--text-xs);
             color: var(--text-2);
             text-transform: uppercase;
             letter-spacing: 0.06em;
@@ -36,7 +36,7 @@
             color: var(--text-2);
             border-radius: var(--r-sm);
             cursor: pointer;
-            font-size: 0.8em;
+            font-size: var(--text-xs);
             font-family: inherit;
             transition: all 0.15s;
         }
@@ -73,7 +73,7 @@
         .licitacao-meta { display: flex; gap: 12px; align-items: center; }
         /* .badge base vem do app-modern.css (design-system). Só as variantes de cor abaixo. */
         .licitacao-meta .badge.alerta { background: var(--warn); color: #000; }
-        .licitacao-meta .badge.cnpj { background: var(--danger); color: #fff; }
+        .licitacao-meta .badge.cnpj { background: var(--danger); color: var(--bg-2); }
         .licitacao-meta .badge svg { vertical-align: -2px; }
         .licitacao-mensagens {
             display: none;
@@ -110,7 +110,7 @@
             margin-bottom: 10px;
         }
         .mensagem-remetente { color: var(--success); font-weight: 600; font-size: 13px; }
-        .mensagem-hora { color: var(--text-3); font-size: 11px; }
+        .mensagem-hora { color: var(--text-3); font-size: var(--text-xs); }
         .mensagem-texto {
             color: var(--text-1);
             line-height: 1.6;
@@ -132,9 +132,9 @@
             50% { box-shadow: 0 2px 8px rgba(231, 76, 60, 0.6); }
         }
         .mensagem-tags { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-        .tag { padding: 3px 8px; border-radius: var(--r-sm); font-size: 10px; font-weight: 600; }
+        .tag { padding: 3px 8px; border-radius: var(--r-sm); font-size: var(--text-xs); font-weight: 600; }
         .tag.palavra { background: var(--warn); color: #000; }
-        .tag.cnpj { background: var(--danger); color: #fff; }
+        .tag.cnpj { background: var(--danger); color: var(--bg-2); }
 
         .mensagem-card {
             background: var(--bg-1);
@@ -153,7 +153,7 @@
             right: 10px;
             background: var(--accent-strong);
             color: #fff;
-            font-size: 10px;
+            font-size: var(--text-xs);
             padding: 2px 8px;
             border-radius: 10px;
             font-weight: 600;
@@ -166,7 +166,7 @@
             padding: 4px 10px;
             border-radius: var(--r-sm);
             cursor: pointer;
-            font-size: 11px;
+            font-size: var(--text-xs);
             margin-left: 10px;
             font-family: inherit;
             transition: background 0.15s;
@@ -201,7 +201,7 @@
         }
         .palavra-tag .remover {
             background: var(--danger);
-            color: #fff;
+            color: var(--bg-2);
             border: none;
             width: 20px;
             height: 20px;
@@ -832,7 +832,7 @@
 
             const btnLido = !msg.lido
                 ? `<button class="btn-lido" onclick="marcarComoLida(${msg.id}, this)">${icon('check','ic-sm')} Marcar lida</button>`
-                : `<span style="color: var(--success); font-size: 11px;">${icon('check','ic-sm')} Lida</span>`;
+                : `<span style="color: var(--success); font-size: var(--text-xs);">${icon('check','ic-sm')} Lida</span>`;
 
             return `
                 <div class="${itemClass}" id="msg-${msg.id}">
@@ -887,11 +887,11 @@
             const ehConvocacao = !!convocacao;
             const prazo = convocacao ? prazoDaConvocacao(convocacao.mensagem) : null;
             const selo = prazo
-                ? (() => { const r = rotuloPrazo(prazo); return `<span style="font-size:11px;font-weight:600;color:${r.cor};">⏱ ${r.txt}</span>`; })()
+                ? (() => { const r = rotuloPrazo(prazo); return `<span style="font-size:var(--text-xs);font-weight:600;color:${r.cor};">⏱ ${r.txt}</span>`; })()
                 : '';
 
-            const estiloBase = 'font-size:11px;text-decoration:none;padding:3px 9px;border-radius:999px;border:1px solid var(--border);color:var(--text-2);';
-            const estiloDestaque = 'font-size:11px;font-weight:600;text-decoration:none;padding:3px 9px;border-radius:999px;border:1px solid var(--accent);color:var(--accent);';
+            const estiloBase = 'font-size:var(--text-xs);text-decoration:none;padding:3px 9px;border-radius:999px;border:1px solid var(--border);color:var(--text-2);';
+            const estiloDestaque = 'font-size:var(--text-xs);font-weight:600;text-decoration:none;padding:3px 9px;border-radius:999px;border:1px solid var(--accent);color:var(--accent);';
 
             const idSeguro = String(grupo.compraId).replace(/[^0-9A-Za-z]/g, '');
 
@@ -911,15 +911,15 @@
                               placeholder="Mensagem para o pregoeiro…"
                               style="width:100%;box-sizing:border-box;background:var(--bg-1);color:var(--text-1);border:1px solid var(--border);border-radius:6px;padding:8px;font-family:inherit;font-size:0.88em;resize:vertical;"></textarea>
                     <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;">
-                        <label style="font-size:11px;color:var(--text-3);">Item nº
+                        <label style="font-size:var(--text-xs);color:var(--text-3);">Item nº
                             <input id="resp-item-${idSeguro}" type="number" min="1" value="${escapeHtml(item)}" placeholder="todos"
                                    style="width:70px;margin-left:4px;background:var(--bg-1);color:var(--text-1);border:1px solid var(--border);border-radius:4px;padding:3px 6px;">
                         </label>
-                        <span style="font-size:11px;color:var(--text-3);">vazio = mensagem para a compra toda</span>
+                        <span style="font-size:var(--text-xs);color:var(--text-3);">vazio = mensagem para a compra toda</span>
                         <button type="button" id="resp-btn-${idSeguro}" style="${estiloDestaque}background:transparent;cursor:pointer;margin-left:auto;"
                                 onclick="enviarResposta('${escapeHtml(String(grupo.compraId))}', '${idSeguro}')">Enviar mensagem</button>
                     </div>
-                    <div style="font-size:11px;color:var(--warn);margin-top:5px;">
+                    <div style="font-size:var(--text-xs);color:var(--warn);margin-top:5px;">
                         A mensagem entra no chat público do pregão e não pode ser apagada.
                     </div>
                 </div>
@@ -1013,7 +1013,7 @@
                     const msgEl = document.getElementById(`msg-${id}`);
                     if (msgEl) {
                         msgEl.classList.remove('nao-lido');
-                        btn.outerHTML = `<span style="color: var(--success); font-size: 11px;">${icon('check','ic-sm')} Lida</span>`;
+                        btn.outerHTML = `<span style="color: var(--success); font-size: var(--text-xs);">${icon('check','ic-sm')} Lida</span>`;
                     }
 
                     // Atualizar array local

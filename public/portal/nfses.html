@@ -33,7 +33,7 @@ async function carregar(){
   const tb = document.getElementById('tb');
   tb.innerHTML = r.nfses.length ? r.nfses.map(n=>`<tr>
     <td><strong>${n.nNFSe||n.nDPS||'—'}</strong></td>
-    <td style="font-family:monospace;font-size:11px;">${n.chaveAcesso||'—'}</td>
+    <td style="font-family:monospace;font-size:12px;">${n.chaveAcesso||'—'}</td>
     <td>${n.descricaoServico||'—'}</td>
     <td>${(n.dataCompetencia||'').slice(0,7)}</td>
     <td class="num">${fmtBRL(n.valorServico)}</td>

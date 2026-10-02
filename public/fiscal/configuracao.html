@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
         /* page-local: texto de apoio abaixo do campo e no topo do painel */
-        .hint { display: block; margin-top: 4px; color: var(--text-3); font-size: 0.78em; }
+        .hint { display: block; margin-top: 4px; color: var(--text-3); font-size: var(--text-xs); }
         p.hint { margin: 0 0 15px; font-size: 0.9em; }
     </style>
 </head>
@@ -29,10 +29,10 @@
             <div id="alertBox" class="alert"></div>
 
             <div class="toolbar">
-                <label for="estabelecimento" style="color:var(--text-2); font-size:0.82em; text-transform:uppercase; letter-spacing:0.02em;">Estabelecimento</label>
+                <label for="estabelecimento" style="color:var(--text-2); font-size:var(--text-xs); text-transform:uppercase; letter-spacing:0.02em;">Estabelecimento</label>
                 <select id="estabelecimento" onchange="carregar()"></select>
                 <span class="spacer"></span>
-                <span id="estabInfo" class="muted" style="font-size:0.85em;"></span>
+                <span id="estabInfo" class="muted" style="font-size:var(--text-xs);"></span>
             </div>
 
             <div id="loadingContainer" class="loading"><h3>Carregando...</h3></div>
@@ -75,7 +75,7 @@
                     </div>
                     <div style="display:flex; gap:10px; align-items:center;" id="grupoSefaz">
                         <button type="button" class="btn btn-secondary btn-sm" onclick="testarStatusSefaz()">🔍 Testar conexão SEFAZ</button>
-                        <span id="statusSefazTexto" class="muted" style="font-size:0.85em;"></span>
+                        <span id="statusSefazTexto" class="muted" style="font-size:var(--text-xs);"></span>
                     </div>
                 </div>
 

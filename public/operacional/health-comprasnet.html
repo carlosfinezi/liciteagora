@@ -24,10 +24,10 @@
         .tl-bar:hover::after {
             content: attr(data-tip); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
             background: var(--bg-0); color: var(--text-0); padding: 4px 8px; border-radius: 4px;
-            white-space: nowrap; font-size: 0.75em; z-index: 10; border: 1px solid var(--border);
+            white-space: nowrap; font-size: var(--text-xs); z-index: 10; border: 1px solid var(--border);
         }
 
-        table.tbl { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+        table.tbl { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
         table.tbl th { background: var(--bg-3); color: var(--text-2); text-align: left; padding: 8px 10px; font-weight: 600; }
         table.tbl td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
         /* variantes de cor do .badge (base do design-system) */
@@ -201,7 +201,7 @@ function renderFalhas(falhas) {
                 <td class="mono"><span class="badge fail">${f.httpStatus || 'TO'}</span></td>
                 <td class="mono">${fmtMs(f.tempoMs)}</td>
                 <td><small>${f.erro || '—'}</small></td>
-                <td class="mono" style="font-size:0.75em">${f.endpoint || '—'}</td>
+                <td class="mono" style="font-size:var(--text-xs)">${f.endpoint || '—'}</td>
             </tr>`).join('')}
             </tbody>
         </table>

@@ -118,7 +118,7 @@ function render(d){
              style="width:100px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;"></td>
       <td style="text-align:right;">R$ ${fmt(i.custoEstimado)}</td>
       <td>${esc(i.fornecedorNome || 'a definir')}</td>
-      <td class="muted" style="font-size:.85em;" title="${esc(i.origens.map(o => `${o.pedidoNumero} — ${o.clienteNome||''}`).join(' | '))}">${espera}</td>
+      <td class="muted" style="font-size:var(--text-xs);" title="${esc(i.origens.map(o => `${o.pedidoNumero} — ${o.clienteNome||''}`).join(' | '))}">${espera}</td>
     </tr>`;
   }).join('');
 }

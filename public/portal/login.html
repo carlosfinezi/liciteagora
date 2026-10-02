@@ -6,9 +6,14 @@
 <style>
 body { font-family: system-ui, -apple-system, sans-serif; margin:0; background:#0a1428; color:#e0e0e0; min-height:100vh; display:flex; align-items:center; justify-content:center; }
 .box { background:#16213e; padding:32px; border-radius:12px; width:100%; max-width:380px; box-shadow:0 8px 32px rgba(0,0,0,0.4); }
-h1 { color:#1b6ec2; margin:0 0 20px; font-size:22px; text-align:center; }
-.sub { color:#aaa; font-size:13px; text-align:center; margin-bottom:24px; }
-label { display:block; font-size:13px; color:#aaa; margin-bottom:6px; }
+/* O azul era #1b6ec2, que sobre o #16213e da caixa dá 3,07:1 — passa raspando o
+   mínimo de texto grande (3:1) e reprova para texto normal. Este é o mesmo azul
+   que o ERP usa no tema escuro, e mede 6,25:1. */
+h1 { color:#60a5fa; margin:0 0 20px; font-size:22px; text-align:center; }
+/* Cinza-azulado, e não o #aaa neutro que havia aqui: cinza puro sobre fundo
+   azulado fica lavado. É o mesmo --text-2 do tema escuro do ERP, 6,2:1. */
+.sub { color:#94a3b8; font-size:13px; text-align:center; margin-bottom:24px; }
+label { display:block; font-size:13px; color:#94a3b8; margin-bottom:6px; }
 input { width:100%; padding:10px; border:1px solid #2a3a5c; border-radius:6px; background:#0f1a30; color:#e0e0e0; font-size:14px; margin-bottom:14px; box-sizing:border-box; }
 button { width:100%; padding:12px; border:none; border-radius:6px; background:#1b6ec2; color:#fff; cursor:pointer; font-weight:600; font-size:14px; }
 .erro { background:rgba(255,70,70,0.15); color:#ff6b6b; padding:10px; border-radius:6px; font-size:13px; margin-bottom:14px; display:none; }

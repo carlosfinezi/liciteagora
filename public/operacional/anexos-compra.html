@@ -26,11 +26,11 @@
   <div id="alertGlobal"></div>
 
   <div class="toolbar">
-    <label style="font-size:0.85em;color:var(--text-2);">Adicionar item nº
+    <label style="font-size:var(--text-xs);color:var(--text-2);">Adicionar item nº
       <input type="number" id="itemManual" min="1" placeholder="ex: 15" style="width:90px;margin-left:4px;">
     </label>
     <button class="btn btn-secondary" onclick="adicionarItemManual()">Carregar item</button>
-    <span id="compraInfo" style="font-size:0.85em;color:var(--text-3);margin-left:auto;"></span>
+    <span id="compraInfo" style="font-size:var(--text-xs);color:var(--text-3);margin-left:auto;"></span>
   </div>
 
   <div id="itens"></div>
@@ -140,7 +140,7 @@ async function listarAnexos(numero) {
     box.innerHTML = '<table style="width:100%"><tbody>' + j.anexos.map(a => `
       <tr>
         <td>📎 ${esc(a.nomeOriginal)}</td>
-        <td style="color:var(--text-3);font-size:0.85em;">${esc((a.dataHora || '').replace('T', ' ').slice(0, 16))}</td>
+        <td style="color:var(--text-3);font-size:var(--text-xs);">${esc((a.dataHora || '').replace('T', ' ').slice(0, 16))}</td>
         <td style="text-align:right">${a.permitidoExcluir ? `<button class="btn btn-secondary" onclick="excluir(${numero}, '${encodeURIComponent(a.nome)}', '${esc(a.nomeOriginal)}')">Excluir</button>` : '<span style="color:var(--text-3)">—</span>'}</td>
       </tr>`).join('') + '</tbody></table>';
   } catch (e) { box.innerHTML = `<span style="color:var(--text-3)">Erro: ${esc(e.message)}</span>`; }

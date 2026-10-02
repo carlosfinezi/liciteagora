@@ -101,7 +101,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 0.75em;
+            font-size: var(--text-xs);
             color: var(--bg-0);
         }
         .cobertura-atual { background: var(--accent); width: 3px; flex-shrink: 0; }
@@ -110,7 +110,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 0.75em;
+            font-size: var(--text-xs);
             color: var(--bg-0);
         }
         /* Quem está dentro da barra declara a própria cor (vem do tema) e não
@@ -120,7 +120,7 @@
             display: flex;
             gap: 20px;
             margin-top: 10px;
-            font-size: 0.8em;
+            font-size: var(--text-xs);
             color: var(--text-2);
         }
         .cobertura-legenda span { display: flex; align-items: center; gap: 6px; }
@@ -529,7 +529,7 @@ function cartaoNeg(titulo, cor, corpo, rodape){
   return `<div class="panel" style="border-left:4px solid var(--${cor});margin-bottom:10px;">
     <h3 style="margin:0 0 8px;font-size:0.95em;">${titulo}</h3>
     <div style="font-size:0.9em;line-height:1.7;">${corpo}</div>
-    ${rodape ? `<div class="muted" style="font-size:0.8em;margin-top:8px;">${rodape}</div>` : ''}
+    ${rodape ? `<div class="muted" style="font-size:var(--text-xs);margin-top:8px;">${rodape}</div>` : ''}
   </div>`;
 }
 
@@ -665,7 +665,7 @@ async function carregarStatusNegocio(){
     </div>
     <div style="margin-top:8px;">
       <button class="btn btn-ghost btn-sm" onclick="analisarGrupos(this)">Analisar grupos de palavras</button>
-      <span id="gruposResultado" class="muted" style="font-size:0.85em;"></span>
+      <span id="gruposResultado" class="muted" style="font-size:var(--text-xs);"></span>
     </div>
   </div>`);
 

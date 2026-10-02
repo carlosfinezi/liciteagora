@@ -12,14 +12,14 @@
   /* KPIs — mesmo padrão da lances.html */
   .status-bar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
   .status-item { background: var(--bg-2); padding: 10px 14px; border-radius: var(--r-md); flex: 1; min-width: 110px; text-align: center; }
-  .status-item .label { color: var(--text-3); font-size: 0.75em; margin-bottom: 3px; }
+  .status-item .label { color: var(--text-3); font-size: var(--text-xs); margin-bottom: 3px; }
   .status-item .value { font-size: 1.05em; font-weight: 600; }
   .value.azul { color: var(--accent); } .value.verde { color: var(--success); } .value.cinza { color: var(--text-3); }
 
   .filtros { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
-  .filtros label { font-size: 0.85em; cursor: pointer; display: flex; align-items: center; gap: 5px; color: var(--text-1); }
+  .filtros label { font-size: var(--text-xs); cursor: pointer; display: flex; align-items: center; gap: 5px; color: var(--text-1); }
   .filtros .sep { flex: 1; }
-  .upd { font-size: 0.75em; color: var(--text-3); }
+  .upd { font-size: var(--text-xs); color: var(--text-3); }
 
   /* Sala expansível — padrão lic-row */
   .sala-row { border: 1px solid var(--border); border-radius: var(--r-sm); margin-bottom: 6px; overflow: hidden; }
@@ -28,21 +28,25 @@
   .sala-header.aberta { background: #0f346060; border-bottom: 1px solid var(--border); }
   .sala-left { flex: 1; min-width: 0; }
   .sala-id { font-size: 0.9em; font-weight: 600; color: var(--accent); }
-  .sala-org { font-size: 0.78em; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-  .sala-notas { font-size: 0.72em; color: var(--text-3); margin-top: 1px; }
+  .sala-org { font-size: var(--text-xs); color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .sala-notas { font-size: var(--text-xs); color: var(--text-3); margin-top: 1px; }
   .sala-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-  .etapa { font-size: 0.76em; font-weight: 600; padding: 2px 9px; border-radius: var(--r-sm); white-space: nowrap; }
+  .etapa { font-size: var(--text-xs); font-weight: 600; padding: 2px 9px; border-radius: var(--r-sm); white-space: nowrap; }
   .etapa-disputa   { background: #4caf5025; color: var(--success); }
   .etapa-prorrog   { background: #ff980025; color: var(--warn); }
   .etapa-julgamento{ background: #9c27b025; color: var(--purple); }
   .etapa-encerrada { background: #88888825; color: var(--text-3); }
   .etapa-outra     { background: #4dabf725; color: var(--accent); }
-  .pos-badge { font-size: 0.78em; font-weight: 700; padding: 2px 9px; border-radius: 10px; background: var(--bg-3); color: var(--text-2); white-space: nowrap; }
+  .pos-badge { font-size: var(--text-xs); font-weight: 700; padding: 2px 9px; border-radius: 10px; background: var(--bg-3); color: var(--text-2); white-space: nowrap; }
   .pos-badge.lider { background: rgba(255,215,0,0.16); color: var(--warn); }
   .pos-badge.top { background: rgba(76,175,80,0.16); color: var(--success); }
-  .modo-tag { font-size: 0.7em; font-weight: 700; padding: 2px 7px; border-radius: 4px; }
-  .modo-live { background: var(--success); color: var(--success); } .modo-dry { background: var(--warn-soft); color: var(--warn); }
-  .arrow { color: var(--text-3); font-size: 0.75em; transition: transform 0.2s; }
+  .modo-tag { font-size: var(--text-xs); font-weight: 700; padding: 2px 7px; border-radius: 4px; }
+  /* O fundo era `var(--success)`, a MESMA cor do texto: a etiqueta "AO VIVO"
+     saía invisível, e é ela que distingue o robô mandando lance real da
+     simulação. O padrão é o do vizinho `.modo-dry`: o tom `-soft` no fundo e a
+     cor cheia no texto. */
+  .modo-live { background: var(--success-soft); color: var(--success); } .modo-dry { background: var(--warn-soft); color: var(--warn); }
+  .arrow { color: var(--text-3); font-size: var(--text-xs); transition: transform 0.2s; }
   .arrow.aberta { transform: rotate(180deg); }
 
   .sala-body { display: none; padding: 12px 14px; background: var(--bg-0); }
@@ -50,13 +54,13 @@
 
   .lote-card { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 10px 12px; margin-bottom: 8px; background: var(--bg-1); }
   .lote-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
-  .lote-title { font-size: 0.85em; font-weight: 600; color: var(--text-1); }
-  .lote-meta { font-size: 0.74em; color: var(--text-3); }
+  .lote-title { font-size: var(--text-xs); font-weight: 600; color: var(--text-1); }
+  .lote-meta { font-size: var(--text-xs); color: var(--text-3); }
 
   /* Escada */
   .escada { display: flex; align-items: stretch; gap: 4px; overflow-x: auto; padding: 6px 2px 8px; }
   .deg { flex: 0 0 auto; min-width: 74px; text-align: center; padding: 5px 8px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--border); }
-  .deg .pn { font-size: 0.66em; color: var(--text-3); }
+  .deg .pn { font-size: var(--text-xs); color: var(--text-3); }
   .deg .pv { font-size: 0.86em; font-weight: 600; color: var(--text-1); font-variant-numeric: tabular-nums; }
   .deg.lider { border-color: var(--success); background: #4caf5012; }
   .deg.lider .pv { color: var(--success); }
@@ -65,28 +69,28 @@
   .deg.nosso .pv { color: var(--warn); }
   .deg.abaixo-piso { opacity: 0.45; }
   .piso-mark { flex: 0 0 auto; width: 2px; background: repeating-linear-gradient(var(--danger) 0 4px, transparent 4px 8px); position: relative; margin: 0 3px; }
-  .piso-mark::after { content: 'PISO'; position: absolute; top: -2px; left: 4px; font-size: 0.6em; color: var(--danger); font-weight: 700; white-space: nowrap; }
-  .escada-vazia { font-size: 0.78em; color: var(--text-3); padding: 6px 2px; }
+  .piso-mark::after { content: 'PISO'; position: absolute; top: -2px; left: 4px; font-size: var(--text-xs); color: var(--danger); font-weight: 700; white-space: nowrap; }
+  .escada-vazia { font-size: var(--text-xs); color: var(--text-3); padding: 6px 2px; }
 
   /* Config inline */
   .lote-cfg { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
   .lote-cfg .fld { display: flex; flex-direction: column; gap: 2px; }
-  .lote-cfg label { font-size: 0.66em; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+  .lote-cfg label { font-size: var(--text-xs); color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
   .lote-cfg input[type=number] { width: 92px; padding: 4px 6px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text-0); font-size: 0.88em; }
   .lote-cfg input:focus { outline: none; border-color: var(--accent); }
-  .chk-auto { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82em; color: var(--text-2); cursor: pointer; user-select: none; }
+  .chk-auto { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--text-2); cursor: pointer; user-select: none; }
   .chk-auto input { accent-color: var(--success); }
-  .cfg-msg { font-size: 0.74em; margin-left: 4px; }
+  .cfg-msg { font-size: var(--text-xs); margin-left: 4px; }
 
   .empty { text-align: center; color: var(--text-3); padding: 28px; font-size: 0.88em; }
   .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; }
   .modal-bg.open { display: block; }
   .modal-card { max-width: 640px; margin: 70px auto; background: var(--bg-1); border-radius: var(--r-md); border: 1px solid var(--border); padding: 24px; max-height: 84vh; overflow: auto; }
   .modal-card.wide { max-width: 720px; }
-  .modal-card label.blk { display: block; font-size: 0.85em; color: var(--text-2); margin: 0 0 4px; }
+  .modal-card label.blk { display: block; font-size: var(--text-xs); color: var(--text-2); margin: 0 0 4px; }
   .modal-card input[type=text] { width: 100%; font-size: 0.88em; margin-bottom: 14px; padding: 7px 9px; border-radius: 5px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text-0); }
   .modal-card h4 { color: var(--accent-soft); margin: 16px 0 6px; font-size: 0.95em; }
-  .modal-card ol, .modal-card ul { color: var(--text-2); font-size: 0.85em; line-height: 1.6; padding-left: 20px; }
+  .modal-card ol, .modal-card ul { color: var(--text-2); font-size: var(--text-xs); line-height: 1.6; padding-left: 20px; }
 </style>
 </head>
 <body>
@@ -112,7 +116,7 @@
     <div class="status-item"><div class="label">Em disputa</div><div class="value verde" id="kDisputa">0</div></div>
     <div class="status-item"><div class="label">Ao vivo</div><div class="value" id="kLive">0</div></div>
     <div class="status-item"><div class="label">Melhor posição</div><div class="value azul" id="kPos">—</div></div>
-    <div class="status-item"><div class="label">Atualizado</div><div class="value cinza" id="kUpd" style="font-size:0.85em;">—</div></div>
+    <div class="status-item"><div class="label">Atualizado</div><div class="value cinza" id="kUpd" style="font-size:var(--text-xs);">—</div></div>
   </div>
 
   <div class="filtros">
@@ -129,12 +133,12 @@
 <div id="modalCadastro" class="modal-bg">
   <div class="modal-card">
     <h2 style="margin-top:0;">Cadastrar sala BLL</h2>
-    <p style="color:var(--text-2); font-size:0.85em;">Cole a URL da sala de disputa aberta no LiciteAgora Browser (portal BLL).</p>
+    <p style="color:var(--text-2); font-size:var(--text-xs);">Cole a URL da sala de disputa aberta no LiciteAgora Browser (portal BLL).</p>
     <label class="blk">URL da sala</label>
     <input type="text" id="inpUrl" placeholder="https://bllcompras.com/BatchList?param1=[gkz]...&param2=7">
     <label class="blk">Notas (opcional)</label>
     <input type="text" id="inpNotas" placeholder="ex: Pregão Prefeitura 33/2026">
-    <div id="msgModal" style="font-size:0.85em; margin-bottom:12px;"></div>
+    <div id="msgModal" style="font-size:var(--text-xs); margin-bottom:12px;"></div>
     <div style="text-align:right;">
       <button class="btn btn-ghost btn-sm" onclick="fechar('modalCadastro')">Cancelar</button>
       <button class="btn btn-primary btn-sm" id="btnCadastrar" onclick="cadastrar()">Cadastrar</button>
@@ -163,7 +167,7 @@
       <li>Em <span class="modo-tag modo-live">AO VIVO</span> ele envia lances REAIS: lê a escada completa e se posiciona no melhor degrau possível acima do seu piso, reagindo em milissegundos via SignalR.</li>
     </ul>
     <h4>Escada</h4>
-    <p style="color:var(--text-2); font-size:0.85em;">Cada degrau é um participante (anônimo). <span style="color:var(--success);">Verde</span> = líder, <span style="color: var(--warn);">dourado</span> = nós. A linha tracejada vermelha marca o seu piso.</p>
+    <p style="color:var(--text-2); font-size:var(--text-xs);">Cada degrau é um participante (anônimo). <span style="color:var(--success);">Verde</span> = líder, <span style="color: var(--warn);">dourado</span> = nós. A linha tracejada vermelha marca o seu piso.</p>
     <div style="text-align:right; margin-top:16px;">
       <button class="btn btn-primary btn-sm" onclick="fechar('modalHelp')">Fechar</button>
     </div>
@@ -258,7 +262,7 @@ function render(){
           <label class="chk-auto"><input type="checkbox" ${dry?'':'checked'} onchange="toggleDry(${s.id}, this.checked)"> Modo AO VIVO (envia lances reais)</label>
           <span style="display:flex; gap:6px;">
             <button class="btn btn-ghost btn-sm" onclick="redescobrir(${s.id})" title="Re-buscar sala">🔄</button>
-            <label class="chk-auto" style="font-size:0.78em;"><input type="checkbox" ${s.ativo?'checked':''} onchange="toggleAtivo(${s.id}, this.checked)"> ativa</label>
+            <label class="chk-auto" style="font-size:var(--text-xs);"><input type="checkbox" ${s.ativo?'checked':''} onchange="toggleAtivo(${s.id}, this.checked)"> ativa</label>
             <button class="btn btn-ghost btn-sm" onclick="remover(${s.id})" title="Remover">🗑️</button>
           </span>
         </div>

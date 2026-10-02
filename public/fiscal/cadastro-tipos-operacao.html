@@ -44,7 +44,7 @@
           <option value="0">Inativos</option>
           <option value="">Todos</option>
         </select>
-        <span id="totalTipos" style="font-size:0.85em;color:var(--text-3);"></span>
+        <span id="totalTipos" style="font-size:var(--text-xs);color:var(--text-3);"></span>
       </div>
       <div class="tbl-wrap" data-grid="tipos-operacao">
         <table>
@@ -129,7 +129,7 @@
 
       <!-- SUB-ABA: COMPORTAMENTO -->
       <div class="subtab-content" data-subtab-pane="comportamento" style="display:none;">
-        <p class="muted" style="font-size:0.85em;margin:0 0 12px;">
+        <p class="muted" style="font-size:var(--text-xs);margin:0 0 12px;">
           O que este tipo faz quando é usado num documento.
         </p>
         <div class="form-row">
@@ -154,7 +154,7 @@
 
       <!-- SUB-ABA: DISPONÍVEL EM -->
       <div class="subtab-content" data-subtab-pane="disponivel" style="display:none;">
-        <p class="muted" style="font-size:0.85em;margin:0 0 12px;">
+        <p class="muted" style="font-size:var(--text-xs);margin:0 0 12px;">
           Em quais telas este tipo aparece para escolha. Desmarcado, ele continua
           valendo nos documentos que já o usam — só some do seletor.
         </p>
@@ -177,7 +177,7 @@
       <!-- SUB-ABA: FISCAL -->
       <div class="subtab-content" data-subtab-pane="fiscal" style="display:none;">
         <h4 style="margin:0 0 4px;">CFOPs default por destino</h4>
-        <p class="muted" style="font-size:0.85em;margin:0 0 12px;">
+        <p class="muted" style="font-size:var(--text-xs);margin:0 0 12px;">
           O motor refina automaticamente (ex: venda interestadual a não-contribuinte usa 6108 em vez de 6102).
         </p>
         <div class="form-row">
@@ -306,7 +306,7 @@ function renderTabela(){
         <code style="letter-spacing:2px;" title="N=emite NF-e · F=financeiro · E=estoque · G=gerencial/DRE">${flags}</code>
         <code style="letter-spacing:2px;margin-left:8px;opacity:.75;" title="Disponível em — P=pedido · O=OS · D=devolução · A=NF avulsa">${usos}</code>
       </td>
-      <td class="mono" style="font-size:0.85em;">${cfops}</td>
+      <td class="mono" style="font-size:var(--text-xs);">${cfops}</td>
       <td>${t.ativo ? '<span class="badge success">ativo</span>' : '<span class="badge">inativo</span>'}</td>
     </tr>`;
   }).join('');

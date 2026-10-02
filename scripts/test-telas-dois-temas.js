@@ -40,6 +40,15 @@ const TELAS = process.env.TELA ? [process.env.TELA] : [
   'configuracoes/status.html', 'producao/config.html', 'comercial/pedidos-pdv.html',
   'licitacoes/interesse.html', 'configuracoes/estabelecimentos.html',
   'configuracoes/usuarios.html', 'operacional/comprasnet-monitor.html',
+  /* Entraram em 01/10, na terceira rodada. As três de produção tinham os badges
+     de status em tons CLAROS cravados (`#d0ebff`, `#fff3bf`, `#e9ecef`), que no
+     tema escuro viravam manchas claras; passaram aos tokens `--*-soft`/`--*`.
+     A `licitacoes/consulta.html` entra por outro motivo: o gradiente do botão
+     "Salvar interesse" estava cravado com `!important` na folha COMUM, e isso
+     anulava a definição tokenizada da própria tela — medido no navegador, o
+     botão saía idêntico nos dois temas, com o verde do escuro. */
+  'producao/ordens.html', 'producao/fichas.html', 'producao/qualidade.html',
+  'licitacoes/consulta.html',
 ];
 
 let falhas = 0, total = 0;

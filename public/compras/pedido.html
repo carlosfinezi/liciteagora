@@ -484,7 +484,7 @@ function abrirReceber(){
          <small><a href="#" onclick="criarLote(${i.id},${i.produtoId});return false;">+ novo lote</a></small>`
       : '—';
     const serialHtml = i.rastreiaSerial
-      ? `<textarea id="rec-serial-${i.id}" rows="2" placeholder="um por linha" style="font-family:monospace;font-size:0.85em;width:180px;"></textarea>`
+      ? `<textarea id="rec-serial-${i.id}" rows="2" placeholder="um por linha" style="font-family:monospace;font-size:var(--text-xs);width:180px;"></textarea>`
       : '—';
     return `<tr data-itemid="${i.id}" data-rlote="${i.rastreiaLote||0}" data-rserial="${i.rastreiaSerial||0}">
       <td class="mono">${i.sku}</td>

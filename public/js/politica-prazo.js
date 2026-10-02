@@ -91,7 +91,7 @@
   // Estilo do chip junto do helper: as cinco telas não compartilham CSS além do
   // app-modern, e uma regra a mais lá pesaria em 140 páginas que não a usam.
   const css = `.pol-chip{display:inline-block;padding:3px 9px;border-radius:12px;`
-    + `background:var(--bg-2,#eef2f7);color:var(--text-2,#4a5568);font-size:0.84em;line-height:1.5;}`
+    + `background:var(--bg-2,#eef2f7);color:var(--text-2,#4a5568);font-size:var(--text-xs, 12px);line-height:1.5;}`
     + `.pol-chip a{margin-left:6px;color:var(--accent,#1971c2);text-decoration:none;}`
     + `.pol-chip a:hover{text-decoration:underline;}`
     + `.pol-chip-legado{background:var(--warn-bg,#fff4e0);color:var(--warn,#b26b00);}`;

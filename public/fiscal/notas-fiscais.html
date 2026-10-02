@@ -14,7 +14,7 @@
      do fim da linha. */
   .tbl-wrap th.sortable { cursor: pointer; user-select: none; }
   .tbl-wrap th.sortable:hover { background: var(--bg-2); }
-  .tbl-wrap th .sort-arrow { opacity: 0.5; font-size: 10px; margin-left: 4px; }
+  .tbl-wrap th .sort-arrow { opacity: 0.5; font-size: var(--text-xs); margin-left: 4px; }
   .tbl-wrap th.sorted .sort-arrow { opacity: 1; color: var(--accent); }
   .col-spacer { width: auto; padding: 0; }
 
@@ -57,7 +57,7 @@
     margin-top: 8px;
     border-top: 1px solid var(--border);
   }
-  .col-chooser .col-chooser-footer button { font-size: 0.78em; padding: 4px 10px; }
+  .col-chooser .col-chooser-footer button { font-size: var(--text-xs); padding: 4px 10px; }
 </style>
 </head>
 <body>
@@ -148,7 +148,7 @@
         <div class="col-chooser" id="colChooser"></div>
       </div>
       <div class="form-group" style="flex:0 0 auto;">
-        <span id="totalNotas" style="font-size:0.85em; color:var(--text-3);"></span>
+        <span id="totalNotas" style="font-size:var(--text-xs); color:var(--text-3);"></span>
       </div>
     </div>
 
@@ -172,8 +172,9 @@
       <button class="btn btn-ghost btn-sm" onclick="fecharCancelarNfce()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
     <div class="form-group">
-      <label>Justificativa (mín. 15 caracteres)</label>
+      <label>Justificativa</label>
       <textarea id="nfceMotivo" placeholder="Descreva o motivo do cancelamento…" style="min-height:100px;"></textarea>
+      <small class="muted">Mínimo de 15 caracteres.</small>
     </div>
     <input type="hidden" id="nfceCancelarId">
     <div class="modal-actions">
@@ -270,8 +271,9 @@
       </select>
     </div>
     <div class="form-group">
-      <label>Justificativa (mín. 15 caracteres)</label>
+      <label>Justificativa</label>
       <textarea id="nfseMotivo" placeholder="Descreva o motivo do cancelamento…" style="min-height:100px;"></textarea>
+      <small class="muted">Mínimo de 15 caracteres.</small>
     </div>
     <input type="hidden" id="nfseCancelarId">
     <div class="modal-actions">
@@ -334,7 +336,7 @@ const COLUNAS = [
   { key:'pessoaNome',  label:'Pessoa',    default:true, ordem:'pessoaNome',
     render: n => `<strong>${escTxt(n.pessoa.nome || (n.tipo === 'nfce' ? 'Consumidor não identificado' : '—'))}</strong>${n.pessoa.cpfCnpj ? '<br><small class="muted">' + escTxt(n.pessoa.cpfCnpj) + '</small>' : ''}` },
   { key:'chaveAcesso', label:'Chave',     default:true,
-    render: n => `<code title="${escTxt(n.chaveAcesso || '')}" style="font-size:11px;cursor:pointer;" onclick="copiarChave('${escTxt(n.chaveAcesso || '')}')">${escTxt(trunc(n.chaveAcesso, 14))}</code>` },
+    render: n => `<code title="${escTxt(n.chaveAcesso || '')}" style="font-size:var(--text-xs);cursor:pointer;" onclick="copiarChave('${escTxt(n.chaveAcesso || '')}')">${escTxt(trunc(n.chaveAcesso, 14))}</code>` },
   { key:'cfop',        label:'CFOP',      default:true,
     render: n => `<code style="font-size:12px;">${escTxt(n.cfop || '—')}</code>` },
   { key:'tipoOperacao', label:'Tipo Op.', default:true,
@@ -605,7 +607,7 @@ async function verDetalhesNfse(id){
       + histNfseHtml(d.historico)
       + `<details style="margin-top:14px;">
            <summary style="cursor:pointer;font-size:13px;">Resposta da SEFIN</summary>
-           <pre style="font-size:11px;margin-top:10px;white-space:pre-wrap;word-break:break-all;background:var(--bg-2);padding:10px;border-radius:6px;max-height:300px;overflow:auto;">${escTxt(retorno)}</pre>
+           <pre style="font-size:var(--text-xs);margin-top:10px;white-space:pre-wrap;word-break:break-all;background:var(--bg-2);padding:10px;border-radius:6px;max-height:300px;overflow:auto;">${escTxt(retorno)}</pre>
          </details>`;
 
     // Ações conforme o estado da nota: rejeitada pode ser editada e reemitida;

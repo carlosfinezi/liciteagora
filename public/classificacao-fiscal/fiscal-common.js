@@ -50,7 +50,7 @@ function pisCofinsDados(pc) {
   return { valor: pct(reg.total), detalhe: `${reg.nome} · PIS ${pct(reg.pis)} / COFINS ${pct(reg.cofins)}`, fonte: null };
 }
 
-const impTile = (label, value, sub) => `<div class="kpi"><div class="label">${label}</div><div class="value" style="font-size:1.25em">${value}</div>${sub ? `<div style="font-size:.72em;color:var(--text-3);margin-top:3px">${sub}</div>` : ''}</div>`;
+const impTile = (label, value, sub) => `<div class="kpi"><div class="label">${label}</div><div class="value" style="font-size:1.25em">${value}</div>${sub ? `<div style="font-size:var(--text-xs);color:var(--text-3);margin-top:3px">${sub}</div>` : ''}</div>`;
 
 function blocoImpostos(imp) {
   if (!imp) return '';
@@ -66,11 +66,11 @@ function blocoImpostos(imp) {
   const st = imp.icms_st;
   let stLinha;
   if (st && st.tem_st && st.mva_original != null) {
-    stLinha = `<b>MVA ${pct(st.mva_original)}</b> · alíq. interna ${pct(st.aliquota_interna)} · CEST ${esc(st.cest_fmt)}${st.ato ? ` <span style="font-size:.85em;color:var(--text-3)">${esc(st.ato)}</span>` : ''}`;
+    stLinha = `<b>MVA ${pct(st.mva_original)}</b> · alíq. interna ${pct(st.aliquota_interna)} · CEST ${esc(st.cest_fmt)}${st.ato ? ` <span style="font-size:var(--text-xs);color:var(--text-3)">${esc(st.ato)}</span>` : ''}`;
   } else if (st && st.tem_st) {
-    stLinha = `<span style="color:var(--text-2)">sujeito a ST · MVA no convênio/protocolo (não consolidada no RICMS)</span> <span style="font-size:.85em;color:var(--text-3)">CEST ${esc(st.cest_fmt)}${st.ato ? ' · ' + esc(st.ato) : ''}</span>`;
+    stLinha = `<span style="color:var(--text-2)">sujeito a ST · MVA no convênio/protocolo (não consolidada no RICMS)</span> <span style="font-size:var(--text-xs);color:var(--text-3)">CEST ${esc(st.cest_fmt)}${st.ato ? ' · ' + esc(st.ato) : ''}</span>`;
   } else if (st && !st.tem_st) {
-    stLinha = `<span style="color:var(--text-2)">não sujeito a ST em ${uf}</span> <span style="font-size:.85em;color:var(--text-3)">(CEST ${esc(st.cest_fmt)})</span>`;
+    stLinha = `<span style="color:var(--text-2)">não sujeito a ST em ${uf}</span> <span style="font-size:var(--text-xs);color:var(--text-3)">(CEST ${esc(st.cest_fmt)})</span>`;
   } else {
     stLinha = `<span style="color:var(--text-3)">não disponível para ${uf} (planilha CONFAZ cobre AP, BA, MS, PE, PR, SC, SP)</span>`;
   }
@@ -84,11 +84,11 @@ function blocoImpostos(imp) {
       ${impTile('PIS/COFINS', pc.valor, pcSub)}
     </div>
     <div style="margin-top:10px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-1)">
-      <span style="color:var(--text-3);font-size:.72em;text-transform:uppercase;letter-spacing:.06em;font-weight:600">ICMS-ST</span>
+      <span style="color:var(--text-3);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.06em;font-weight:600">ICMS-ST</span>
       <div style="margin-top:4px">${stLinha}</div>
     </div>
     ${blocoBeneficio(imp.beneficio)}
-    <div style="margin-top:8px;color:var(--text-3);font-size:.8em">IPI/II oficiais · ICMS interno com FCP embutido · PIS/COFINS conforme o regime selecionado · ICMS-ST/MVA da planilha CONFAZ (8 UFs). Confirme conforme a operação.</div>
+    <div style="margin-top:8px;color:var(--text-3);font-size:var(--text-xs)">IPI/II oficiais · ICMS interno com FCP embutido · PIS/COFINS conforme o regime selecionado · ICMS-ST/MVA da planilha CONFAZ (8 UFs). Confirme conforme a operação.</div>
   </div>`;
 }
 
@@ -106,7 +106,7 @@ function blocoBeneficio(b) {
   const red = b.reducao_pp != null ? ` · <b>redução de ${pct(b.reducao_pp)}</b> vs. ICMS normal` : '';
   return `<div style="margin-top:10px;padding:10px 12px;border-radius:var(--r-md);background:var(--success-bg,#12351f);color:var(--success,#4ade80)">
     🎁 <b>Benefício fiscal (PA): ${esc(nome)}</b> — carga efetiva de ICMS <b>≈ ${pct(b.carga_efetiva)}</b> (${mecanismo})${red}
-    ${b.observacao ? `<div style="margin-top:4px;font-size:.8em;color:var(--text-2)">${esc(b.observacao)}</div>` : ''}
+    ${b.observacao ? `<div style="margin-top:4px;font-size:var(--text-xs);color:var(--text-2)">${esc(b.observacao)}</div>` : ''}
   </div>`;
 }
 
@@ -116,12 +116,12 @@ const BADGE = {
   media: 'background:var(--warn-bg,#3a2f12);color:var(--warn,#fbbf24);',
   baixa: 'background:var(--danger-bg,#3a1616);color:var(--danger,#f87171);',
 };
-const badge = (conf) => `<span style="padding:2px 10px;border-radius:999px;font-size:.78em;font-weight:600;${BADGE[conf]||BADGE.baixa}">${esc(conf)}</span>`;
+const badge = (conf) => `<span style="padding:2px 10px;border-radius:999px;font-size:var(--text-xs);font-weight:600;${BADGE[conf]||BADGE.baixa}">${esc(conf)}</span>`;
 const nomeFonte = (f) => f === 'busca' ? 'busca oficial' : f === 'codigo' ? 'código direto' : 'conhecimento IA';
 
 function cestLinha(cest) {
   if (!cest || !cest.length) return '<span style="color:var(--text-3)">Sem CEST (produto pode não estar sujeito à ST).</span>';
-  return cest.map((c) => `<div style="padding:6px 0;border-top:1px solid var(--border)"><b style="font-family:var(--font-mono,monospace)">${esc(c.cest_fmt)}</b> <span style="color:var(--text-2)">${esc(c.descricao)}</span> <span style="color:var(--text-3);font-size:.82em">· casa NCM ${esc(c.ncm_prefix)}</span></div>`).join('');
+  return cest.map((c) => `<div style="padding:6px 0;border-top:1px solid var(--border)"><b style="font-family:var(--font-mono,monospace)">${esc(c.cest_fmt)}</b> <span style="color:var(--text-2)">${esc(c.descricao)}</span> <span style="color:var(--text-3);font-size:var(--text-xs)">· casa NCM ${esc(c.ncm_prefix)}</span></div>`).join('');
 }
 
 // Consulta direta de um NCM (usada pelo clique nos resultados individuais e do lote).

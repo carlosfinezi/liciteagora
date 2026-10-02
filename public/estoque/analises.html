@@ -14,7 +14,7 @@
   .evolucao-svg .bar { fill: var(--accent); transition: fill 0.15s; }
   .evolucao-svg .bar:hover { fill: var(--accent-strong); }
   .evolucao-svg .grid { stroke: var(--border); stroke-width: 1; }
-  .evolucao-svg .label { fill: var(--text-2); font-size: 10px; font-family: inherit; }
+  .evolucao-svg .label { fill: var(--text-2); font-size: var(--text-xs); font-family: inherit; }
   .abc-barra {
     height: 16px; background: var(--bg-3); border-radius: 999px; overflow: hidden;
     display: flex;
@@ -34,8 +34,8 @@
   .anomalia .txt { flex: 1; font-size: 0.88em; }
   .anomalia .txt strong { display: block; margin-bottom: 3px; }
   .anomalia .itens { color: var(--text-2); font-size: 0.92em; margin-top: 4px; }
-  .evolucao-svg .delta-pos { fill: var(--success); font-size: 9px; }
-  .evolucao-svg .delta-neg { fill: var(--danger); font-size: 9px; }
+  .evolucao-svg .delta-pos { fill: var(--success); font-size: var(--text-xs); }
+  .evolucao-svg .delta-neg { fill: var(--danger); font-size: var(--text-xs); }
 </style>
 </head>
 <body>
@@ -80,7 +80,7 @@
     </div>
 
     <div class="chart-wrap">
-      <h3>Top 10 produtos por valor de estoque</h3>
+      <h3>Top 10 por valor em estoque</h3>
       <div class="tbl-wrap">
         <table>
           <thead><tr>
@@ -143,9 +143,9 @@
   <!-- ============= CMV ============= -->
   <div class="tab-content" id="tab-cmv">
     <div class="toolbar">
-      <label style="color:var(--text-2);font-size:0.85em;">De</label>
+      <label style="color:var(--text-2);font-size:var(--text-xs);">De</label>
       <input type="date" id="cmvInicio" onchange="carregarCmv()" style="width:auto;">
-      <label style="color:var(--text-2);font-size:0.85em;">até</label>
+      <label style="color:var(--text-2);font-size:var(--text-xs);">até</label>
       <input type="date" id="cmvFim" onchange="carregarCmv()" style="width:auto;">
     </div>
 
@@ -174,15 +174,15 @@
 
   <div class="tab-content" id="tab-lucro">
     <div class="toolbar">
-      <label style="color:var(--text-2);font-size:0.85em;">De</label>
+      <label style="color:var(--text-2);font-size:var(--text-xs);">De</label>
       <input type="date" id="lucroInicio" onchange="carregarLucro()" style="width:auto;">
-      <label style="color:var(--text-2);font-size:0.85em;">até</label>
+      <label style="color:var(--text-2);font-size:var(--text-xs);">até</label>
       <input type="date" id="lucroFim" onchange="carregarLucro()" style="width:auto;">
     </div>
     <div class="kpi-grid" id="kpisLucro"></div>
     <div class="chart-wrap">
       <h3>Por produto</h3>
-      <div class="muted" id="lucroNota" style="font-size:.85em;margin-bottom:8px;"></div>
+      <div class="muted" id="lucroNota" style="font-size:var(--text-xs);margin-bottom:8px;"></div>
       <div class="tbl-wrap">
         <table>
           <thead><tr>

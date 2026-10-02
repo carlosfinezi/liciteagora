@@ -13,7 +13,7 @@
 .mv-cab h2 { margin: 0; font-size: 1.05em; }
 .grade2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 .campo { display: flex; flex-direction: column; gap: 5px; }
-.campo label { font-size: .82em; font-weight: 600; color: var(--text-2); }
+.campo label { font-size: var(--text-xs); font-weight: 600; color: var(--text-2); }
 .campo input, .campo select { padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--r-sm);
   background: var(--bg-0); color: var(--text-1); font-family: inherit; font-size: 16px; min-height: 44px; }
 .bloco { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 12px 14px; margin-top: 12px; background: var(--bg-1); }
@@ -28,7 +28,7 @@
 .linha .mix { display: flex; align-items: center; gap: 6px; font-size: .86em; min-height: 42px; }
 .bt-x { background: none; border: 1px solid var(--border); border-radius: 6px; min-height: 42px; cursor: pointer; color: var(--text-3); }
 .bt-x:hover { color: var(--danger, #B3261E); }
-.rot { font-size: .75em; text-transform: uppercase; letter-spacing: .05em; color: var(--text-3); }
+.rot { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--text-3); }
 @media (max-width: 720px) {
   .linha.cor { grid-template-columns: 1fr 64px; }
   .linha.cor select, .linha.cor .mix { grid-column: 1 / -1; }
@@ -139,7 +139,7 @@ function htmlMontavel(m) {
     <div data-formatos>${m.formatos.map(htmlFormato).join('')}</div>
     <button type="button" class="btn btn-secondary btn-sm" style="margin-top:10px;" data-add-formato>+ Formato</button>
     <div class="bloco"><h3>Cores</h3>
-      <p class="muted" style="margin:0 0 6px;font-size:.84em;">Cada cor tira do estoque o item escolhido. O mix reparte a quantidade
+      <p class="muted" style="margin:0 0 6px;font-size:var(--text-xs);">Cada cor tira do estoque o item escolhido. O mix reparte a quantidade
         entre as outras cores, uma de cada, e cor sem estoque aparece apagada na loja. Com uma cor só, o cliente não escolhe cor.</p>
       <div data-cores>${m.cores.map(htmlCor).join('')}</div>
       <button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;" data-add-cor>+ Cor</button>

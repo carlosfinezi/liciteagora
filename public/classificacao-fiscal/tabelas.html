@@ -85,13 +85,13 @@ function controlFiltro(col) {
   if (!col.f) return '';
   if (col.f === 'bool') {
     const v = COLF[col.c] || '';
-    return `<select style="width:100%;font-size:.82em" onchange="setColF('${col.c}',this.value)">
+    return `<select style="width:100%;font-size:var(--text-xs)" onchange="setColF('${col.c}',this.value)">
       <option value="">—</option>
       <option value="true"${v === 'true' ? ' selected' : ''}>Sim</option>
       <option value="false"${v === 'false' ? ' selected' : ''}>Não</option></select>`;
   }
   const ph = col.f === 'num' ? '&gt;0 / =18' : col.f === 'ncm' ? 'prefixo' : 'contém';
-  return `<input type="text" value="${esc(COLF[col.c] || '')}" placeholder="${ph}" style="width:100%;box-sizing:border-box;font-size:.82em" oninput="setColF('${col.c}',this.value)">`;
+  return `<input type="text" value="${esc(COLF[col.c] || '')}" placeholder="${ph}" style="width:100%;box-sizing:border-box;font-size:var(--text-xs)" oninput="setColF('${col.c}',this.value)">`;
 }
 
 // desenha a estrutura da tabela (labels + linha de filtros) 1x; o corpo é atualizado à parte

@@ -103,7 +103,7 @@
     <div class="form-row">
       <div class="form-group full-width">
         <label>Campos do canal (JSON)</label>
-        <textarea id="tCampos" rows="8" style="font-family:monospace;font-size:0.82em;"></textarea>
+        <textarea id="tCampos" rows="8" style="font-family:monospace;font-size:var(--text-xs);"></textarea>
         <small class="muted">
           Lista de <code>{"chave","rotulo","dica","tipo"}</code>. <code>tipo:"textarea"</code> para campo longo.
           São os campos que aparecem ao configurar um canal deste tipo.
@@ -151,7 +151,7 @@ async function carregar(){
         ${t.descricao?`<br><small class="muted">${esc(t.descricao)}</small>`:''}</td>
     <td class="mono">${esc(t.slug)}</td>
     <td><span class="badge">${esc(t.handler)}</span></td>
-    <td style="font-size:0.85em;">${esc(t.rotuloPadrao||'—')}</td>
+    <td style="font-size:var(--text-xs);">${esc(t.rotuloPadrao||'—')}</td>
     <td class="num">${(t.campos||[]).length}</td>
     <td class="num">${t.fornecedores||0}</td>
     <td><span class="badge ${t.ativo?'ativo':'inativo'}">${t.ativo?'sim':'não'}</span></td>

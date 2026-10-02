@@ -829,6 +829,14 @@ const suites = [
   // login, o nome da etapa da regua de cobranca e os rotulos de status em
   // portugues. Quatro sabotagens reprovaram.
   ['168. OS: SLA, colunas de peca e rotulos (test-os-sla-e-rotulos)', 'test-os-sla-e-rotulos.js'],
+  // O piso tipografico de 12px (01/10): 226 das 252 telas tinham texto abaixo
+  // disso, e o grosso vinha de dois lugares que ninguem leria no CSS — o titulo
+  // de secao da sidebar em 9,24px (223 telas), que sai de `0.66em` sobre uma base
+  // ja reduzida, e o `thead th` em 11px (118 telas), que era o piso declarado da
+  // escala. A etapa 109 mede a escala numa amostra sintetica; esta mede a TELA,
+  // onde a cascata de `em` do <style> proprio produz tamanhos que nao estao
+  // escritos em lugar nenhum.
+  ['170. piso tipografico de 12px (test-piso-tipografico)', 'test-piso-tipografico.js'],
 ];
 // ==================== modo rápido: quais suítes ====================
 /**

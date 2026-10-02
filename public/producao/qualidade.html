@@ -7,10 +7,12 @@
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
-  .sit { padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
-  .sit-pendente { background:#e9ecef; color:#495057; }
-  .sit-aprovado { background:#d3f9d8; color:#2b8a3e; }
-  .sit-reprovado { background:#ffe3e3; color:#c92a2a; }
+  .sit { padding:2px 8px; border-radius:10px; font-size:var(--text-xs); font-weight:600; }
+  /* Tons dos tokens do tema: as cores claras cravadas que havia aqui viravam
+     manchas claras no tema escuro. */
+  .sit-pendente { background:var(--bg-3); color:var(--text-2); }
+  .sit-aprovado { background:var(--success-soft); color:var(--success); }
+  .sit-reprovado { background:var(--danger-soft); color:var(--danger); }
 </style>
 </head>
 <body>

@@ -1005,7 +1005,7 @@ function badgeSituacao(especie, it){
       title="Voltar este item para orçamento (sai do total)"
       onclick="mudarSituacao('${especie}', ${it.id}, 'orcado')">✓ confirmado</button>`;
   }
-  return `<button class="btn btn-sm" style="font-size:var(--text-xs);background:var(--warn);color:#fff;border-color:var(--warn);"
+  return `<button class="btn btn-sm" style="font-size:var(--text-xs);background:var(--warn);color:var(--bg-2);border-color:var(--warn);"
     title="Confirmar: passa a contar no total e pode ser faturado"
     onclick="mudarSituacao('${especie}', ${it.id}, 'confirmado')">◷ orçado</button>`;
 }
@@ -1022,7 +1022,7 @@ function botaoAgregar(especie, it){
   if (!o.permiteAgregacao || !o.equipamentoId) return '';
   const on = !!it.agregaEquipamento;
   return `<button class="btn btn-sm" style="font-size:var(--text-xs);${on
-      ? 'background:var(--success);color:#fff;border-color:var(--success);'
+      ? 'background:var(--success);color:var(--bg-2);border-color:var(--success);'
       : 'background:none;color:var(--text-3);'}"
     title="${on ? 'Este item passa a fazer parte do equipamento ao concluir a OS' : 'Marcar como parte do equipamento'}"
     onclick="alternarAgregar('${especie}', ${it.id}, ${on ? 'false' : 'true'})">${on ? '⚙ agrega' : '⚙ agregar'}</button>`;

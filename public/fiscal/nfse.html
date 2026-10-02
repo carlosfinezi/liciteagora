@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
         /* page-local: toggle de ambiente fiscal + detail-row no modal + config-actions layout */
-        .ambiente-toggle { padding: 6px 14px; border-radius: var(--r-sm); border: none; font-weight: 700; cursor: pointer; font-size: 0.85em; transition: all 0.3s; }
+        .ambiente-toggle { padding: 6px 14px; border-radius: var(--r-sm); border: none; font-weight: 700; cursor: pointer; font-size: var(--text-xs); transition: all 0.3s; }
         .ambiente-toggle.producao { background: var(--danger); color: var(--text-0); }
         .ambiente-toggle.homologacao { background: var(--warn); color: #000; }
         .config-actions { margin-left: auto; display: flex; gap: 10px; }
@@ -102,8 +102,9 @@
                     <h3>Servico Prestado</h3>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Codigo Tributacao Nacional (cTribNac) *</label>
+                            <label>Código de tributação *</label>
                             <input type="text" id="servCTribNac" placeholder="Ex: 010101" value="170201">
+                            <small class="muted">O cTribNac, da tabela nacional de serviços.</small>
                         </div>
                         <div class="form-group">
                             <label>Codigo Lista Servico (LC 116)</label>
@@ -381,7 +382,7 @@
                 const resp = await fetch('/api/nfse/parametros-municipais/' + cod);
                 const data = await resp.json();
                 if (data.success) {
-                    div.innerHTML = '<div class="config-panel"><h4>Parametros do Municipio ' + cod + '</h4><pre style="color: var(--border); font-size:0.8em; white-space:pre-wrap; word-break:break-all;">' + JSON.stringify(data.parametros, null, 2) + '</pre></div>';
+                    div.innerHTML = '<div class="config-panel"><h4>Parametros do Municipio ' + cod + '</h4><pre style="color: var(--border); font-size:var(--text-xs); white-space:pre-wrap; word-break:break-all;">' + JSON.stringify(data.parametros, null, 2) + '</pre></div>';
                 } else {
                     div.innerHTML = '<p style="color: var(--danger);">Erro: ' + data.error + '</p>';
                 }

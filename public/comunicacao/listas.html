@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Listas · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<link rel="stylesheet" href="/css/comunicacao.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Listas</h1></div>
+  </div>
+  <div id="alertGlobal"></div>
+
+      <div class="toolbar">
+        <button class="btn btn-primary" onclick="abrirLista()">+ Nova lista</button>
+        <span class="spacer"></span>
+        <span id="listResumo" style="font-size:var(--text-xs);color:var(--text-2);"></span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Lista</th><th>Descrição</th><th>Pessoas</th><th></th></tr></thead>
+          <tbody id="tbListas"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+</main></div>
+<!-- modal lista -->
+<div class="modal-bg" id="modalLista">
+  <div class="modal" style="max-width:700px;">
+    <div class="modal-header">
+      <div><h3 style="margin:0;" id="listaTitulo">Lista de contatos</h3>
+        <small class="muted" id="listaSub"></small></div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalLista')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label>Nome *</label><input type="text" id="ltNome" maxlength="80"></div>
+      <div class="form-group" style="flex:3;"><label>Descrição</label><input type="text" id="ltDesc" maxlength="150"></div>
+    </div>
+
+    <!-- As duas formas de acrescentar gente vêm ANTES da lista de quem já está.
+         Estavam depois da tabela de membros e da paginação, e numa lista com
+         290 contatos isso as jogava para fora da área visível do modal: quem
+         abria para adicionar alguém não via como. -->
+    <details id="ltBlocoAdicionar" style="margin-top:14px;">
+      <summary style="cursor:pointer;font-size:0.9em;">Adicionar do cadastro</summary>
+      <div class="toolbar" style="margin:10px 0 8px;">
+        <input type="text" id="ltBusca" placeholder="Buscar por nome, telefone ou cidade…" oninput="buscarPublico()" style="flex:1;">
+        <select id="ltSegmentoPublico" onchange="carregarPublico()" style="width:auto;">
+          <option value="">Todos os segmentos</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="marcarLista(true)">Marcar visíveis</button>
+        <button class="btn btn-ghost btn-sm" onclick="marcarLista(false)">Limpar</button>
+        <span id="ltContagem" style="font-size:var(--text-xs);color:var(--text-2);"></span>
+      </div>
+      <div class="tbl-wrap" style="max-height:260px;overflow-y:auto;">
+        <table>
+          <thead><tr><th style="width:30px;"></th><th>Cliente</th><th>Telefone</th><th>Marketing</th></tr></thead>
+          <tbody id="tbPublicoLista"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+      <small class="muted">Quem pediu para sair aparece bloqueado.</small>
+    </details>
+
+    <details id="ltBlocoImportar" style="margin-top:10px;">
+      <summary style="cursor:pointer;font-size:0.9em;">Importar planilha</summary>
+      <div class="form-group full-width" style="margin-top:10px;">
+        <input type="file" id="ltArquivo" accept=".xlsx,.xls,.csv">
+        <small class="muted">Excel ou CSV, com os títulos na primeira linha. A coluna Telefone é
+          obrigatória; Nome, Segmento e Ramo são opcionais. Cada contato ganha uma ficha de lead no
+          cadastro. O telefone que já é de outro lead fica com a ficha dele. Sem a coluna Segmento,
+          ele é escolhido pelo Ramo. Quem pediu para sair continua fora do envio.</small>
+      </div>
+    </details>
+
+    <div id="ltBlocoMembros">
+      <h4 style="margin:14px 0 6px;font-size:0.9em;">Quem está na lista</h4>
+      <div class="toolbar" style="margin-bottom:8px;">
+        <input type="text" id="ltBuscaMembro" placeholder="Buscar por nome ou telefone…"
+               oninput="buscarMembros()" style="flex:1;">
+        <select id="ltSegmento" onchange="PG_MEMBROS = 1; carregarMembros()" style="width:auto;">
+          <option value="">Todos os segmentos</option>
+        </select>
+        <span id="ltTotal" style="font-size:var(--text-xs);color:var(--text-2);"></span>
+        <button class="btn btn-ghost btn-sm" id="ltVerificar" onclick="verificarWhatsapp()">Verificar WhatsApp</button>
+      </div>
+      <div id="ltVerificacao" style="font-size:var(--text-xs);color:var(--text-2);margin:-4px 0 8px;"></div>
+      <div class="tbl-wrap" style="max-height:240px;overflow-y:auto;">
+        <table>
+          <thead><tr><th>Nome</th><th>Telefone</th><th>Segmento</th><th>Ficha</th><th></th></tr></thead>
+          <tbody id="tbMembros"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+      <div id="ltPaginacao" style="display:flex;gap:8px;align-items:center;margin-top:8px;"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalLista')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarLista()">Salvar lista</button>
+    </div>
+  </div>
+</div>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+<script>initSidebar('comunicacao-listas');</script>
+<script src="/js/comunicacao-comum.js"></script>
+<script>
+let PUBLICO = [], LISTAS = [], SEGMENTOS = [];
+
+async function carregarSegmentos(){
+  const d = await fetch('/api/comm/segmentos').then(r=>r.json()).catch(()=>null);
+  SEGMENTOS = d?.segmentos || [];
+}
+
+// ---------- listas ----------
+let EDIT_LISTA = null, SEL_LISTA = new Set();
+let PG_MEMBROS = 1, BUSCA_MEMBRO = '', BUSCA_TIMER = null;
+
+async function carregarListas(){
+  const d = await fetch('/api/comm/listas').then(r=>r.json()).catch(()=>null);
+  const tb = document.getElementById('tbListas');
+  if (!d?.success) { tb.innerHTML = '<tr><td colspan="4" class="empty">Não foi possível carregar</td></tr>'; return; }
+  LISTAS = d.listas || [];
+  document.getElementById('listResumo').textContent = `${LISTAS.length} lista(s)`;
+  // O número vem em `qtdMembros`. A tela lia `totalMembros`, campo que a rota
+  // nunca mandou, e por isso lista de 15 mil contatos mostrava um traço.
+  tb.innerHTML = LISTAS.length ? LISTAS.map(l=>`<tr>
+    <td><strong>${esc(l.nome)}</strong></td>
+    <td><small class="muted">${esc(l.descricao||'—')}</small></td>
+    <td>${numBR(l.qtdMembros ?? 0)}</td>
+    <td><div class="acoes">
+      <button class="btn btn-primary btn-sm" onclick="abrirLista(${l.id})">Editar</button>
+      <details class="menu"><summary title="Mais ações">⋯</summary><div class="itens">
+        <button class="perigo" onclick="fecharMenus(); removerLista(${l.id})">Remover lista</button>
+      </div></details>
+    </div></td></tr>`).join('')
+    : '<tr><td colspan="4" class="empty">Nenhuma lista</td></tr>';
+}
+
+/**
+ * Abre a lista. A parte de cima mostra quem já está nela, paginado; a de baixo
+ * serve para acrescentar cliente do cadastro.
+ *
+ * A seleção de caixinhas significa "adicionar estes", e não "a lista é esta":
+ * quem já está dentro sai pelo botão Remover da própria linha. Antes as duas
+ * coisas eram a mesma marcação, e com isso a lista só sabia mostrar membro que
+ * fosse cliente cadastrado.
+ */
+async function abrirLista(id){
+  EDIT_LISTA = id || null;
+  SEL_LISTA.clear();
+  PG_MEMBROS = 1; BUSCA_MEMBRO = '';
+  const l = id ? (LISTAS||[]).find(x=>x.id===id) : null;
+  document.getElementById('listaTitulo').textContent = id ? 'Editar lista' : 'Nova lista';
+  document.getElementById('listaSub').textContent = l?.descricao || '';
+  document.getElementById('ltNome').value = l?.nome || '';
+  document.getElementById('ltDesc').value = l?.descricao || '';
+  document.getElementById('ltBusca').value = '';
+  document.getElementById('ltBuscaMembro').value = '';
+  document.getElementById('ltSegmento').value = '';
+  document.getElementById('ltBlocoMembros').style.display = id ? '' : 'none';
+  document.getElementById('ltBlocoAdicionar').open = !id;
+  // Limpar é obrigatório: o modal é o MESMO elemento em toda abertura, e o que
+  // ficasse aqui entraria na próxima lista sem ninguém digitar nada.
+  document.getElementById('ltArquivo').value = '';
+  document.getElementById('ltBlocoImportar').open = false;
+  document.getElementById('modalLista').classList.add('open');
+
+  if (id) carregarMembros();
+  const selPub = document.getElementById('ltSegmentoPublico');
+  selPub.innerHTML = '<option value="">Todos os segmentos</option>'
+    + SEGMENTOS.map(g => `<option value="${g.id}">${esc(g.nome)}</option>`).join('');
+  carregarPublico();
+}
+
+// A busca e o segmento vão ao servidor: o cadastro tem dezenas de milhares de
+// leads, e a resposta traz no máximo 2.000.
+let PUBLICO_TOTAL = 0, PUBLICO_TIMER = null;
+function buscarPublico(){
+  clearTimeout(PUBLICO_TIMER);
+  PUBLICO_TIMER = setTimeout(carregarPublico, 300);
+}
+async function carregarPublico(){
+  const q = document.getElementById('ltBusca').value.trim();
+  const segmento = document.getElementById('ltSegmentoPublico').value;
+  const p = await fetch(`/api/conversas/publico?q=${encodeURIComponent(q)}&segmento=${encodeURIComponent(segmento)}`)
+    .then(r=>r.json()).catch(()=>null);
+  PUBLICO = p?.pessoas || [];
+  PUBLICO_TOTAL = p?.total || 0;
+  renderPublicoLista();
+}
+
+
+function buscarMembros(){
+  clearTimeout(BUSCA_TIMER);
+  BUSCA_TIMER = setTimeout(() => {
+    BUSCA_MEMBRO = document.getElementById('ltBuscaMembro').value.trim();
+    PG_MEMBROS = 1;
+    carregarMembros();
+  }, 300);
+}
+
+async function carregarMembros(){
+  const tb = document.getElementById('tbMembros');
+  tb.innerHTML = '<tr><td colspan="4" class="empty">Carregando…</td></tr>';
+  const selSeg = document.getElementById('ltSegmento');
+  const segmento = selSeg.value;
+  const d = await fetch(`/api/comm/listas/${EDIT_LISTA}?pagina=${PG_MEMBROS}`
+    + `&q=${encodeURIComponent(BUSCA_MEMBRO)}&segmento=${encodeURIComponent(segmento)}`).then(r=>r.json()).catch(()=>null);
+  if (!d?.success) {
+    tb.innerHTML = `<tr><td colspan="4" class="empty">${esc(d?.error || 'Não foi possível carregar')}</td></tr>`;
+    return;
+  }
+  // Lista aberta pelo link da campanha pode não estar em LISTAS (removida no
+  // meio do caminho, ou a tabela falhou) — aqui o nome vem junto dos membros.
+  if (d.lista && !document.getElementById('ltNome').value) {
+    document.getElementById('ltNome').value = d.lista.nome || '';
+    document.getElementById('ltDesc').value = d.lista.descricao || '';
+    document.getElementById('listaSub').textContent = d.lista.descricao || '';
+  }
+  // O filtro mostra quantos da lista há em cada segmento.
+  const qtd = new Map((d.porSegmento || []).map(x => [x.segmentoId, x.n]));
+  selSeg.innerHTML = '<option value="">Todos os segmentos</option>'
+    + SEGMENTOS.filter(g => qtd.get(g.id)).map(g => `<option value="${g.id}">${esc(g.nome)} (${numBR(qtd.get(g.id))})</option>`).join('');
+  selSeg.value = segmento;
+  if (selSeg.value !== segmento) selSeg.value = '';
+  document.getElementById('ltTotal').textContent = ((BUSCA_MEMBRO || segmento)
+    ? `${numBR(d.total)} encontrado(s)` : `${numBR(d.total)} na lista`)
+    + (d.semWhatsapp ? `, ${numBR(d.semWhatsapp)} sem WhatsApp` : '');
+  pintarVerificacao(d.verificacao);
+
+  const membros = d.membros || [];
+  tb.innerHTML = membros.length ? membros.map(m=>`<tr>
+    <td>${esc(m.nome || '—')}</td>
+    <td>${esc(m.telefone || '—')}</td>
+    <td><select data-id="${m.id}" onchange="salvarSegmento(this)" style="width:100%;font-size:var(--text-xs);">
+      ${m.segmentoId ? '' : '<option value="">—</option>'}
+      ${SEGMENTOS.map(g => `<option value="${g.id}" ${g.id === m.segmentoId ? 'selected' : ''}>${esc(g.nome)}</option>`).join('')}
+    </select></td>
+    <td>${!m.pessoaId ? '<span class="badge inativo">sem ficha</span>'
+        : m.categorias === '["lead"]' ? '<span class="badge inativo">lead</span>'
+        : '<span class="badge ativo">cliente</span>'}${m.semWhatsapp ? ' <span class="badge inativo">sem WhatsApp</span>' : ''}</td>
+    <td style="text-align:right;"><button class="btn btn-ghost btn-sm" style="color:var(--danger);"
+      onclick="removerMembro(${m.id})">Remover</button></td>
+  </tr>`).join('')
+    : `<tr><td colspan="5" class="empty">${BUSCA_MEMBRO ? 'Ninguém com esse nome ou telefone' : 'Lista vazia'}</td></tr>`;
+
+  const paginas = Math.max(Math.ceil((d.total || 0) / (d.porPagina || 100)), 1);
+  document.getElementById('ltPaginacao').innerHTML = paginas > 1
+    ? `<button class="btn btn-ghost btn-sm" ${PG_MEMBROS<=1?'disabled':''} onclick="irPaginaMembros(${PG_MEMBROS-1})">Anterior</button>
+       <small class="muted">Página ${numBR(PG_MEMBROS)} de ${numBR(paginas)}</small>
+       <button class="btn btn-ghost btn-sm" ${PG_MEMBROS>=paginas?'disabled':''} onclick="irPaginaMembros(${PG_MEMBROS+1})">Próxima</button>`
+    : '';
+}
+
+function irPaginaMembros(n){ PG_MEMBROS = n; carregarMembros(); }
+
+// ---------- números sem WhatsApp (wa-numeros.js) ----------
+// A verificação roda no servidor, devagar, em lotes: a tela só dispara e
+// acompanha. Número verificado nos últimos 30 dias não é consultado de novo.
+let VERIF_TIMER = null;
+function pintarVerificacao(v){
+  const el = document.getElementById('ltVerificacao');
+  const botao = document.getElementById('ltVerificar');
+  clearTimeout(VERIF_TIMER);
+  if (!v) { el.textContent = ''; botao.disabled = false; return; }
+  const quando = v.fim ? new Date(v.fim).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '';
+  if (v.estado === 'rodando') {
+    el.textContent = `Verificando: ${numBR(v.feitos)} de ${numBR(v.total)} número(s), ${numBR(v.semWhatsapp)} sem WhatsApp até agora.`;
+    botao.disabled = true;
+    VERIF_TIMER = setTimeout(acompanharVerificacao, 5000);
+  } else if (v.estado === 'parou') {
+    el.textContent = `A verificação parou em ${numBR(v.feitos)} de ${numBR(v.total)}: ${v.erro || 'erro'}. Verificar de novo continua de onde parou.`;
+    botao.disabled = false;
+  } else {
+    el.textContent = `Última verificação em ${quando}: ${numBR(v.total)} número(s) consultado(s), ${numBR(v.semWhatsapp)} sem WhatsApp.`;
+    botao.disabled = false;
+  }
+}
+async function acompanharVerificacao(){
+  if (!EDIT_LISTA || !document.getElementById('modalLista').classList.contains('open')) return;
+  const d = await fetch(`/api/comm/listas/${EDIT_LISTA}/verificar-whatsapp`).then(r=>r.json()).catch(()=>null);
+  if (!d?.success) return;
+  if (d.verificacao?.estado !== 'rodando') { carregarMembros(); return; }
+  pintarVerificacao(d.verificacao);
+}
+async function verificarWhatsapp(){
+  const d = await fetch(`/api/comm/listas/${EDIT_LISTA}/verificar-whatsapp`, { method:'POST' }).then(r=>r.json()).catch(()=>null);
+  if (!d?.success) return showAlert(d?.error || 'Não foi possível verificar', 'error');
+  pintarVerificacao(d.verificacao);
+}
+
+/** O segmento fica na ficha da pessoa: vale para todas as listas em que ela está. */
+async function salvarSegmento(sel){
+  const id = Number(sel.dataset.id);
+  const d = await fetch('/api/comm/listas/membros/'+id, { method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ segmentoId: Number(sel.value) }) }).then(r=>r.json()).catch(()=>null);
+  if (!d?.success) return showAlert(d?.error || 'Não foi possível salvar o segmento','error');
+  carregarMembros();
+}
+
+async function removerMembro(id){
+  // Contato avulso não tem cópia no cadastro: removido, o número se perde.
+  if (!await Aviso.confirmar('Tirar este contato da lista?')) return;
+  const d = await fetch('/api/comm/listas/membros/'+id, { method:'DELETE' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  carregarMembros();
+  carregarListas();
+}
+
+function renderPublicoLista(){
+  const lista = PUBLICO;
+  document.getElementById('ltContagem').textContent = `${numBR(PUBLICO_TOTAL)} encontrado(s)`
+    + (PUBLICO_TOTAL > 300 ? `, mostrando 300` : '') + `. ${SEL_LISTA.size} marcado(s) para adicionar`;
+  const tb = document.getElementById('tbPublicoLista');
+  tb.innerHTML = lista.length ? lista.slice(0,300).map(p=>`<tr>
+    <td><input type="checkbox" ${SEL_LISTA.has(p.id)?'checked':''} ${p.optOut?'disabled':''}
+         onchange="alternarLista(${p.id}, this.checked)" style="width:auto;"></td>
+    <td>${esc(p.razaoSocial||p.nomeFantasia||'—')}</td>
+    <td>${esc(p.telefone)}</td>
+    <td>${p.optOut ? '<span class="badge inativo">pediu para sair</span>'
+                   : (p.aceitaMarketing ? '<span class="badge ativo">aceita</span>' : '<span class="badge inativo">não aceita</span>')}</td>
+  </tr>`).join('') : '<tr><td colspan="4" class="empty">Ninguém com telefone neste filtro</td></tr>';
+}
+
+function alternarLista(id, on){ if (on) SEL_LISTA.add(id); else SEL_LISTA.delete(id); renderPublicoLista(); }
+function marcarLista(on){
+  PUBLICO.slice(0,300).filter(p => !p.optOut).forEach(p => on ? SEL_LISTA.add(p.id) : SEL_LISTA.delete(p.id));
+  if (!on) SEL_LISTA.clear();
+  renderPublicoLista();
+}
+
+async function salvarLista(){
+  const nome = document.getElementById('ltNome').value.trim();
+  if (!nome) return showAlert('Dê um nome à lista','error');
+  const body = { nome, descricao: document.getElementById('ltDesc').value.trim() || null };
+  let id = EDIT_LISTA;
+  if (id) {
+    const u = await fetch('/api/comm/listas/'+id, { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body) }).then(r=>r.json());
+    if (!u.success) return showAlert(u.error,'error');
+  } else {
+    const c = await fetch('/api/comm/listas', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body) }).then(r=>r.json());
+    if (!c.success) return showAlert(c.error,'error');
+    id = c.lista.id;
+  }
+  // A partir daqui a lista existe. Se a planilha falhar, o modal fica aberto
+  // apontando para ela: o segundo "Salvar" completa a mesma lista, em vez de
+  // criar outra com o mesmo nome.
+  EDIT_LISTA = id;
+  let adicionados = 0, repetidos = 0, recusados = [], fichasNovas = 0, desconhecidos = [];
+  if (SEL_LISTA.size) {
+    const m = await fetch(`/api/comm/listas/${id}/membros`, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ pessoaIds: [...SEL_LISTA] }) }).then(r=>r.json());
+    if (!m.success) return showAlert(m.error,'error');
+    // Quem já estava na lista não entra de novo, então o número pedido e o
+    // número gravado podem diferir. Mostrar o que de fato entrou.
+    adicionados += m.adicionados || 0;
+    SEL_LISTA.clear();
+  }
+  const arquivo = document.getElementById('ltArquivo').files[0];
+  if (arquivo) {
+    const fd = new FormData(); fd.append('arquivo', arquivo);
+    const r = await fetch(`/api/comm/listas/${id}/importar`, { method:'POST', body: fd })
+      .then(r=>r.json()).catch(()=>({ success:false, error:'Falha ao enviar a planilha' }));
+    if (!r.success) { carregarListas(); return showAlert('Lista salva, mas a planilha não entrou: ' + r.error,'error'); }
+    adicionados += r.adicionados || 0;
+    repetidos = r.repetidos || 0;
+    recusados = r.recusados || [];
+    fichasNovas = r.fichasNovas || 0;
+    desconhecidos = r.segmentosDesconhecidos || [];
+    document.getElementById('ltArquivo').value = '';
+  }
+  fechar('modalLista');
+  // Telefone recusado é dito, e não engolido: sem isso a pessoa importa trinta
+  // linhas, vê "lista salva" e só descobre no disparo que faltam cinco.
+  const partes = [adicionados ? `${numBR(adicionados)} contato(s) novo(s)` : 'Lista salva'];
+  if (repetidos) partes.push(`${numBR(repetidos)} já estava(m) na lista`);
+  if (fichasNovas) partes.push(`${numBR(fichasNovas)} ficha(s) de lead criada(s) no cadastro`);
+  if (desconhecidos.length) {
+    partes.push(`Segmento que não existe no cadastro, escolhido pelo ramo: ${desconhecidos.slice(0, 3).join(', ')}`
+      + (desconhecidos.length > 3 ? ' …' : ''));
+  }
+  if (recusados.length) {
+    partes.push(`${numBR(recusados.length)} recusado(s) por telefone inválido: `
+      + recusados.slice(0, 3).join(' · ') + (recusados.length > 3 ? ' …' : ''));
+  }
+  showAlert(partes.join('. '), recusados.length || desconhecidos.length ? 'warn' : 'success');
+  carregarListas();
+}
+
+async function removerLista(id){
+  if (!await Aviso.confirmar('Remover esta lista?\n\nCampanhas já criadas com ela não são afetadas.')) return;
+  const d = await fetch('/api/comm/listas/'+id, { method:'DELETE' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  carregarListas();
+}
+
+// A campanha aponta para a lista dela com ?lista=N. A lista é aberta depois de
+// carregar a tabela, porque é dali que o modal tira o nome e a descrição.
+Promise.all([carregarListas(), carregarSegmentos()]).then(() => {
+  const id = Number(new URLSearchParams(location.search).get('lista'));
+  if (id) abrirLista(id);
+});
+</script>
+</body>
+</html>

@@ -112,7 +112,7 @@ function tabelaLote(rows) {
       ${celImposto(mvaCel(i))}
       ${celImposto(benefCel(i))}
       <td style="white-space:nowrap;color:var(--text-1)">${pcCel(i)}</td>
-      <td style="white-space:nowrap">${badge(r.confianca || 'baixa')}<br><span style="font-size:.72em;color:var(--text-3)">${nomeFonte(r.fonte)}</span></td>
+      <td style="white-space:nowrap">${badge(r.confianca || 'baixa')}<br><span style="font-size:var(--text-xs);color:var(--text-3)">${nomeFonte(r.fonte)}</span></td>
     </tr>`;
   }).join('');
   const uf = esc(getUf());

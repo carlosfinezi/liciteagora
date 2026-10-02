@@ -521,7 +521,7 @@ function renderizarParticipacoes() {
                     <div class="participacao-meta">
                         ${badgeEstadoTrabalho(p.estadoTrabalho)}
                         ${compraIdDisplay}
-                        ${p.situacao ? `<span class="badge-situacao badge-sit-${(p.situacao || '').toUpperCase()}" style="opacity:0.65; font-size:0.72em;" title="Situação Comprasnet: ${situacaoLabel}">${p.situacao}</span>` : ''}
+                        ${p.situacao ? `<span class="badge-situacao badge-sit-${(p.situacao || '').toUpperCase()}" style="opacity:0.65; font-size:var(--text-xs);" title="Situação Comprasnet: ${situacaoLabel}">${p.situacao}</span>` : ''}
                         ${faseLabel ? `<span class="badge-fase">${faseLabel}</span>` : ''}
                         ${p.propostaEnviadaEm ? `<span class="meta-data" title="Proposta enviada em">📤 ${formatarData(p.propostaEnviadaEm)}</span>` : ''}
                         ${p.dataSessao ? `<span class="meta-data">${formatarData(p.dataSessao)}</span>` : ''}
@@ -938,7 +938,7 @@ async function enviarProposta(compraId) {
     if (!logArea && card) {
         logArea = document.createElement('div');
         logArea.className = 'envio-log-inline';
-        logArea.style.cssText = 'margin-top:10px; padding:10px; background:#1a1a2e; border-radius:6px; font-size:0.85em; max-height:200px; overflow-y:auto;';
+        logArea.style.cssText = 'margin-top:10px; padding:10px; background:#1a1a2e; border-radius:6px; font-size:var(--text-xs); max-height:200px; overflow-y:auto;';
         card.appendChild(logArea);
     }
     if (logArea) logArea.innerHTML = '<div style="color:#aaa;">Aceitando termos e declarações...</div>';
@@ -1156,7 +1156,7 @@ function renderizarInteresses() {
 
             ${!compraIdReal && !naoComprasnet ? `
             <div class="compra-id-bar" id="compraIdBar-${ikey}">
-                <label style="color:#aaa; font-size:0.82em; white-space:nowrap;">CompraId Comprasnet:</label>
+                <label style="color:#aaa; font-size:var(--text-xs); white-space:nowrap;">CompraId Comprasnet:</label>
                 <input type="text" id="compraIdInput-${ikey}" placeholder="Ex: 92687906001182026"
                        maxlength="20" pattern="[0-9]*" inputmode="numeric">
                 <button class="btn-verificar" onclick="verificarCompraId('${ikey}')">Verificar</button>
@@ -1184,9 +1184,9 @@ function renderizarInteresses() {
                         PDF Assinado
                     </button>
                 ` : naoComprasnet ? `
-                    <span style="color:#ff9800; font-size:0.82em;">Envio via API indisponivel (sistema estadual/municipal)</span>
+                    <span style="color:#ff9800; font-size:var(--text-xs);">Envio via API indisponivel (sistema estadual/municipal)</span>
                 ` : `
-                    <span style="color:#888; font-size:0.82em;">Resolução automática pendente</span>
+                    <span style="color:#888; font-size:var(--text-xs);">Resolução automática pendente</span>
                 `}
             </div>
         `;
@@ -1255,7 +1255,7 @@ function renderizarItensInteresse(itemPrefix, lic) {
                     <input type="text" id="modelo-${itemPrefix}-${num}" value="${dados.modelo || ''}"
                            placeholder="Modelo" onchange="atualizarExtra('${itemPrefix}', ${num}, 'modelo', this.value)">
                 </div>
-                <div style="font-size:0.78em; color:#888;">${item.unidadeMedida || 'UN'}</div>
+                <div style="font-size:var(--text-xs); color:#888;">${item.unidadeMedida || 'UN'}</div>
                 <div id="match-${itemPrefix}-${num}">${renderProdutoMatch(itemPrefix, num)}</div>
             </div>
         `;

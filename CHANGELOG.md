@@ -4,6 +4,107 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-02, o piso de 12px e a cor que acompanha o tema
+
+Segunda leva da revisão de interface, toda de aparência: CSS, estrutura visual
+do HTML e texto de tela. Nenhuma regra de negócio, nenhuma rota, nenhuma
+migração. O que exigiria mexer em lógica ficou anotado e não foi feito.
+
+**Nenhum texto que a pessoa precisa ler fica abaixo de 12px.** Medido antes:
+**226 das 252 telas** tinham texto menor, e o grosso vinha de dois lugares que
+ninguém leria no CSS. O título de seção da sidebar saía em **9,24px** (223
+telas), de um `0.66em` sobre uma base já reduzida; o cabeçalho de tabela em 11px
+(118 telas), que era o piso declarado da escala. O token `--text-xs` subiu de 11
+para 12px, e **867 valores em `em` fracionário** (33 regras do `app-modern.css`,
+6 do `sidebar.css` e 828 em 139 arquivos de tela) passaram a token em `rem` —
+é a troca de `em` por `rem` que mata a cascata multiplicativa, que era a causa.
+Mais 179 tamanhos cravados em 43 arquivos.
+
+A prova exigiu medir as 252 telas **antes e depois**, em 1440 e 360px, nos dois
+temas, gravando o tamanho de cada texto por caminho de nó: **1.774 textos
+cresceram, 46.500 ficaram iguais, ZERO encolheu, zero abaixo de 12px**. A
+exigência de "nada encolhe" não é zelo: `em` em cascata produz valor MAIOR que o
+nominal, e trocar por 12px diminuiria. Ela pegou duas regressões no caminho.
+
+Fica de fora, por decisão: o `9px` do `.meta` de `licitacoes/interesse-relatorio.js`.
+Aquele arquivo escreve uma janela nova por `document.write`, sem a folha do ERP,
+e é folha de impressão em A4 paisagem — papel não é tela.
+
+**A cor de estado passou a acompanhar o tema, em 11 telas.** Medido par por par,
+nos dois temas:
+
+- os botões sobre a capa do Catálogo Online davam **2,64:1** sobre capa clara,
+  provado no PIXEL renderizado (o medidor de DOM não compõe transparência e
+  dizia "1:1"). O véu passou de 46% para 66% e o fundo do botão de 16% para 14%,
+  porque é o fundo que clareia justamente onde o texto está: **4,81:1** no pior
+  caso, 13,3:1 sobre capa escura;
+- o chip "aberta" das três telas de apuração estava em **1,51:1** no tema claro,
+  com as cores do tema escuro cravadas;
+- o botão "Finalizar e emitir NFC-e" do PDV, em **3,8:1** no claro, com texto
+  `#001` feito para o verde claro do escuro;
+- 24 cores de estado cravadas em 6 telas de portais e do posto: `#c0392b`
+  3,26:1, `#1a7f37` 3,49:1 e `#2563eb` 3,43:1 reprovam no **escuro**; `#27ae60`
+  2,75:1 reprova no **claro**. Cada uma falha em um dos dois.
+
+**A etiqueta "AO VIVO" do BLL estava invisível**: `.modo-live` tinha fundo e
+texto na mesma cor (`var(--success)` nos dois). É a marca que distingue o robô
+mandando lance REAL da simulação. Procurado no sistema todo, era o único caso.
+
+**Texto branco sobre cor de estado reprova no tema escuro**, e isso estava em 24
+lugares de 14 arquivos, as duas folhas comuns entre eles: `#fff` sobre
+`--danger` 2,77:1, `--success` 1,92:1, `--warn` 1,67:1, `--accent` 2,54:1. Com
+`var(--bg-2)`, que acompanha o tema, 5,0 a 10,6:1. Os 32 pares de badge foram
+medidos no pixel depois: **32/32 acima de 4,5:1** nos dois temas.
+
+**O modal era caixa dentro de caixa.** Das 11 telas que usam `.modal-content`,
+**10 tinham padding ZERO** com borda de 1px: o conteúdo encostava na moldura. Em
+9 delas o invólucro é `.modal`, que já é a caixa com seus 24px, e a borda de
+dentro desenhava uma segunda moldura; agora ela fica transparente ali. Nas 2 em
+que o `.modal-content` É a caixa, ele ganhou respiro e um teto relativo à
+janela — o respiro de 24px tinha empurrado dois modais 34 e 29px para fora da
+tela a 360px, e a medição com e sem ele provou a autoria.
+
+**Caixa alta: 31 ocorrências em 17 telas → zero.** Resolvido pelo TEXTO: 26
+rótulos encurtaram para o essencial e a explicação foi para a ajuda abaixo do
+campo, que não fica em caixa alta. "Permitir liberar a saída do recurso sem
+ensaio aprovado" virou "Liberar saída sem ensaio"; "Vencimento (dias após o
+retorno previsto)" virou "Vencimento da promissória", com os dias na ajuda. E
+uma regra na folha comum impede o `uppercase` do rótulo de descer para o
+`<small>` da ajuda, que é como 56 rótulos de 30 telas estão escritos.
+
+**Quatro títulos de seção que eram rótulo-frase.** O pior era o do PDV, com 81
+caracteres repetindo palavra por palavra o `placeholder` do campo logo abaixo:
+virou "Buscar". Texto de tela não narra o que já está ali.
+
+**O ERP passou a respeitar `prefers-reduced-motion`.** A landing já respeitava;
+o `app-modern.css` não tinha uma regra, e é ele que a pessoa usa o dia inteiro.
+O spinner é a exceção, de propósito: continua girando, mais devagar. Spinner
+parado mente sobre o estado do carregamento.
+
+**Travessão de emenda, reescrito em 22 frases**, quase todas da landing (o texto
+que o cliente lê antes de comprar). A maioria dos "travessões em excesso" que o
+levantamento apontou era separador estrutural (`101 — Tributada com permissão de
+crédito` num `<option>`), e não emenda.
+
+Mais: o `h1` do `portal/login.html` passou de 3,07:1 para 6,25:1, e o cinza
+neutro dos rótulos dele virou o cinza-azulado do ERP; `comunicacao/conversas.html`
+era a única das 229 telas do ERP sem o `/js/menu-config.js`; e o `<img src="">`
+de `catalogo/produto.html` perdeu o atributo, que fazia o navegador pedir a URL
+da própria página.
+
+**Falsos positivos do levantamento, medidos e descartados:** os 3 achados ALTA
+de "passa da borda" em `comercial/pedidos-pdv.html` (é a gaveta
+`translateX(100%)`, fora da tela de propósito; `scrollWidth` = `clientWidth`), os
+2 de `landing/contato.html` (artefato de harness: a landing é servida com
+`public/landing/` na raiz, e sem isso o CSS não carrega), os `<img>` sem src (são
+`hidden`, com o src posto por JS) e os 5 `clipped-overflow-container` (medi os
+252 arquivos: **zero corte real**).
+
+Suítes: a **170 é nova** (`test-piso-tipografico`, 80 checagens em 20 telas, nas
+duas larguras e nos dois temas) e a **109 subiu o piso da escala** de 11 para
+12px, com o custo medido — a linha da tabela não mudou, porque quem manda nela é
+a célula em 14px. A 162 ganhou 4 telas e roda 78/78.
+
 ## 2026-10-01, a cobrança para de prometer o canal que não tem
 
 Sete pontos levantados no retrato de loja de material de construção, onde as

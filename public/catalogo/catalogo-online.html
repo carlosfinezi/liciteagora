@@ -40,36 +40,43 @@
 /* Nome longo quebra dentro da própria área, em vez de esticar a linha. */
 .cap-txt h2 { overflow-wrap: anywhere; }
 .cap-txt h2 { margin: 0; font-size: 1.22rem; line-height: 1.18; }
-.cap-txt .sub { color: var(--text-2); font-size: .84em; margin-top: 3px; }
+.cap-txt .sub { color: var(--text-2); font-size: var(--text-xs); margin-top: 3px; }
 .cap-acoes { display: flex; gap: 8px; align-items: center; padding-top: 12px; flex-wrap: wrap; }
 .cap-rodape { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
   padding: 9px 20px; border-top: 1px solid var(--border); background: var(--bg-2); }
-.cap-rodape code { flex: 1; min-width: 160px; font-size: .8em; color: var(--text-2);
+.cap-rodape code { flex: 1; min-width: 160px; font-size: var(--text-xs); color: var(--text-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Resumo: uma linha discreta. Os cinco cards grandes viraram dashboard e
    roubavam a tela de quem veio montar o catálogo. */
-.cap-resumo { font-size: .82em; color: var(--text-3); padding: 0 20px 12px; }
+.cap-resumo { font-size: var(--text-xs); color: var(--text-3); padding: 0 20px 12px; }
 
 /* ---- cabeçalho editável (Fase 48) ----
    Os controles ficam SOBRE o banner, em pílula escura translúcida: o banner é
    imagem do lojista e pode ser clara ou escura, então contraste fixo com o tema
-   não serve — o véu próprio é o que garante o texto legível sobre qualquer foto. */
+   não serve — o véu próprio é o que garante o texto legível sobre qualquer foto.
+
+   O véu era .46 e o fundo do botão .16, e isso NÃO garantia: a conta de
+   composição sobre uma capa CLARA (ou sem capa nenhuma, que no tema claro é
+   fundo branco) dava 2,71:1 para o texto branco. O fundo do botão é o que mais
+   pesa contra, porque CLAREIA justamente onde o texto está. Com véu .66 e botão
+   .14 a conta fecha em 5,02:1 na capa clara e 15,5:1 na escura, e a pílula
+   continua deixando a foto aparecer. */
 .cap-link, .cap-banner-acoes { position: absolute; display: flex; gap: 6px; align-items: center;
-  background: rgba(0,0,0,.46); backdrop-filter: blur(3px); border-radius: 999px; padding: 5px 8px; }
+  background: rgba(0,0,0,.66); backdrop-filter: blur(3px); border-radius: 999px; padding: 5px 8px; }
 .cap-link { left: 12px; top: 12px; max-width: calc(100% - 150px); }
 .cap-banner-acoes { right: 12px; top: 12px; }
-.cap-link code { color: #fff; font-size: .78em; overflow: hidden;
+.cap-link code { color: #fff; font-size: var(--text-xs); overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
-.cl-bt { background: rgba(255,255,255,.16); color: #fff; border: 0; cursor: pointer;
-  border-radius: 999px; padding: 4px 10px; font-size: .76em; font-weight: 600;
+.cl-bt { background: rgba(255,255,255,.14); color: #fff; border: 0; cursor: pointer;
+  border-radius: 999px; padding: 4px 10px; font-size: var(--text-xs); font-weight: 600;
   white-space: nowrap; min-height: 26px; }
-.cl-bt:hover { background: rgba(255,255,255,.3); }
+.cl-bt:hover { background: rgba(255,255,255,.28); }
 
 .cap-logo-bt { position: relative; padding: 0; border: 0; background: none; cursor: pointer;
   flex-shrink: 0; line-height: 0; border-radius: 50%; }
 .cap-logo-lapis { position: absolute; right: -2px; bottom: -2px; width: 24px; height: 24px;
   border-radius: 50%; background: var(--bg-1); border: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: center; font-size: .72rem;
+  display: flex; align-items: center; justify-content: center; font-size: var(--text-xs);
   color: var(--text-2); line-height: 1; }
 
 /* O nome só parece campo quando se chega perto dele: uma caixa de input
@@ -79,7 +86,7 @@
 #capNome:hover { border-color: var(--border); }
 #capNome:focus { border-color: var(--primary); background: var(--bg-0); }
 
-.bt-badge { cursor: pointer; border: 1px solid var(--border); font: inherit; font-size: .76em;
+.bt-badge { cursor: pointer; border: 1px solid var(--border); font: inherit; font-size: var(--text-xs);
   min-height: 30px; padding: 4px 12px; }
 
 /* ---- menu de configurações ---- */
@@ -107,13 +114,13 @@
 .ap-paleta:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ap-previa label { display: block; margin-bottom: 6px; }
 .ap-tela { border: 1px solid var(--border); border-radius: 10px; padding: 12px;
-  display: flex; flex-direction: column; gap: 10px; font-size: .84em; }
+  display: flex; flex-direction: column; gap: 10px; font-size: var(--text-xs); }
 .ap-topo { border-bottom: 1px solid rgba(128,128,128,.25); padding-bottom: 8px; }
 .ap-cartao { border: 1px solid rgba(128,128,128,.3); border-radius: var(--ap-raio, 10px);
   padding: 10px; }
-.ap-marca { font-size: .85em; opacity: .7; }
+.ap-marca { font-size: var(--text-xs); opacity: .7; }
 .ap-preco { font-weight: 660; margin-top: 4px; }
-.ap-faixa { color: #fff; font-size: .8em; font-weight: 600; text-align: center; padding: 4px 6px;
+.ap-faixa { color: #fff; font-size: var(--text-xs); font-weight: 600; text-align: center; padding: 4px 6px;
   border-radius: 6px; }
 .ap-bt { background: var(--ap-cor, #0E6B63); color: #fff; border: 0; cursor: default;
   border-radius: var(--ap-raio, 10px); padding: 9px 12px; font: inherit; font-weight: 600; }
@@ -132,7 +139,7 @@
 .enq-palco.banner .enq-mascara { border-radius: var(--r-md); box-shadow: none;
   outline: 2px dashed rgba(255,255,255,.5); outline-offset: -2px; }
 .enq-zoom { display: flex; align-items: center; gap: 12px; margin: 14px 0 4px; }
-.enq-zoom label { font-size: .85em; color: var(--text-2); }
+.enq-zoom label { font-size: var(--text-xs); color: var(--text-2); }
 .enq-zoom input { flex: 1; accent-color: var(--primary); min-height: 44px; }
 
 /* ---- arrastar para ordenar ---- */
@@ -152,7 +159,7 @@ body.arrastando-lista { user-select: none; -webkit-user-select: none; cursor: gr
 /* ---- setas de ordenação ---- */
 .ord { display: flex; flex-direction: column; gap: 1px; flex-shrink: 0; }
 .ord button { background: none; border: 1px solid transparent; border-radius: 5px; cursor: pointer;
-  color: var(--text-3); font-size: .62rem; line-height: 1; padding: 2px 5px; min-height: 18px; }
+  color: var(--text-3); font-size: var(--text-xs); line-height: 1; padding: 2px 5px; min-height: 18px; }
 .ord button:hover:not(:disabled) { background: var(--bg-2); color: var(--text-1); border-color: var(--border); }
 .ord button:disabled { opacity: .25; cursor: default; }
 
@@ -185,11 +192,11 @@ body.arrastando-lista { user-select: none; -webkit-user-select: none; cursor: gr
 .bc-toggle { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;
   background: none; border: none; font-family: inherit; color: inherit; text-align: left;
   cursor: pointer; padding: 0; min-height: 44px; }
-.bc-seta { color: var(--text-3); font-size: .78em; transition: transform .15s; flex-shrink: 0; }
+.bc-seta { color: var(--text-3); font-size: var(--text-xs); transition: transform .15s; flex-shrink: 0; }
 .bloco-cat.aberta .bc-seta { transform: rotate(90deg); }
 .bc-nome { font-weight: 600; font-size: .98em; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
-.bc-qtd { font-size: .78em; color: var(--text-3); white-space: nowrap; }
+.bc-qtd { font-size: var(--text-xs); color: var(--text-3); white-space: nowrap; }
 .bc-corpo { display: none; border-top: 1px solid var(--border); }
 .bloco-cat.aberta .bc-corpo { display: block; }
 .bloco-cat.destaques .bc-nome { color: var(--warn); }
@@ -215,7 +222,7 @@ body.arrastando-lista { user-select: none; -webkit-user-select: none; cursor: gr
 .lp-info { min-width: 0; }
 .lp-nome { font-size: .93em; line-height: 1.32; display: -webkit-box;
   -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.lp-meta { font-size: .75em; color: var(--text-3); margin-top: 2px; }
+.lp-meta { font-size: var(--text-xs); color: var(--text-3); margin-top: 2px; }
 .lp-preco { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: .96em; }
 
 /* Controles: alvo generoso e estado visual claro. */
@@ -263,20 +270,20 @@ body.arrastando-lista { user-select: none; -webkit-user-select: none; cursor: gr
 .pp-foto { width: 116px; height: 116px; border-radius: 12px; object-fit: cover;
   background: var(--bg-3); flex-shrink: 0; }
 .pp-foto.sem { display: flex; align-items: center; justify-content: center;
-  flex-direction: column; gap: 4px; color: var(--text-3); font-size: .74em; text-align: center; }
+  flex-direction: column; gap: 4px; color: var(--text-3); font-size: var(--text-xs); text-align: center; }
 .pp-topo .campos { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .pp-topo input, .pp-topo textarea { width: 100%; }
 .pp-topo textarea { min-height: 62px; resize: vertical; line-height: 1.4; }
 
 /* Blocos do painel */
 .pp-sec { margin-top: 20px; }
-.pp-sec > h4 { font-size: .73em; text-transform: uppercase; letter-spacing: .07em;
+.pp-sec > h4 { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .07em;
   color: var(--text-3); font-weight: 600; margin: 0 0 9px; padding-bottom: 6px;
   border-bottom: 1px solid var(--border); }
 .pp-sec .form-group { margin-bottom: 10px; }
-.pp-nota { font-size: .8em; color: var(--text-3); margin: 4px 0 0; }
+.pp-nota { font-size: var(--text-xs); color: var(--text-3); margin: 4px 0 0; }
 .pp-futuro { border: 1px dashed var(--border-strong); border-radius: 9px;
-  padding: 11px 13px; color: var(--text-3); font-size: .82em; display: flex;
+  padding: 11px 13px; color: var(--text-3); font-size: var(--text-xs); display: flex;
   align-items: center; gap: 10px; }
 .pp-futuro .badge { flex-shrink: 0; }
 .pp-saldo { display: flex; align-items: baseline; gap: 8px; }
@@ -287,13 +294,13 @@ body.arrastando-lista { user-select: none; -webkit-user-select: none; cursor: gr
   background: none; border: none; border-radius: 8px; font-family: inherit; color: inherit;
   cursor: pointer; text-align: left; min-height: 44px; }
 .pc-item:hover { background: var(--bg-2); }
-.pc-item .n { margin-left: auto; font-size: .78em; color: var(--text-3); }
+.pc-item .n { margin-left: auto; font-size: var(--text-xs); color: var(--text-3); }
 /* As setas ficam FORA do botão de navegar — botão dentro de botão é HTML
    inválido, e o clique na seta acabaria rolando a tela até a categoria. */
 .pc-linha { display: flex; align-items: center; gap: 2px; background: var(--bg-1); }
-.pc-dica { font-size: .78em; color: var(--text-3); margin: 8px 2px 4px; }
+.pc-dica { font-size: var(--text-xs); color: var(--text-3); margin: 8px 2px 4px; }
 .pc-linha .pc-item { flex: 1; min-width: 0; }
-.pc-tot { font-size: .8em; color: var(--text-3); padding: 10px 12px;
+.pc-tot { font-size: var(--text-xs); color: var(--text-3); padding: 10px 12px;
   border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: 10px 0; }
 
 @media (max-width: 640px) {
@@ -364,8 +371,8 @@ body.arrastando-lista { user-select: none; -webkit-user-select: none; cursor: gr
   .cap-link { order: 2; border-top: 1px solid var(--border); }
   .cap-banner-acoes { order: 3; justify-content: flex-start; }
   /* A URL ganha a linha inteira e deixa de ser um toco de três letras. */
-  .cap-link code { flex: 1 1 100%; font-size: .82em; color: var(--text-2); }
-  .cl-bt { min-height: 44px; padding: 8px 14px; font-size: .84em;
+  .cap-link code { flex: 1 1 100%; font-size: var(--text-xs); color: var(--text-2); }
+  .cl-bt { min-height: 44px; padding: 8px 14px; font-size: var(--text-xs);
     background: var(--bg-3); color: var(--text-1); }
   .cl-bt:hover { background: var(--border); }
 
@@ -564,7 +571,7 @@ body.arrastando-lista { user-select: none; -webkit-user-select: none; cursor: gr
 <div class="modal-bg" id="modalEnq" onclick="if(event.target===this)fecharEnq()">
   <div class="modal" style="max-width:460px;">
     <div class="modal-header"><h3 style="margin:0;" id="enqTitulo">Ajustar imagem</h3></div>
-    <p class="muted" style="margin:0 0 12px;font-size:.85em;">
+    <p class="muted" style="margin:0 0 12px;font-size:var(--text-xs);">
       Arraste a imagem para escolher o que aparece. A original não é alterada.</p>
     <div class="enq-palco" id="enqPalco">
       <img id="enqImg" alt="">
@@ -1621,9 +1628,9 @@ async function abrirAparencia() {
             <div class="form-group"><label for="apDqZap">Botão do WhatsApp</label><input id="apDqZap" maxlength="30" value="${esc(d.botaoWhatsapp || '')}"></div>
           </div>
           <div class="form-group"><label for="apDqEtiqueta">Etiqueta sobre a imagem</label><input id="apDqEtiqueta" maxlength="30" value="${esc(d.etiqueta || '')}"></div>
-          <p class="muted" style="font-size:.82em;margin:6px 0 0;">A imagem do destaque é a capa do catálogo.</p>
+          <p class="muted" style="font-size:var(--text-xs);margin:6px 0 0;">A imagem do destaque é a capa do catálogo.</p>
         </fieldset>
-        <p class="muted" style="font-size:.82em;margin:10px 0 0;">
+        <p class="muted" style="font-size:var(--text-xs);margin:10px 0 0;">
           O logotipo e a capa se trocam no próprio cabeçalho desta tela, junto
           do "Ajustar" de cada um.</p>
       </div>

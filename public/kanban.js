@@ -215,7 +215,7 @@ async function abrirModalInteresses() {
             div.innerHTML = `
                 <h4>${lic.objetoCompra || 'Sem objeto'}</h4>
                 <p>${lic.nomeOrgao} - ${lic.qtdItens} item(s)</p>
-                ${jaNoKanban ? '<p style="color:var(--accent);font-size:0.82em;margin-top:4px;">Já no Kanban</p>' : ''}
+                ${jaNoKanban ? '<p style="color:var(--accent);font-size:var(--text-xs);margin-top:4px;">Já no Kanban</p>' : ''}
             `;
 
             if (!jaNoKanban) {

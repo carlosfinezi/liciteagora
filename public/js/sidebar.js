@@ -1507,11 +1507,11 @@ function gerarMenuHTML(pageName) {
     <div id="senhaErro" style="display:none; background:var(--danger-soft); color:var(--danger); padding:8px 12px; border-radius:var(--r-sm); font-size:13px; margin-bottom:12px;"></div>
     <div id="senhaSucesso" style="display:none; background:var(--success-soft); color:var(--success); padding:8px 12px; border-radius:var(--r-sm); font-size:13px; margin-bottom:12px;"></div>
     <div style="margin-bottom:14px;">
-      <label style="display:block; font-size:0.82em; color:var(--text-2); text-transform:uppercase; letter-spacing:0.02em; margin-bottom:5px;">Senha atual</label>
+      <label style="display:block; font-size:var(--text-xs); color:var(--text-2); text-transform:uppercase; letter-spacing:0.02em; margin-bottom:5px;">Senha atual</label>
       <input type="password" id="senhaAtual">
     </div>
     <div style="margin-bottom:18px;">
-      <label style="display:block; font-size:0.82em; color:var(--text-2); text-transform:uppercase; letter-spacing:0.02em; margin-bottom:5px;">Nova senha</label>
+      <label style="display:block; font-size:var(--text-xs); color:var(--text-2); text-transform:uppercase; letter-spacing:0.02em; margin-bottom:5px;">Nova senha</label>
       <input type="password" id="senhaNova">
     </div>
     <div style="display:flex; gap:10px; justify-content:flex-end;">
@@ -1746,7 +1746,7 @@ async function carregarEstabSwitcher() {
         }).join('');
 
         cont.innerHTML =
-            `<div style="font-size:0.7em; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-3); margin-bottom:5px;">Estabelecimento</div>
+            `<div style="font-size:var(--text-xs); text-transform:uppercase; letter-spacing:0.04em; color:var(--text-3); margin-bottom:5px;">Estabelecimento</div>
              <select id="estabSwitcherSelect" onchange="trocarEstabelecimento(this.value)"
                      style="width:100%; padding:7px 9px; border-radius:var(--r-sm); background:var(--bg-1); color:var(--text-0); border:1px solid var(--border); font-size:0.88em;">
                ${opts}

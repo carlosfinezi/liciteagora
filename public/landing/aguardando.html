@@ -25,18 +25,18 @@
     <div class="waiting">
       <div class="spinner" id="spinner"></div>
       <h1 style="font-size:clamp(1.8rem,3vw,2.5rem);">Preparando <span class="gradient-text" id="slugLabel">seu ambiente</span>…</h1>
-      <p class="muted mt-3" id="progressMsg">Criando banco de dados isolado e gerando certificado SSL — isso leva entre 30 segundos e 2 minutos.</p>
+      <p class="muted mt-3" id="progressMsg">Criando banco de dados isolado e gerando certificado SSL. Isso leva entre 30 segundos e 2 minutos.</p>
 
       <div class="progress-bar"><div class="fill" id="progressFill" style="width:15%;"></div></div>
 
       <div class="glass mt-4" id="credsBox" style="text-align:left; display:none;">
         <h3 style="margin-bottom:12px;">Suas credenciais de acesso</h3>
-        <p class="muted" style="font-size:var(--fs-sm);margin-bottom:16px;">Guarde em local seguro — essa senha não será mostrada novamente. Você poderá trocá-la no primeiro acesso.</p>
+        <p class="muted" style="font-size:var(--fs-sm);margin-bottom:16px;">Guarde em local seguro. Essa senha não será mostrada novamente. Você poderá trocá-la no primeiro acesso.</p>
 
         <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-family:monospace;font-size:var(--fs-sm);">
           <div class="muted">URL:</div>     <div><strong id="credUrl"></strong></div>
           <div class="muted">Usuário:</div> <div><strong id="credUser"></strong></div>
-          <div class="muted">Senha:</div>   <div><strong id="credPass"></strong> <button type="button" onclick="copiarSenha()" style="background:none;border:1px solid var(--border);color:var(--text-2);padding:2px 10px;border-radius:6px;cursor:pointer;font-size:11px;margin-left:8px;">Copiar</button></div>
+          <div class="muted">Senha:</div>   <div><strong id="credPass"></strong> <button type="button" onclick="copiarSenha()" style="background:none;border:1px solid var(--border);color:var(--text-2);padding:2px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-left:8px;">Copiar</button></div>
           <div class="muted">Email:</div>   <div id="credEmail"></div>
         </div>
       </div>

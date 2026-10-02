@@ -9,10 +9,10 @@
 <style>
 .kpi-mini { display:flex; flex-wrap:wrap; gap:10px; margin:10px 0; }
 .kpi-mini .c { background:var(--bg-2); border:1px solid var(--border); border-radius:var(--r-md);
-  padding:8px 14px; font-size:0.82em; color:var(--text-2); min-width:120px; }
+  padding:8px 14px; font-size:var(--text-xs); color:var(--text-2); min-width:120px; }
 .kpi-mini .c .v { display:block; font-size:1.35em; font-weight:600; color:var(--text-1); }
 .kpi-mini .c.alerta { border-color:var(--danger); }
-.bloqueio { color:var(--danger); font-size:0.82em; display:block; }
+.bloqueio { color:var(--danger); font-size:var(--text-xs); display:block; }
 .titulo-gerado { font-size:0.86em; }
 .titulo-gerado small { color:var(--text-2); }
 /* page-local: tab-pane toggle helper — .tabs/.tab vêm de app-modern.css */
@@ -84,7 +84,7 @@
       <input type="text" id="fAnunQ" placeholder="Buscar SKU, descrição, marca ou modelo…" oninput="debounce(renderCandidatos)" style="flex:1;min-width:180px;">
       <button class="btn btn-ghost btn-sm" onclick="limparFiltrosAnun()">Limpar filtros</button>
     </div>
-    <div class="toolbar" style="margin-top:-6px;font-size:0.85em;color:var(--text-2);">
+    <div class="toolbar" style="margin-top:-6px;font-size:var(--text-xs);color:var(--text-2);">
       <span id="anunContagem">—</span>
       <span class="spacer"></span>
       <button class="btn btn-ghost btn-sm" onclick="selecionarFiltrados()">Selecionar todos os filtrados</button>
@@ -187,7 +187,7 @@
         <small class="muted">Marque o que aceitar. Nada é gravado sem a sua confirmação.</small></div>
       <button class="btn btn-ghost btn-sm" onclick="fechar('modalSug')" style="font-size:1.2em;padding:4px 10px;">×</button>
     </div>
-    <div class="toolbar" style="font-size:0.85em;color:var(--text-2);">
+    <div class="toolbar" style="font-size:var(--text-xs);color:var(--text-2);">
       <span id="sugContagem">—</span>
       <span class="spacer"></span>
       <button class="btn btn-ghost btn-sm" onclick="marcarSugestoes(true)">Selecionar tudo</button>
@@ -390,7 +390,7 @@ async function carregarMl(){
     const d = await fetch('/api/marketplaces/ml/status').then(r=>r.json());
     if (!d.configurado) {
       st.textContent = '— integração não configurada no servidor';
-      ac.innerHTML = '<span class="muted" style="font-size:.85em;">aguardando ML_APP_ID/SECRET</span>';
+      ac.innerHTML = '<span class="muted" style="font-size:var(--text-xs);">aguardando ML_APP_ID/SECRET</span>';
       return;
     }
     if (d.conectado) {
@@ -754,7 +754,7 @@ async function procurarCatalogo(){
       ${d.candidatos.map(c => `
         <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:8px;width:172px;">
           <img src="${c.fotos[0]}" style="width:100%;height:110px;object-fit:contain;background:#fff;border-radius:4px;" loading="lazy">
-          <div style="font-size:0.8em;margin:6px 0;line-height:1.3;">${c.nome}</div>
+          <div style="font-size:var(--text-xs);margin:6px 0;line-height:1.3;">${c.nome}</div>
           <small class="muted">${c.marca||'—'} ${c.modelo||''}</small>
           <div style="display:flex;gap:4px;margin-top:6px;">
             <a class="btn btn-ghost btn-sm" href="${c.permalink}" target="_blank" rel="noopener" style="flex:1;text-align:center;">Ver</a>
@@ -997,8 +997,8 @@ async function pesquisarPreco(){
         d.margem != null ? ` · margem no preço sugerido: <strong>R$ ${brl(d.margem)}</strong> (custo R$ ${brl(d.custo)})` : ''}</small>` : ''}
       ${(d.avisos||[]).length ? `<div class="alert warn" style="display:block;margin-top:8px;">${d.avisos.join('<br>')}</div>` : ''}
       <details style="margin-top:8px;">
-        <summary style="cursor:pointer;font-size:0.85em;">Ver os ${d.concorrentes.length} anúncios usados</summary>
-        <table style="width:100%;font-size:0.85em;margin-top:6px;"><tbody>${d.concorrentes.map(c=>`<tr>
+        <summary style="cursor:pointer;font-size:var(--text-xs);">Ver os ${d.concorrentes.length} anúncios usados</summary>
+        <table style="width:100%;font-size:var(--text-xs);margin-top:6px;"><tbody>${d.concorrentes.map(c=>`<tr>
           <td style="width:90px;">R$ ${brl(c.preco)}</td>
           <td>${c.permalink ? `<a href="${c.permalink}" target="_blank" rel="noopener">${c.titulo}</a>` : c.titulo}</td>
           <td style="width:80px;text-align:right;">${c.freteGratis ? 'frete grátis' : ''}</td>
@@ -1107,7 +1107,7 @@ function renderSugestoes(d){
             <td><strong>${String(sg.valor)}</strong>${sg.base?`<br><small class="muted">${sg.base}</small>`:''}</td>
             <td>${rotuloFonte(sg.fonte)}${sg.aviso?`<br><small style="color:var(--warn);">${sg.aviso}</small>`:''}</td>
           </tr>`).join('')}</tbody></table>`
-        : '<p class="muted" style="font-size:0.85em;margin-top:6px;">Nada a sugerir além do que o catálogo já resolve.</p>'}
+        : '<p class="muted" style="font-size:var(--text-xs);margin-top:6px;">Nada a sugerir além do que o catálogo já resolve.</p>'}
         ${p.pendentesSemSugestao?.length ? `<small class="muted">Continua sem: ${p.pendentesSemSugestao.join(', ')}</small>` : ''}
       </div>`).join('');
   // Catálogo e markup vêm marcados; estimativa de IA fica desmarcada de
@@ -1195,7 +1195,7 @@ async function procurarFotosPorDescricao(){
     ${d.candidatos.map(c => `
       <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:8px;width:172px;">
         <img src="${c.fotos[0]}" style="width:100%;height:120px;object-fit:contain;background:#fff;border-radius:4px;" loading="lazy">
-        <div style="font-size:0.8em;margin:6px 0;line-height:1.3;">${c.nome}</div>
+        <div style="font-size:var(--text-xs);margin:6px 0;line-height:1.3;">${c.nome}</div>
         <small class="muted">${c.marca||'—'}${c.fotos.length>1?` · ${c.fotos.length} fotos`:''}</small>
         <div style="display:flex;gap:4px;margin-top:6px;">
           <a class="btn btn-ghost btn-sm" href="${c.permalink}" target="_blank" rel="noopener" style="flex:1;text-align:center;">Ver</a>

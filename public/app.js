@@ -1596,7 +1596,7 @@ function renderItensDetalhados(itens) {
         const qtde = (i.quantidade || i.unidade) ? `${escape(i.quantidade || '')} ${escape(i.unidade || '')}`.trim() : null;
         const sugestaoBloco = i.sugestao_cotacao ? `
             <div style="background:#0a1f3d;border-left:3px solid #22c55e;border-radius:6px;padding:10px 12px;margin-top:10px;">
-                <div style="font-size:11px;color:#22c55e;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">💡 Sugestão para cotar</div>
+                <div style="font-size:var(--text-xs);color:#22c55e;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">💡 Sugestão para cotar</div>
                 <div style="font-size:13px;color:#e2e8f0;line-height:1.5;">${escape(i.sugestao_cotacao)}</div>
             </div>` : '';
         return `
@@ -1717,7 +1717,7 @@ function renderAnaliseModal(container, a, cnpj, ano, seq) {
 function infoBox(label, value) {
     if (!value) return '';
     return `<div style="background:#0f172a;border-radius:8px;padding:12px;">
-        <div style="font-size:11px;color:#64748b;text-transform:uppercase;margin-bottom:4px;">${label}</div>
+        <div style="font-size:var(--text-xs);color:#64748b;text-transform:uppercase;margin-bottom:4px;">${label}</div>
         <div style="font-size:13px;color:#e2e8f0;">${value}</div>
     </div>`;
 }

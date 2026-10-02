@@ -49,7 +49,7 @@
       <label>Fornecedor *</label>
       <input type="text" id="rFornecBusca" placeholder="CNPJ ou razão social..." oninput="debounceFornec()">
       <div id="rFornecList" class="fornec-result"></div>
-      <div id="rFornecSel" style="color:var(--success);font-size:0.85em;margin-top:4px;"></div>
+      <div id="rFornecSel" style="color:var(--success);font-size:var(--text-xs);margin-top:4px;"></div>
     </div>
     <div class="row-2">
       <div class="row">
@@ -89,7 +89,7 @@
         <input type="checkbox" id="rPagarAuto" onchange="alternarAuto()" style="width:auto;">
         Pagar automaticamente por PIX
       </label>
-      <p class="muted" style="font-size:0.85em;margin:6px 0 0;">
+      <p class="muted" style="font-size:var(--text-xs);margin:6px 0 0;">
         O dinheiro sai da conta sem ninguém clicar. Só acontece se o fornecedor tiver chave PIX,
         o valor estiver dentro do teto e a alçada de aprovação liberar.
       </p>
@@ -102,7 +102,7 @@
         <div class="row"><label>Pagar antes do vencimento</label><small class="muted">Em quantos dias</small>
           <input type="number" id="rDiasAntes" min="0" max="30" value="0">
           <small class="muted">0 = paga no dia do vencimento.</small></div>
-        <p class="muted" style="font-size:0.85em;margin:8px 0 0;">
+        <p class="muted" style="font-size:var(--text-xs);margin:8px 0 0;">
           Acima do teto o título <strong>não sai sozinho</strong> — fica aberto esperando você.
           É a proteção contra a conta que veio dobrada.
         </p>

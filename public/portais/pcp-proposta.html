@@ -28,14 +28,14 @@
 
   <div class="panel" id="painelEditais">
     <h2>Escolha a licitação</h2>
-    <p style="color: var(--text-2); font-size: 0.85em;">
+    <p style="color: var(--text-2); font-size: var(--text-xs);">
       Seus editais de origem <strong>Portal de Compras Públicas</strong> (dos seus Interesses). Clique em <em>Carregar</em> — sem colar link.
       <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="carregarEditais()">🔄 Atualizar</button>
-      <a href="#" style="margin-left:8px; font-size:0.9em;" onclick="event.preventDefault(); toggleManual()">informar chave/URL ▾</a>
+      <a href="#" style="margin-left:8px; font-size:var(--text-sm);" onclick="event.preventDefault(); toggleManual()">informar chave/URL ▾</a>
     </p>
-    <div id="listaEditais" style="font-size:0.85em;">carregando…</div>
+    <div id="listaEditais" style="font-size:var(--text-xs);">carregando…</div>
     <div id="painelManual" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
-      <p style="color: var(--text-3); font-size: 0.8em; margin:0 0 6px;">Avançado — a URL da tela (<code>…/RegistroProposta/?ttCD_CHAVE=…</code>) ou só o número da chave:</p>
+      <p style="color: var(--text-3); font-size: var(--text-xs); margin:0 0 6px;">Avançado — a URL da tela (<code>…/RegistroProposta/?ttCD_CHAVE=…</code>) ou só o número da chave:</p>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <input id="inpUrl" class="form-control" style="flex:1; min-width:320px;" placeholder="493366  ou  https://operacao.portaldecompraspublicas.com.br/4/Pregoes/RegistroProposta/?ttCD_CHAVE=493366">
         <button class="btn btn-primary btn-sm" id="btnCarregar" onclick="carregarItens()">Carregar itens</button>
@@ -45,7 +45,7 @@
 
   <div class="panel" id="painelItens" style="display:none;">
     <h2>Itens &amp; valores</h2>
-    <div id="declInfo" style="margin-bottom:10px; font-size:0.85em; color:var(--text-2);"></div>
+    <div id="declInfo" style="margin-bottom:10px; font-size:var(--text-xs); color:var(--text-2);"></div>
     <div id="statusEnvio"></div>
     <div class="tbl-wrap">
       <table id="tblItens">
@@ -69,8 +69,8 @@
   <div class="panel" id="painelResultado" style="display:none;">
     <div id="outResultado"></div>
     <details style="margin-top:10px;">
-      <summary style="cursor:pointer; font-size:0.8em; color:var(--text-3);">detalhes técnicos</summary>
-      <pre id="outJson" style="white-space:pre-wrap; word-break:break-all; font-size:0.75em; background:var(--bg-2); padding:12px; border-radius:var(--r-sm); margin-top:6px;"></pre>
+      <summary style="cursor:pointer; font-size:var(--text-xs); color:var(--text-3);">detalhes técnicos</summary>
+      <pre id="outJson" style="white-space:pre-wrap; word-break:break-all; font-size:var(--text-xs); background:var(--bg-2); padding:12px; border-radius:var(--r-sm); margin-top:6px;"></pre>
     </details>
   </div>
 </main></div>
@@ -112,7 +112,7 @@ function atualizarStatusEnvio(jaEnviada, gravados, total) {
   const el = document.getElementById('statusEnvio');
   const btn = document.getElementById('btnEnviar');
   if (jaEnviada) {
-    el.innerHTML = '<div style="padding:12px 14px; border-radius:var(--r-sm); background:rgba(52,211,153,0.14); border-left:4px solid #1a7f37; color:#1a7f37; font-weight:600; margin-bottom:10px;">✅ Proposta já enviada ao PCP — ' + gravados + '/' + total + ' itens gravados. Os valores abaixo são os que estão registrados no portal; reenvie só se quiser alterar.</div>';
+    el.innerHTML = '<div style="padding:12px 14px; border-radius:var(--r-sm); background:rgba(52,211,153,0.14); border-left:4px solid var(--success); color:var(--success); font-weight:600; margin-bottom:10px;">✅ Proposta já enviada ao PCP — ' + gravados + '/' + total + ' itens gravados. Os valores abaixo são os que estão registrados no portal; reenvie só se quiser alterar.</div>';
     if (btn) { btn.textContent = '♻️ Reenviar (alterar valores)'; btn.classList.remove('btn-primary'); btn.classList.add('btn-ghost'); }
   } else {
     el.innerHTML = '';
@@ -134,8 +134,8 @@ function renderCtx(portalCtx) {
   el.innerHTML =
     '<div class="panel" style="padding:12px 14px; margin-bottom:10px;">' +
     (e.orgao ? '<div style="font-weight:600;">📄 ' + escapeHtml(e.orgao) + '</div>' : '') +
-    (e.objeto ? '<div style="font-size:0.85em; color:var(--text-2); margin-top:3px;">' + escapeHtml(e.objeto.slice(0, 220)) + (e.objeto.length > 220 ? '…' : '') + '</div>' : '') +
-    (chips.length ? '<div style="font-size:0.85em; color:var(--text-2); margin-top:6px;">' + chips.join(' · ') + '</div>' : '') +
+    (e.objeto ? '<div style="font-size:var(--text-xs); color:var(--text-2); margin-top:3px;">' + escapeHtml(e.objeto.slice(0, 220)) + (e.objeto.length > 220 ? '…' : '') + '</div>' : '') +
+    (chips.length ? '<div style="font-size:var(--text-xs); color:var(--text-2); margin-top:6px;">' + chips.join(' · ') + '</div>' : '') +
     (e.urlProcesso ? '<div style="margin-top:8px;"><a class="btn btn-ghost btn-sm" href="' + escapeHtml(e.urlProcesso) + '" target="_blank" rel="noopener">Abrir este processo no PCP</a></div>' : '') +
     '</div>';
 }
@@ -187,7 +187,7 @@ function alerta(msg, tipo) {
 }
 function urlInput() { return document.getElementById('inpUrl').value.trim(); }
 function mostrarResultado(kind, corpoHtml, jsonObj) {
-  const cor = kind === 'ok' ? '#1a7f37' : (kind === 'err' ? '#c0392b' : '#2563eb');
+  const cor = kind === 'ok' ? 'var(--success)' : (kind === 'err' ? 'var(--danger)' : 'var(--accent)');
   document.getElementById('painelResultado').style.display = '';
   document.getElementById('outResultado').innerHTML =
     '<div style="padding:14px 16px; border-radius:var(--r-sm); background:' + cor + '14; border-left:4px solid ' + cor + '; line-height:1.5;">' + corpoHtml + '</div>';
@@ -219,7 +219,7 @@ async function carregarSessao() {
     const b = document.getElementById('sessaoBadge');
     if (d.configurado) {
       b.textContent = 'sessão: ' + (d.sessaoAtiva ? (d.expirando ? '⚠ expirando' : '✅ ok') : '⏻ dorme') + (d.usuario ? ' (' + d.usuario + ')' : '');
-    } else { b.textContent = 'sessão: ❌ credenciais PCP não configuradas'; }
+    } else { b.textContent = 'sessão: ❌ sem credenciais'; }
   } catch (e) { document.getElementById('sessaoBadge').textContent = 'sessão: erro'; }
 }
 
@@ -309,7 +309,7 @@ async function carregarItens() {
       const tr = document.createElement('tr');
       tr.innerHTML =
         '<td>' + (it.index + 1) + (it.gravado ? ' ✅' : '') + '</td>' +
-        '<td style="font-size:0.8em;">' + desc + (refTxt ? '<div style="color:var(--text-3); font-size:0.9em; margin-top:2px;">' + refTxt + '</div>' : '') + '</td>' +
+        '<td style="font-size:var(--text-xs);">' + desc + (refTxt ? '<div style="color:var(--text-3); font-size:0.9em; margin-top:2px;">' + refTxt + '</div>' : '') + '</td>' +
         '<td><input id="val_' + it.index + '" class="form-control form-control-sm" type="text" inputmode="decimal" value="' + valPre + '" placeholder="0,00"></td>' +
         '<td><input id="marca_' + it.index + '" class="form-control form-control-sm" type="text" value="' + escapeHtml(it.marca || '') + '" placeholder="N/C"></td>' +
         '<td><input id="fab_' + it.index + '" class="form-control form-control-sm" type="text" value="' + escapeHtml(it.fabricante || '') + '" placeholder="N/C"></td>' +
@@ -344,7 +344,7 @@ async function previa() {
     });
     const d = await r.json();
     if (!d.success) return mostrarResultado('err', '⚠️ <strong>Erro ao gerar a prévia.</strong><br>' + escapeHtml(d.error || ''), d);
-    const nota = d.declaracoesSalvas ? '' : '<div style="font-size:0.85em; color:var(--text-3); margin-top:6px;">Obs.: as declarações serão salvas no PCP no momento do envio (ME/EPP=' + (d.epp ? 'Sim' : 'Não') + ', validade ' + d.validade + ' dias).</div>';
+    const nota = d.declaracoesSalvas ? '' : '<div style="font-size:var(--text-xs); color:var(--text-3); margin-top:6px;">Obs.: as declarações serão salvas no PCP no momento do envio (ME/EPP=' + (d.epp ? 'Sim' : 'Não') + ', validade ' + d.validade + ' dias).</div>';
     mostrarResultado('info', '🔎 <strong>Prévia gerada — nada foi enviado.</strong><div style="margin-top:8px; font-size:0.95em;">Ao confirmar, será enviado ao PCP:<div style="margin-top:6px;">' + itensResumoHtml(d.itens) + '</div>' + nota + '</div>', d);
   } catch (e) { alerta('Erro: ' + e.message, 'err'); }
 }

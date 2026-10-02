@@ -42,11 +42,11 @@ body {
 .topo-linha { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .emit-nome { font-size: 1.15rem; font-weight: 700; color: var(--text-0); }
 .emit-dados { font-size: 0.86rem; color: var(--text-2); margin-top: 4px; line-height: 1.5; }
-.doc-tipo { font-size: 0.72rem; font-weight: 700; letter-spacing: .1em; color: var(--azul); text-transform: uppercase; }
+.doc-tipo { font-size: var(--text-xs); font-weight: 700; letter-spacing: .1em; color: var(--azul); text-transform: uppercase; }
 .doc-num { font-size: 1.4rem; font-weight: 700; color: var(--text-0); font-variant-numeric: tabular-nums; }
 .doc-data { font-size: 0.82rem; color: var(--text-2); margin-top: 2px; }
 .secao { padding: 18px 24px; border-bottom: 1px solid var(--border); }
-.secao-tit { font-size: 0.7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); margin-bottom: 8px; }
+.secao-tit { font-size: var(--text-xs); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); margin-bottom: 8px; }
 
 /* Itens: TABELA no desktop, CARDS no celular.
    Não é a tabela encolhida — abaixo de 680px cada item vira um bloco com
@@ -54,7 +54,7 @@ body {
    inteira, e uma tabela de 6 colunas em 360px não permite isso. */
 table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
 thead th {
-  background: var(--bg-2); color: var(--text-2); font-size: 0.7rem; font-weight: 700;
+  background: var(--bg-2); color: var(--text-2); font-size: var(--text-xs); font-weight: 700;
   letter-spacing: .05em; text-transform: uppercase; text-align: left;
   padding: 9px 10px; border-bottom: 1px solid var(--border-strong);
 }

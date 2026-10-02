@@ -10,22 +10,22 @@
 <style>
   .rt-toolbar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
   .rt-toolbar .field { display: flex; flex-direction: column; gap: 4px; }
-  .rt-toolbar label { font-size: 0.78em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .rt-toolbar label { font-size: var(--text-xs); color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
   .rt-toolbar input, .rt-toolbar select { background: var(--bg-input); color: var(--text-0); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 6px 10px; }
 
   .rt-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
   .rt-kpi { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 12px 14px; }
-  .rt-kpi .label { font-size: 0.78em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .rt-kpi .label { font-size: var(--text-xs); color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
   .rt-kpi .value { font-size: 1.25em; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
 
   .rt-tbl { width: 100%; border-collapse: collapse; background: var(--bg-2); border-radius: var(--r-lg); overflow: hidden; }
-  .rt-tbl th { text-align: left; font-size: 0.76em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-2); padding: 10px 12px; background: var(--bg-1); border-bottom: 1px solid var(--border); }
+  .rt-tbl th { text-align: left; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-2); padding: 10px 12px; background: var(--bg-1); border-bottom: 1px solid var(--border); }
   .rt-tbl td { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 0.9em; color: var(--text-0); }
   .rt-tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .rt-tbl tfoot td { background: var(--bg-1); font-weight: 700; color: var(--accent); }
 
   .modal .form-ret { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .modal .form-ret label { color: var(--text-2); font-size: 0.85em; margin-bottom: 4px; display: block; }
+  .modal .form-ret label { color: var(--text-2); font-size: var(--text-xs); margin-bottom: 4px; display: block; }
   .modal .form-ret input { width: 100%; background: var(--bg-input); color: var(--text-0); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 6px 10px; text-align: right; font-variant-numeric: tabular-nums; }
   .modal .form-ret .full { grid-column: 1 / -1; }
   .modal .resumo { padding: 10px; background: var(--bg-1); border-radius: var(--r-md); margin: 12px 0; font-size: 0.9em; }
@@ -187,7 +187,7 @@ function renderTabela(contas){
       <td class="num">${iss?'R$ '+fmt(iss):'<span style="color:var(--text-3);">—</span>'}</td>
       <td class="num">${csrf?'R$ '+fmt(csrf):'<span style="color:var(--text-3);">—</span>'}</td>
       <td class="num">R$ ${fmt(liq)}</td>
-      <td class="num"><button class="btn btn-secondary" style="padding:4px 8px;font-size:0.8em;" onclick="abrirEdicao(${c.id})">✏️ Editar</button></td>
+      <td class="num"><button class="btn btn-secondary" style="padding:4px 8px;font-size:var(--text-xs);" onclick="abrirEdicao(${c.id})">✏️ Editar</button></td>
     </tr>`;
   }).join('');
   tf.innerHTML = `<tr>

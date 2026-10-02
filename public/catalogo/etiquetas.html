@@ -11,7 +11,7 @@
                 padding:6px; overflow:auto; max-height:520px; }
   .prev-et { border:1px dashed #bbb; box-sizing:border-box; overflow:hidden;
              display:flex; flex-direction:column; align-items:center; justify-content:center; }
-  .sub { display:block; color:var(--text-3); font-size:.78em; }
+  .sub { display:block; color:var(--text-3); font-size:var(--text-xs); }
 </style>
 <style media="print">
   body * { visibility: hidden; }
@@ -81,7 +81,7 @@
         <small class="muted">Corrige desvio da impressora</small></div>
       <div class="form-group"><label>Ajuste fino ↓ (mm)</label><input type="number" id="offY" step="0.5" value="0" onchange="previa()"></div>
       <div class="form-group full-width"><label>&nbsp;</label>
-        <div id="infoGrade" class="muted" style="font-size:.85em;"></div></div>
+        <div id="infoGrade" class="muted" style="font-size:var(--text-xs);"></div></div>
     </div>
     <div class="modal-actions" style="justify-content:flex-start;">
       <button class="btn btn-secondary" onclick="previa()">Ver prévia</button>

@@ -76,7 +76,7 @@
         }
         .tbl-wrap th.sortable { cursor: pointer; }
         .tbl-wrap th.sortable:hover { background: var(--bg-2); }
-        .tbl-wrap th .sort-arrow { opacity: 0.5; font-size: 10px; margin-left: 4px; }
+        .tbl-wrap th .sort-arrow { opacity: 0.5; font-size: var(--text-xs); margin-left: 4px; }
         .tbl-wrap th.sorted .sort-arrow { opacity: 1; color: var(--accent); }
         .tbl-wrap td {
             white-space: nowrap;
@@ -151,9 +151,9 @@
             margin-top: 8px;
             border-top: 1px solid var(--border);
         }
-        .col-chooser .col-chooser-footer button { font-size: 0.78em; padding: 4px 10px; }
+        .col-chooser .col-chooser-footer button { font-size: var(--text-xs); padding: 4px 10px; }
         .seg-linha { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
-        .seg-qtd { min-width: 56px; text-align: right; font-size: 0.85em; color: var(--text-3); font-variant-numeric: tabular-nums; }
+        .seg-qtd { min-width: 56px; text-align: right; font-size: var(--text-xs); color: var(--text-3); font-variant-numeric: tabular-nums; }
         .seg-remover { min-width: 78px; }
     </style>
 </head>
@@ -197,7 +197,7 @@
                 <button class="btn btn-ghost btn-sm" id="btnColunas" onclick="toggleColChooser(event)"><svg class="ic-sm"><use href="#i-settings"/></svg> Colunas</button>
                 <div class="col-chooser" id="colChooser"></div>
             </div>
-            <span id="totalPessoas" style="font-size:0.85em; color:var(--text-3);"></span>
+            <span id="totalPessoas" style="font-size:var(--text-xs); color:var(--text-3);"></span>
         </div>
 
         <!-- Ações em massa: só aparece com alguém selecionado, para não poluir
@@ -244,7 +244,7 @@
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:12px; flex-wrap:wrap;">
                 <h3 id="formTitle" style="margin:0;">Novo cadastro</h3>
                 <div style="display:flex; align-items:center; gap:8px;">
-                    <label style="display:flex; align-items:center; gap:6px; margin:0; font-size:0.85em; color:var(--text-2);">
+                    <label style="display:flex; align-items:center; gap:6px; margin:0; font-size:var(--text-xs); color:var(--text-2);">
                         Status
                         <select id="ativo" style="width:auto;" onchange="onStatusChange()">
                             <option value="1">Ativo</option>
@@ -258,7 +258,7 @@
                 </div>
             </div>
             <div id="motivoInativacaoBox" style="display:none; margin-bottom:14px;">
-                <label style="font-size:0.85em;">Motivo da inativação (opcional)</label>
+                <label style="font-size:var(--text-xs);">Motivo da inativação (opcional)</label>
                 <input type="text" id="motivoInativacao" placeholder="ex: encerrou atividades, cliente duplicado">
             </div>
 
@@ -544,23 +544,23 @@
                 </div>
 
                 <h4 style="margin-top:22px; color:var(--text-2); font-size:0.95em;">Endereços adicionais (entrega / cobrança)</h4>
-                <div id="enderecosAdicionaisVazio" style="color:var(--text-3); font-size:0.85em;">Nenhum endereço adicional. Clique em "+ Adicionar" para cadastrar.</div>
+                <div id="enderecosAdicionaisVazio" style="color:var(--text-3); font-size:var(--text-xs);">Nenhum endereço adicional. Clique em "+ Adicionar" para cadastrar.</div>
                 <div id="enderecosAdicionaisLista"></div>
                 <button type="button" class="btn btn-secondary btn-sm" id="btnAddEndereco" onclick="abrirModalEndereco()" style="margin-top:10px;">+ Adicionar endereço</button>
             </div>
 
             <!-- SUB-ABA: CONTATOS -->
             <div class="subtab-content" data-subtab-pane="contatos" style="display:none;">
-                <p style="color:var(--text-3); font-size:0.85em;">Cadastre contatos separados por área (financeiro, comercial, fiscal…). O telefone e e-mail principais ficam na aba Endereços.</p>
-                <div id="contatosVazio" style="color:var(--text-3); font-size:0.85em; margin-top:10px;">Nenhum contato cadastrado.</div>
+                <p style="color:var(--text-3); font-size:var(--text-xs);">Cadastre contatos separados por área (financeiro, comercial, fiscal…). O telefone e e-mail principais ficam na aba Endereços.</p>
+                <div id="contatosVazio" style="color:var(--text-3); font-size:var(--text-xs); margin-top:10px;">Nenhum contato cadastrado.</div>
                 <div id="contatosLista"></div>
                 <button type="button" class="btn btn-secondary btn-sm" id="btnAddContato" onclick="abrirModalContato()" style="margin-top:10px;">+ Adicionar contato</button>
             </div>
 
             <!-- SUB-ABA: DADOS BANCÁRIOS -->
             <div class="subtab-content" data-subtab-pane="bancario" style="display:none;">
-                <p style="color:var(--text-3); font-size:0.85em;">Contas bancárias e chaves PIX usadas em pagamento e cobrança.</p>
-                <div id="bancariosVazio" style="color:var(--text-3); font-size:0.85em; margin-top:10px;">Nenhuma conta bancária cadastrada.</div>
+                <p style="color:var(--text-3); font-size:var(--text-xs);">Contas bancárias e chaves PIX usadas em pagamento e cobrança.</p>
+                <div id="bancariosVazio" style="color:var(--text-3); font-size:var(--text-xs); margin-top:10px;">Nenhuma conta bancária cadastrada.</div>
                 <div id="bancariosLista"></div>
                 <button type="button" class="btn btn-secondary btn-sm" id="btnAddBancario" onclick="abrirModalBancario()" style="margin-top:10px;">+ Adicionar conta / PIX</button>
             </div>
@@ -685,7 +685,7 @@
                         <button type="button" class="btn btn-secondary btn-sm" onclick="adicionarIntegracao()">+ Adicionar</button>
                     </div>
                 </div>
-                <p style="color:var(--text-3); font-size:0.85em; margin-top:-6px;">
+                <p style="color:var(--text-3); font-size:var(--text-xs); margin-top:-6px;">
                     Sem integração, "Enviar ao fornecedor" apenas marca o pedido como enviado.
                     Os tipos disponíveis são definidos em <a href="/compras/integracao-tipos.html">Tipos de Integração</a>.
                 </p>
@@ -711,7 +711,7 @@
                         </select>
                     </div>
                 </div>
-                <p style="color:var(--text-3); font-size:0.85em; margin-top:-6px;">
+                <p style="color:var(--text-3); font-size:var(--text-xs); margin-top:-6px;">
                     A condição de pagamento fica na aba Financeiro, e vale para os dois lados.
                 </p>
 
@@ -737,11 +737,11 @@
                 </div>
 
                 <h4 style="margin-top:22px; color:var(--text-2); font-size:0.95em;">Certidões e documentos</h4>
-                <p style="color:var(--text-3); font-size:0.85em;">
+                <p style="color:var(--text-3); font-size:var(--text-xs);">
                     Documentos com validade. Vencer sem aviso trava uma compra ou derruba uma
                     habilitação, e o arquivo em si vai na aba Anexos.
                 </p>
-                <div id="documentosVazio" style="color:var(--text-3); font-size:0.85em; margin-top:10px;">Nenhum documento.</div>
+                <div id="documentosVazio" style="color:var(--text-3); font-size:var(--text-xs); margin-top:10px;">Nenhum documento.</div>
                 <div id="documentosLista"></div>
                 <!-- Formulário inline: escolher o tipo num <select> em vez de
                      digitar um número num prompt. -->
@@ -770,8 +770,8 @@
 
             <!-- SUB-ABA: ANEXOS -->
             <div class="subtab-content" data-subtab-pane="anexos" style="display:none;">
-                <p style="color:var(--text-3); font-size:0.85em;">Contratos, procurações, certidões, CNDs. Limite 10 MB por arquivo.</p>
-                <div id="anexosVazio" style="color:var(--text-3); font-size:0.85em; margin-top:10px;">Nenhum anexo.</div>
+                <p style="color:var(--text-3); font-size:var(--text-xs);">Contratos, procurações, certidões, CNDs. Limite 10 MB por arquivo.</p>
+                <div id="anexosVazio" style="color:var(--text-3); font-size:var(--text-xs); margin-top:10px;">Nenhum anexo.</div>
                 <div id="anexosLista"></div>
                 <div id="anexosUploadBar" style="margin-top:14px;">
                     <div class="form-row">
@@ -802,7 +802,7 @@
 
             <!-- SUB-ABA: LGPD -->
             <div class="subtab-content" data-subtab-pane="lgpd" style="display:none;">
-                <p style="color:var(--text-3); font-size:0.85em; margin-bottom:14px;">Lei Geral de Proteção de Dados. Registre o consentimento e as permissões de marketing.</p>
+                <p style="color:var(--text-3); font-size:var(--text-xs); margin-bottom:14px;">Lei Geral de Proteção de Dados. Registre o consentimento e as permissões de marketing.</p>
                 <div class="form-row">
                     <div class="form-group" style="display:flex; align-items:flex-end;">
                         <label style="display:flex; align-items:center; gap:6px; margin-bottom:10px;">
@@ -834,7 +834,7 @@
 
             <!-- SUB-ABA: HISTÓRICO -->
             <div class="subtab-content" data-subtab-pane="historico" style="display:none;">
-                <p style="color:var(--text-3); font-size:0.85em;">Quem mexeu nesta ficha, quando e o que mudou — inclui contatos, endereços, dados bancários e anexos.</p>
+                <p style="color:var(--text-3); font-size:var(--text-xs);">Quem mexeu nesta ficha, quando e o que mudou. Inclui contatos, endereços, dados bancários e anexos.</p>
                 <div id="historicoLista" style="margin-top:12px;"></div>
             </div>
         </div>
@@ -946,7 +946,7 @@
           sortKey: p => p.situacaoCadastralReceita || '' },
         { key: 'categorias',       label: 'Categorias',   width: 160, visivel: false,
           render: p => {
-              try { const c = JSON.parse(p.categorias || '[]'); return c.length ? c.map(x => `<span class="badge" style="font-size:10px;">${esc(x)}</span>`).join(' ') : '—'; }
+              try { const c = JSON.parse(p.categorias || '[]'); return c.length ? c.map(x => `<span class="badge" style="font-size:var(--text-xs);">${esc(x)}</span>`).join(' ') : '—'; }
               catch { return '—'; }
           },
           sortKey: p => p.categorias || '' },
@@ -1466,7 +1466,7 @@
                     <div class="form-group full-width">
                         <label>${c.rotulo || c.chave}</label>
                         ${c.tipo === 'textarea'
-                            ? `<textarea id="ip_${c.chave}" rows="3" style="font-family:monospace;font-size:0.85em;"></textarea>`
+                            ? `<textarea id="ip_${c.chave}" rows="3" style="font-family:monospace;font-size:var(--text-xs);"></textarea>`
                             : `<input type="text" id="ip_${c.chave}">`}
                         ${c.dica ? `<small class="muted">${c.dica}</small>` : ''}
                     </div>
@@ -2002,7 +2002,7 @@
     function renderContatos(contatos) {
         const ul = document.getElementById('contatosLista');
         if (!contatos.length) {
-            ul.innerHTML = '<p style="color:var(--text-3); font-size:0.85em;">Nenhum contato cadastrado.</p>';
+            ul.innerHTML = '<p style="color:var(--text-3); font-size:var(--text-xs);">Nenhum contato cadastrado.</p>';
             return;
         }
         ul.innerHTML = `<table style="width:100%; border-collapse:collapse; font-size:0.88em;">
@@ -2194,7 +2194,7 @@
     function renderEnderecos(enderecos) {
         const ul = document.getElementById('enderecosAdicionaisLista');
         if (!enderecos.length) {
-            ul.innerHTML = '<p style="color:var(--text-3); font-size:0.85em;">Nenhum endereço adicional.</p>';
+            ul.innerHTML = '<p style="color:var(--text-3); font-size:var(--text-xs);">Nenhum endereço adicional.</p>';
             return;
         }
         ul.innerHTML = enderecos.map(e => `
@@ -2267,7 +2267,7 @@
     function renderBancarios(contas) {
         const ul = document.getElementById('bancariosLista');
         if (!contas.length) {
-            ul.innerHTML = '<p style="color:var(--text-3); font-size:0.85em;">Nenhuma conta bancária cadastrada.</p>';
+            ul.innerHTML = '<p style="color:var(--text-3); font-size:var(--text-xs);">Nenhuma conta bancária cadastrada.</p>';
             return;
         }
         ul.innerHTML = contas.map(c => `
@@ -2330,7 +2330,7 @@
     function renderAnexos(anexos) {
         const ul = document.getElementById('anexosLista');
         if (!anexos.length) {
-            ul.innerHTML = '<p style="color:var(--text-3); font-size:0.85em;">Nenhum anexo.</p>';
+            ul.innerHTML = '<p style="color:var(--text-3); font-size:var(--text-xs);">Nenhum anexo.</p>';
             return;
         }
         ul.innerHTML = `<table style="width:100%; border-collapse:collapse; font-size:0.88em;">
@@ -2389,26 +2389,26 @@
         const box = document.getElementById('historicoLista');
         if (!box) return;
         if (!pessoaId) {
-            box.innerHTML = '<div style="color:var(--text-3);font-size:0.85em;">O histórico começa depois que o cadastro for salvo.</div>';
+            box.innerHTML = '<div style="color:var(--text-3);font-size:var(--text-xs);">O histórico começa depois que o cadastro for salvo.</div>';
             return;
         }
-        box.innerHTML = '<div style="color:var(--text-3);font-size:0.85em;">Carregando…</div>';
+        box.innerHTML = '<div style="color:var(--text-3);font-size:var(--text-xs);">Carregando…</div>';
         try {
             const r = await fetch('/api/pessoas/' + pessoaId + '/historico');
             const d = await r.json();
             if (!d.success) throw new Error(d.error || 'falha');
             if (!d.eventos.length) {
-                box.innerHTML = '<div style="color:var(--text-3);font-size:0.85em;">Nenhuma atividade registrada.</div>';
+                box.innerHTML = '<div style="color:var(--text-3);font-size:var(--text-xs);">Nenhuma atividade registrada.</div>';
                 return;
             }
             box.innerHTML = d.eventos.map(ev => `
                 <div style="border-left:2px solid var(--border);padding:6px 0 6px 12px;margin-bottom:8px;">
-                    <div style="font-size:0.85em;color:var(--text-3);">${esc(fmtDataHora(ev.createdAt))} · ${esc(ev.username || 'sistema')}</div>
+                    <div style="font-size:var(--text-xs);color:var(--text-3);">${esc(fmtDataHora(ev.createdAt))} · ${esc(ev.username || 'sistema')}</div>
                     <div><strong>${esc(HIST_ACOES[ev.action] || ev.action)}</strong></div>
                     ${detalheEvento(ev)}
                 </div>`).join('');
         } catch (e) {
-            box.innerHTML = `<div style="color:var(--text-3);font-size:0.85em;">Não foi possível carregar o histórico: ${esc(e.message)}</div>`;
+            box.innerHTML = `<div style="color:var(--text-3);font-size:var(--text-xs);">Não foi possível carregar o histórico: ${esc(e.message)}</div>`;
         }
     }
 

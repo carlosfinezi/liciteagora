@@ -11,8 +11,8 @@
 @media (max-width: 980px) { .cards-grid { grid-template-columns: 1fr; } }
 .ativ-item { padding:10px; border-left:3px solid var(--accent); background:var(--bg-1); margin-bottom:8px; border-radius:var(--r-md); }
 .ativ-item.concluida { border-left-color:var(--success); opacity:.7; }
-.ativ-meta { color:var(--text-3); font-size:11px; margin-top:4px; }
-.tipo-badge { display:inline-block; padding:1px 7px; border-radius:var(--r-lg); font-size:10px; background:var(--border); color:var(--text-2); margin-right:6px; }
+.ativ-meta { color:var(--text-3); font-size:var(--text-xs); margin-top:4px; }
+.tipo-badge { display:inline-block; padding:1px 7px; border-radius:var(--r-lg); font-size:var(--text-xs); background:var(--border); color:var(--text-2); margin-right:6px; }
 </style>
 </head>
 <body>
@@ -133,7 +133,7 @@
           <label style="margin:0;">Itens / Produtos</label>
           <button type="button" class="btn btn-ghost btn-sm" onclick="addItem()">+ Adicionar item</button>
         </div>
-        <div id="edItensHeader" style="display:none;grid-template-columns:1fr 80px 110px 100px 30px;gap:6px;font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;padding:0 2px;">
+        <div id="edItensHeader" style="display:none;grid-template-columns:1fr 80px 110px 100px 30px;gap:6px;font-size:var(--text-xs);color:var(--text-3);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;padding:0 2px;">
           <div>Produto</div>
           <div style="text-align:right;">Quantidade</div>
           <div style="text-align:right;">Preço un</div>
@@ -222,8 +222,8 @@ function renderResumo(){
     </table>
     <div style="margin-top:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-        <label class="muted" style="margin:0;font-size:0.82em;">Descrição</label>
-        <small id="descStatus" class="muted" style="font-size:0.78em;"></small>
+        <label class="muted" style="margin:0;font-size:var(--text-xs);">Descrição</label>
+        <small id="descStatus" class="muted" style="font-size:var(--text-xs);"></small>
       </div>
       <textarea id="descInline" rows="3" placeholder="Anotações sobre a oportunidade… (salva sozinho)"
         oninput="descAutoSave()" onblur="descAutoSave(true)">${escapeHtml(op.descricao||'')}</textarea>
@@ -283,7 +283,7 @@ function renderItensResumo(){
   }).join('');
   return `<div style="margin-top:14px;">
     <h4 style="margin:0 0 6px;font-size:0.95em;">Itens / Produtos</h4>
-    <table style="width:100%;font-size:0.85em;border-collapse:collapse;">
+    <table style="width:100%;font-size:var(--text-xs);border-collapse:collapse;">
       <thead><tr style="color:var(--text-3);">
         <th style="text-align:left;padding:4px 0;">Produto</th>
         <th style="text-align:right;padding:4px 0;">Qtd</th>
@@ -304,7 +304,7 @@ function renderAtividades(ativs){
         <span class="tipo-badge">${a.tipo}</span>
         <strong>${escapeHtml(a.titulo)}</strong>
       </div>
-      ${a.descricao ? `<div style="font-size:0.82em;margin-top:4px;color:var(--text-2);">${escapeHtml(a.descricao)}</div>` : ''}
+      ${a.descricao ? `<div style="font-size:var(--text-xs);margin-top:4px;color:var(--text-2);">${escapeHtml(a.descricao)}</div>` : ''}
       <div class="ativ-meta">
         📅 ${fmtDataHora(a.dataHora)} · ${a.usuarioNome||'—'}
         ${a.concluida ? `· ✅ ${fmtDataHora(a.dataConclusao)}` : ''}

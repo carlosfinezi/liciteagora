@@ -9,12 +9,12 @@
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
         /* page-local: cartões de provedor de IA */
-        .hint { display: block; margin-top: 4px; color: var(--text-3); font-size: 0.78em; }
+        .hint { display: block; margin-top: 4px; color: var(--text-3); font-size: var(--text-xs); }
         p.hint { margin: 0 0 15px; font-size: 0.9em; }
         .status-box { background: var(--bg-1); }
         .ia-provider { background: var(--bg-1); border-left: 3px solid var(--border-strong); margin-bottom: 15px; }
         .ia-provider .head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-        .ia-provider .head .status { margin-left: auto; font-size: 0.85em; }
+        .ia-provider .head .status { margin-left: auto; font-size: var(--text-xs); }
         .ia-provider .acoes { display: flex; gap: 10px; align-items: center; }
     </style>
 </head>
@@ -174,7 +174,7 @@
                         </div>
                         <div class="acoes">
                             <button type="button" class="btn btn-danger btn-sm" id="remover-cerebras" style="display:none;" onclick="removerChaveIA('cerebras')">Remover</button>
-                            <a href="https://cloud.cerebras.ai" target="_blank" style="font-size: 0.85em;">Obter chave (free 1M tok/dia)</a>
+                            <a href="https://cloud.cerebras.ai" target="_blank" style="font-size: var(--text-xs);">Obter chave (free 1M tok/dia)</a>
                         </div>
                     </div>
 
@@ -196,7 +196,7 @@
                         </div>
                         <div class="acoes">
                             <button type="button" class="btn btn-danger btn-sm" id="remover-groq" style="display:none;" onclick="removerChaveIA('groq')">Remover</button>
-                            <a href="https://console.groq.com/keys" target="_blank" style="font-size: 0.85em;">Obter chave (free tier disponível)</a>
+                            <a href="https://console.groq.com/keys" target="_blank" style="font-size: var(--text-xs);">Obter chave (free tier disponível)</a>
                         </div>
                     </div>
 
@@ -218,7 +218,7 @@
                         </div>
                         <div class="acoes">
                             <button type="button" class="btn btn-danger btn-sm" id="remover-gemini" style="display:none;" onclick="removerChaveIA('gemini')">Remover</button>
-                            <a href="https://aistudio.google.com/apikey" target="_blank" style="font-size: 0.85em;">Obter chave gratuita</a>
+                            <a href="https://aistudio.google.com/apikey" target="_blank" style="font-size: var(--text-xs);">Obter chave gratuita</a>
                         </div>
                     </div>
 
@@ -240,7 +240,7 @@
                         </div>
                         <div class="acoes">
                             <button type="button" class="btn btn-danger btn-sm" id="remover-deepseek" style="display:none;" onclick="removerChaveIA('deepseek')">Remover</button>
-                            <a href="https://platform.deepseek.com" target="_blank" style="font-size: 0.85em;">Obter chave (pago, ~$0.003/análise)</a>
+                            <a href="https://platform.deepseek.com" target="_blank" style="font-size: var(--text-xs);">Obter chave (pago, ~$0.003/análise)</a>
                         </div>
                     </div>
 
@@ -262,7 +262,7 @@
                         </div>
                         <div class="acoes">
                             <button type="button" class="btn btn-danger btn-sm" id="remover-anthropic" style="display:none;" onclick="removerChaveIA('anthropic')">Remover</button>
-                            <a href="https://console.anthropic.com/settings/keys" target="_blank" style="font-size: 0.85em;">Obter chave (pago)</a>
+                            <a href="https://console.anthropic.com/settings/keys" target="_blank" style="font-size: var(--text-xs);">Obter chave (pago)</a>
                         </div>
                     </div>
                 </div>
@@ -394,7 +394,7 @@
                 const nome = PROVIDERS[p.provider] ? PROVIDERS[p.provider].nome : p.provider;
                 let detalhe = '';
                 if (estado === 'erro' && p.ultimo) {
-                    detalhe = `<code style="font-size:.8em;">${esc(p.ultimo.erro)}</code>`;
+                    detalhe = `<code style="font-size:var(--text-xs);">${esc(p.ultimo.erro)}</code>`;
                 } else if (estado === 'cooldown') {
                     detalhe = `Liberado às ${dataHora(p.cooldownAte)} — rate limit (429)`;
                 } else if (estado === 'ok') {
@@ -426,7 +426,7 @@
                 const tbFalhas = document.querySelector('#tabelaFalhas tbody');
                 tbFalhas.innerHTML = j.falhas.length
                     ? j.falhas.map(f => `<tr>
-                        <td><code style="font-size:.8em;">${esc(f.erro)}</code></td>
+                        <td><code style="font-size:var(--text-xs);">${esc(f.erro)}</code></td>
                         <td>${f.ocorrencias}</td>
                         <td>${f.maxTentativas}</td>
                         <td>${dataHora(f.ultimaEm)}</td>
@@ -480,7 +480,7 @@
                         <td>${dataHora(e.em)}</td>
                         <td>${esc(PROVIDERS[e.provider] ? PROVIDERS[e.provider].nome : e.provider)}</td>
                         <td>${e.httpStatus || '—'}</td>
-                        <td><code style="font-size:.8em;">${esc(e.erro)}</code></td>
+                        <td><code style="font-size:var(--text-xs);">${esc(e.erro)}</code></td>
                         <td><span class="badge ${e.origem === 'teste' ? 'inativo' : 'pendente'}">${esc(e.origem || 'analise')}</span></td>
                       </tr>`).join('')
                     : '<tr><td colspan="5" class="text-success">Nenhuma falha registrada.</td></tr>';
@@ -613,7 +613,7 @@
                         .filter(([p]) => keyData[p]?.configurada)
                         .map(([, cfg]) => cfg.nome);
                     statusDiv.innerHTML = `<span class="text-success">✓ Análise IA ativa</span>` +
-                        `<span class="muted" style="font-size: 0.85em; margin-left: 10px;">Provider: ${nomes.join(' + ')}</span>`;
+                        `<span class="muted" style="font-size: var(--text-xs); margin-left: 10px;">Provider: ${nomes.join(' + ')}</span>`;
                 } else {
                     statusDiv.innerHTML = '<span class="text-warn">⚠ Nenhuma chave configurada — análise IA desabilitada</span>';
                 }

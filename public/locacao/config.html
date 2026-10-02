@@ -54,7 +54,7 @@
     <h3>Travas operacionais</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Exigir caução definida na saída</label>
+        <label>Caução obrigatória</label>
         <select id="cExigirCaucao">
           <option value="1">Sim — não deixa sair sem</option>
           <option value="0">Não</option>
@@ -69,7 +69,7 @@
         <small class="muted">A OS é o que guarda foto, checklist e assinatura. Desligar tira a prova em caso de avaria.</small>
       </div>
       <div class="form-group">
-        <label>Permitir reservar acima do disponível</label>
+        <label>Reserva acima do disponível</label>
         <select id="cOverbooking">
           <option value="0">Não — recusa o conflito</option>
           <option value="1">Sim — apenas avisa</option>
@@ -82,7 +82,7 @@
     <h3>Regras do contrato impresso</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>A diária termina em que horário?</label>
+        <label>Horário de corte da diária</label>
         <input type="text" id="cHoraCorte" placeholder="17:30 — vazio = 24h corridas" maxlength="5">
         <small class="muted">
           Com 17:30, quem retira 9h e devolve 18h paga <strong>2 diárias</strong>:
@@ -90,9 +90,9 @@
         </small>
       </div>
       <div class="form-group">
-        <label>Limpeza (% do valor da locação)</label>
+        <label>Taxa de limpeza</label>
         <input type="number" id="cLimpezaPct" step="0.01" min="0" max="1000" placeholder="ex.: 40">
-        <small class="muted">Cobrado quando a devolução for marcada como "precisa de limpeza".</small>
+        <small class="muted">Percentual sobre o valor da locação. Cobrado quando a devolução for marcada como "precisa de limpeza".</small>
       </div>
       <div class="form-group">
         <label>Valor mínimo de locação (R$)</label>
@@ -110,7 +110,7 @@
     <h3>Nota promissória</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Valor da promissória é calculado sobre</label>
+        <label>Base da promissória</label>
         <select id="cPromBase">
           <option value="reposicao">o valor de reposição dos equipamentos (garante a frota)</option>
           <option value="locacao">o valor do aluguel</option>
@@ -122,8 +122,9 @@
         </small>
       </div>
       <div class="form-group">
-        <label>Vencimento (dias após o retorno previsto)</label>
+        <label>Vencimento da promissória</label>
         <input type="number" id="cPromDias" min="0" max="3650" step="1">
+        <small class="muted">Em dias, contados do retorno previsto.</small>
       </div>
     </div>
   </div>

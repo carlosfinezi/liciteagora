@@ -23,14 +23,14 @@
 
   <div class="panel" id="painelEditais">
     <h2>Escolha a licitação</h2>
-    <p style="color: var(--text-2); font-size: 0.85em;">
+    <p style="color: var(--text-2); font-size: var(--text-xs);">
       Seus editais de origem <strong>BLL</strong> (dos seus Interesses). Clique em <em>Carregar</em> — sem colar link nenhum.
       <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="carregarEditais()">🔄 Atualizar</button>
-      <a href="#" style="margin-left:8px; font-size:0.9em;" onclick="event.preventDefault(); toggleManual()">colar URL manualmente ▾</a>
+      <a href="#" style="margin-left:8px; font-size:var(--text-sm);" onclick="event.preventDefault(); toggleManual()">colar URL manualmente ▾</a>
     </p>
-    <div id="listaEditais" style="font-size:0.85em;">carregando…</div>
+    <div id="listaEditais" style="font-size:var(--text-xs);">carregando…</div>
     <div id="painelManual" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
-      <p style="color: var(--text-3); font-size: 0.8em; margin:0 0 6px;">Avançado — URL da tela de proposta (<code>/Proposal/Proposal?param1=…</code>) ou o token <code>param1</code>:</p>
+      <p style="color: var(--text-3); font-size: var(--text-xs); margin:0 0 6px;">Avançado — URL da tela de proposta (<code>/Proposal/Proposal?param1=…</code>) ou o token <code>param1</code>:</p>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <input id="inpUrl" class="form-control" style="flex:1; min-width:320px;" placeholder="https://bllcompras.com/Proposal/Proposal?param1=[gkz]…">
         <button class="btn btn-primary btn-sm" id="btnCarregar" onclick="carregarItens()">Carregar itens</button>
@@ -62,8 +62,8 @@
   <div class="panel" id="painelResultado" style="display:none;">
     <div id="outResultado"></div>
     <details style="margin-top:10px;">
-      <summary style="cursor:pointer; font-size:0.8em; color:var(--text-3);">detalhes técnicos</summary>
-      <pre id="outJson" style="white-space:pre-wrap; word-break:break-all; font-size:0.75em; background:var(--bg-2); padding:12px; border-radius:var(--r-sm); margin-top:6px;"></pre>
+      <summary style="cursor:pointer; font-size:var(--text-xs); color:var(--text-3);">detalhes técnicos</summary>
+      <pre id="outJson" style="white-space:pre-wrap; word-break:break-all; font-size:var(--text-xs); background:var(--bg-2); padding:12px; border-radius:var(--r-sm); margin-top:6px;"></pre>
     </details>
   </div>
 </main></div>
@@ -82,7 +82,7 @@ function fmtBR(n) { return (Number(n) || 0).toFixed(2).replace('.', ','); }
 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function toggleManual() { const p = document.getElementById('painelManual'); p.style.display = p.style.display === 'none' ? '' : 'none'; }
 function mostrarResultado(kind, corpoHtml, jsonObj) {
-  const cor = kind === 'ok' ? '#1a7f37' : (kind === 'err' ? '#c0392b' : '#2563eb');
+  const cor = kind === 'ok' ? 'var(--success)' : (kind === 'err' ? 'var(--danger)' : 'var(--accent)');
   document.getElementById('painelResultado').style.display = '';
   document.getElementById('outResultado').innerHTML =
     '<div style="padding:14px 16px; border-radius:var(--r-sm); background:' + cor + '14; border-left:4px solid ' + cor + '; line-height:1.5;">' + corpoHtml + '</div>';
@@ -97,11 +97,11 @@ function renderDocumentos(docs) {
   if (!docs || !docs.length) { el.innerHTML = ''; return; }
   const linhas = docs.map((d) => {
     const st = d.anexado ? ('✅ anexado' + (d.nomeArquivo ? ' (' + escapeHtml(d.nomeArquivo) + ')' : '')) : (d.obrigatorio ? '⛔ falta anexar arquivo' : '— opcional (sem arquivo)');
-    const cor = d.anexado ? 'var(--text-2)' : (d.obrigatorio ? '#c0392b' : 'var(--text-3)');
+    const cor = d.anexado ? 'var(--text-2)' : (d.obrigatorio ? 'var(--danger)' : 'var(--text-3)');
     const up = !d.anexado ? ('<div style="margin-top:5px; display:flex; gap:6px; align-items:center; flex-wrap:wrap;">' +
-      '<input type="file" id="file_' + d.index + '" accept="application/pdf,image/*" style="font-size:0.82em;">' +
+      '<input type="file" id="file_' + d.index + '" accept="application/pdf,image/*" style="font-size:var(--text-xs);">' +
       '<button class="btn btn-primary btn-sm" onclick="anexarArquivo(' + d.index + ')">Anexar</button>' +
-      '<span id="upst_' + d.index + '" style="font-size:0.85em; color:var(--text-2);"></span></div>') : '';
+      '<span id="upst_' + d.index + '" style="font-size:var(--text-xs); color:var(--text-2);"></span></div>') : '';
     return '<div style="padding:6px 0; border-top:1px solid var(--border);"><div style="color:' + cor + ';">' + (d.obrigatorio ? '<strong>[obrigatório]</strong> ' : '') + escapeHtml(d.label) + ' — ' + st + '</div>' + up + '</div>';
   }).join('');
   el.innerHTML = '<div style="font-weight:600; margin-bottom:6px;">📎 Documentos exigidos</div>' + linhas;
@@ -210,7 +210,7 @@ async function carregarItens() {
       const refTxt = ref != null ? ('referência: R$ ' + fmtBR(ref) + (it.unidade ? ' /' + escapeHtml(it.unidade) : '') + (it.quantidade ? ' × ' + it.quantidade : '')) : '';
       const tr = document.createElement('tr');
       tr.innerHTML = '<td>' + (it.index + 1) + '</td>' +
-        '<td style="font-size:0.8em;">' + desc + (refTxt ? '<div style="color:var(--text-3); font-size:0.9em; margin-top:2px;">' + refTxt + '</div>' : '') + '</td>' +
+        '<td style="font-size:var(--text-xs);">' + desc + (refTxt ? '<div style="color:var(--text-3); font-size:0.9em; margin-top:2px;">' + refTxt + '</div>' : '') + '</td>' +
         '<td><input id="val_' + it.index + '" class="form-control form-control-sm" type="text" inputmode="decimal" value="' + (ref != null ? fmtBR(ref) : '') + '" placeholder="0,00"></td>';
       tb.appendChild(tr);
     }

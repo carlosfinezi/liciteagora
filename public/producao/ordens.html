@@ -7,14 +7,17 @@
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
-  .st { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-  .st-planejada { background:#e9ecef; color:#495057; }
-  .st-liberada { background:#d0ebff; color:#1971c2; }
-  .st-em_processo { background:#fff3bf; color:#e67700; }
-  .st-liberada_saida { background:#d3f9d8; color:#2b8a3e; }
-  .st-concluida { background:#e6fcf5; color:#087f5b; }
-  .st-cancelada { background:#ffe3e3; color:#c92a2a; }
-  .trava { background:#fff5f5; border-left:3px solid #fa5252; padding:8px 10px; margin:8px 0; }
+  .st { padding: 2px 8px; border-radius: 10px; font-size: var(--text-xs); font-weight: 600; white-space: nowrap; }
+  /* Os tons saem dos tokens do tema: as cores claras cravadas que havia aqui
+     ficavam como manchas claras no tema escuro. Concluída usa o verde cheio
+     porque é o estado final, e é o que a distingue de "liberada p/ saída". */
+  .st-planejada { background:var(--bg-3); color:var(--text-2); }
+  .st-liberada { background:var(--accent-soft); color:var(--accent); }
+  .st-em_processo { background:var(--warn-soft); color:var(--warn); }
+  .st-liberada_saida { background:var(--success-soft); color:var(--success); }
+  .st-concluida { background:var(--success); color:var(--bg-2); }
+  .st-cancelada { background:var(--danger-soft); color:var(--danger); }
+  .trava { background:var(--danger-soft); border-left:3px solid var(--danger); padding:8px 10px; margin:8px 0; }
 </style>
 </head>
 <body>

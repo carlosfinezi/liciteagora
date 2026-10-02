@@ -30,9 +30,9 @@
   <div class="aba" id="aba-geral">
     <div class="form-row">
       <div class="form-group">
-        <label>Tolerância de perda/sobra diária (%)</label>
+        <label>Tolerância de perda</label>
         <input type="number" id="cTolerancia" step="0.01" min="0" max="100">
-        <small class="muted">A Resolução ANP 884/2022 fixa 0,6%. Abaixo disso é meta interna — acima, o posto tem de apurar a diferença por conta própria.</small>
+        <small class="muted">Em percentual, sobre a perda ou a sobra do dia. A Resolução ANP 884/2022 fixa 0,6%. Abaixo disso é meta interna — acima, o posto tem de apurar a diferença por conta própria.</small>
       </div>
       <div class="form-group">
         <label>Volume do aferidor (ml)</label>
@@ -42,13 +42,13 @@
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Tolerância de aferição para mais (ml)</label>
+        <label>Aferição: tolerância a mais</label>
         <input type="number" id="cAferMais" step="1" min="0">
       </div>
       <div class="form-group">
-        <label>Tolerância de aferição para menos (ml)</label>
+        <label>Aferição: tolerância a menos</label>
         <input type="number" id="cAferMenos" step="1" min="0">
-        <small class="muted">Portaria INMETRO 227/2022: em 20 L, de −60 ml a +100 ml. É assimétrica de propósito — a bomba pode dar a mais, nunca a menos.</small>
+        <small class="muted">As duas em mililitros. Portaria INMETRO 227/2022: em 20 L, de −60 ml a +100 ml. É assimétrica de propósito — a bomba pode dar a mais, nunca a menos.</small>
       </div>
     </div>
     <div class="modal-actions" style="justify-content:flex-start;">

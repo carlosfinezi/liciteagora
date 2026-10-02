@@ -8,14 +8,14 @@
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
-  .back-link { display:inline-flex; align-items:center; gap:6px; color:var(--text-2); background:none; border:none; cursor:pointer; padding:0; margin-bottom:8px; font-size:0.85em; font-family:inherit; }
+  .back-link { display:inline-flex; align-items:center; gap:6px; color:var(--text-2); background:none; border:none; cursor:pointer; padding:0; margin-bottom:8px; font-size:var(--text-xs); font-family:inherit; }
   .back-link:hover { color:var(--accent); }
 
   details.sec { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-lg); margin-bottom: 14px; overflow: hidden; }
   details.sec > summary { cursor: pointer; list-style: none; padding: 14px 20px; color: var(--text-0); font-weight: 600; font-size: 0.95em; display: flex; justify-content: space-between; align-items: center; background: var(--bg-2); transition: background 0.15s; }
   details.sec > summary:hover { background: var(--bg-hover); }
   details.sec > summary::-webkit-details-marker { display: none; }
-  details.sec > summary::after { content: '▾'; color: var(--text-3); font-size: 0.8em; transition: transform 0.15s; }
+  details.sec > summary::after { content: '▾'; color: var(--text-3); font-size: var(--text-xs); transition: transform 0.15s; }
   details.sec[open] > summary::after { transform: rotate(180deg); }
   details.sec > .sec-body { padding: 16px 20px 20px; border-top: 1px solid var(--border); }
 
@@ -76,8 +76,8 @@
           <datalist id="categoriasList"></datalist>
           <div id="opticaHintCat" style="display:none;margin-top:6px;font-size:12px;">
             <span class="muted">Produto óptico?</span>
-            <button type="button" class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:11px;" onclick="document.getElementById('categoria').value='armacao'; opticaToggleSecao();">👓 Definir como armação</button>
-            <button type="button" class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:11px;" onclick="document.getElementById('categoria').value='lente'; opticaToggleSecao();">🔎 Definir como lente</button>
+            <button type="button" class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:var(--text-xs);" onclick="document.getElementById('categoria').value='armacao'; opticaToggleSecao();">👓 Definir como armação</button>
+            <button type="button" class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:var(--text-xs);" onclick="document.getElementById('categoria').value='lente'; opticaToggleSecao();">🔎 Definir como lente</button>
             <small class="muted" style="display:block;margin-top:4px;">Libera campos específicos (Tipo, Índice, Tratamentos, etc.) na seção <strong>Especificações Óticas</strong> abaixo.</small>
           </div>
         </div>
@@ -226,7 +226,7 @@
       </div>
 
       <h4 style="color:var(--text-1);margin-top:14px;margin-bottom:10px;font-weight:500;">Dimensões da embalagem</h4>
-      <p class="muted" style="font-size:0.85em;margin-bottom:12px;">
+      <p class="muted" style="font-size:var(--text-xs);margin-bottom:12px;">
         Usado para cálculo de frete e armazenamento. Volume é calculado automaticamente.
       </p>
       <div class="form-row">
@@ -352,7 +352,7 @@
       </div>
 
       <h4 style="color:var(--text-1);margin-top:14px;margin-bottom:10px;font-weight:500;">Reforma Tributária — IBS / CBS (NF-e 2026+)</h4>
-      <p class="muted" style="font-size:0.85em;margin-bottom:12px;">
+      <p class="muted" style="font-size:var(--text-xs);margin-bottom:12px;">
         Obrigatório a partir de jan/2026 para empresas fora do Simples Nacional. Simples/MEI: obrigatório em jan/2027. Conforme NT 2025.002.
       </p>
       <div class="form-row">
@@ -380,7 +380,10 @@
     <summary>Imagem</summary>
     <div class="sec-body">
       <div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;">
-        <img id="imgPreview" class="img-preview" src="" alt="" style="display:none;">
+        <!-- sem `src=""`: um src vazio faz o navegador pedir a URL da própria
+             página a cada abertura, e viraria ícone quebrado se alguém tirar o
+             display:none. O JS põe o src quando há imagem. -->
+        <img id="imgPreview" class="img-preview" alt="" style="display:none;">
         <div style="flex:1;min-width:260px;">
           <input type="file" id="imgFile" accept="image/*" onchange="preverImagem()">
           <div style="margin-top:10px;">
@@ -428,17 +431,17 @@
         <p class="muted" style="font-size:12px;margin:0 0 10px 0;">Material está na seção <strong>Identificação</strong> acima.</p>
         <div class="form-row">
           <div class="form-group">
-            <label>Tipo <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:11px;" onclick="opticaAbrirLookupLente('tipos')" title="Gerenciar tipos">⚙</button></label>
+            <label>Tipo <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:var(--text-xs);" onclick="opticaAbrirLookupLente('tipos')" title="Gerenciar tipos">⚙</button></label>
             <select id="optLenTipo"><option value="">—</option></select>
           </div>
           <div class="form-group">
-            <label>Índice <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:11px;" onclick="opticaAbrirLookupLente('indices')" title="Gerenciar índices">⚙</button></label>
+            <label>Índice <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:var(--text-xs);" onclick="opticaAbrirLookupLente('indices')" title="Gerenciar índices">⚙</button></label>
             <select id="optLenIndice"><option value="">—</option></select>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group full-width">
-            <label>Tratamentos <small class="muted">(marque os aplicáveis)</small> <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:11px;" onclick="opticaAbrirLookupLente('tratamentos')" title="Gerenciar tratamentos">⚙</button></label>
+            <label>Tratamentos <small class="muted">(marque os aplicáveis)</small> <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:var(--text-xs);" onclick="opticaAbrirLookupLente('tratamentos')" title="Gerenciar tratamentos">⚙</button></label>
             <div id="optLenTrats" style="display:flex;flex-wrap:wrap;gap:10px 16px;padding:8px 10px;background:var(--bg-2);border:1px solid var(--border);border-radius:var(--r-sm);min-height:40px;">
               <span class="muted" style="font-size:12px;">Carregando…</span>
             </div>
@@ -1324,7 +1327,7 @@ function renderPers() {
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         <label style="display:flex;gap:6px;align-items:center;font-weight:600;margin:0;">
           <input type="checkbox" data-usar="${g.id}"${marcado ? ' checked' : ''}> ${escP(g.nome)}</label>
-        <span class="muted" style="font-size:.85em;">${escP(regra)}${g.descricao ? ' · ' + escP(g.descricao) : ''}${g.produtos ? ` · em ${g.produtos} produto(s)` : ''}</span>
+        <span class="muted" style="font-size:var(--text-xs);">${escP(regra)}${g.descricao ? ' · ' + escP(g.descricao) : ''}${g.produtos ? ` · em ${g.produtos} produto(s)` : ''}</span>
         <span style="flex:1;"></span>
         <button class="btn btn-ghost btn-sm" type="button" onclick="editarGrupo(${g.id})">Editar</button>
         <button class="btn btn-ghost btn-sm" type="button" onclick="apagarGrupo(${g.id})">Apagar</button>

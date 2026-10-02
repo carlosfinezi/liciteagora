@@ -13,7 +13,7 @@
      o cabeçalho que ordena e a coluna-sobra do fim da linha. */
   .tbl-wrap th.sortable { cursor: pointer; user-select: none; }
   .tbl-wrap th.sortable:hover { background: var(--bg-2); }
-  .tbl-wrap th .sort-arrow { opacity: 0.5; font-size: 10px; margin-left: 4px; }
+  .tbl-wrap th .sort-arrow { opacity: 0.5; font-size: var(--text-xs); margin-left: 4px; }
   .tbl-wrap th.sorted .sort-arrow { opacity: 1; color: var(--accent); }
   .col-spacer { width: auto; padding: 0; }
   .col-acoes { width: 40px; text-align: center; }
@@ -81,7 +81,7 @@
       <button class="btn btn-ghost btn-sm" onclick="toggleColunasMenu(event)"><svg class="ic-sm"><use href="#i-settings"/></svg> Colunas</button>
       <div id="colunasMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg-1);border:1px solid var(--border-strong);border-radius:var(--r-md);padding:10px;z-index:50;min-width:200px;box-shadow:0 8px 20px rgba(0,0,0,0.4);"></div>
     </div>
-    <span id="totalPedidos" style="font-size:0.85em; color:var(--text-3);"></span>
+    <span id="totalPedidos" style="font-size:var(--text-xs); color:var(--text-3);"></span>
   </div>
 
   <!-- Ações em massa: só aparece com pedido selecionado, para não poluir a
@@ -159,7 +159,7 @@
   .imp-item .imp-num { font-family: var(--font-mono, ui-monospace, monospace); font-weight:600; color: var(--text-0); }
   .imp-item .imp-orgao { color: var(--text-1); font-size: 0.9em; }
   .imp-item .imp-obj { color: var(--text-2); font-size: 0.88em; line-height:1.4; margin-top:2px; }
-  .imp-item .imp-meta { color: var(--text-3); font-size: 0.78em; margin-top:4px; display:flex; gap:10px; flex-wrap:wrap; }
+  .imp-item .imp-meta { color: var(--text-3); font-size: var(--text-xs); margin-top:4px; display:flex; gap:10px; flex-wrap:wrap; }
   .imp-empty { text-align:center; padding:40px 20px; color:var(--text-3); }
   .imp-loading { text-align:center; padding:30px; color:var(--text-3); }
 </style>

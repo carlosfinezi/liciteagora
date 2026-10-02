@@ -244,7 +244,7 @@ async function carregarTurnos() {
       <td style="text-align:right;">${t.abastecimentos}</td>
       <td style="text-align:right;">${nR(t.valorApurado)}</td>
       <td style="text-align:right;">${nR(t.valorEntregue)}</td>
-      <td style="text-align:right;${Math.abs(t.diferencaCaixa || 0) > 0.001 ? 'color:#c0392b;font-weight:600;' : ''}">${nR(t.diferencaCaixa)}</td>
+      <td style="text-align:right;${Math.abs(t.diferencaCaixa || 0) > 0.001 ? 'color:var(--danger);font-weight:600;' : ''}">${nR(t.diferencaCaixa)}</td>
       <td>${t.status === 'aberto' ? 'Aberto' : 'Fechado'}</td>
     </tr>`).join('') : '<tr><td colspan="9" class="empty">Nenhum turno registrado</td></tr>';
   } catch (e) { showAlert(e.message, 'error'); }
@@ -306,8 +306,8 @@ async function carregarAfericoes() {
       <td>${esc(a.combustivelNome)}</td>
       <td style="text-align:right;">${nL(a.volumePadraoMl, 0)} ml</td>
       <td style="text-align:right;">${nL(a.volumeMedidoMl, 0)} ml</td>
-      <td style="text-align:right;${a.aprovado ? '' : 'color:#c0392b;font-weight:600;'}">${a.desvioMl > 0 ? '+' : ''}${nL(a.desvioMl, 0)} ml</td>
-      <td>${a.aprovado ? '<span style="color:#27ae60;font-weight:600;">Aprovada</span>' : '<span style="color:#c0392b;font-weight:600;">Fora da tolerância</span>'}</td>
+      <td style="text-align:right;${a.aprovado ? '' : 'color:var(--danger);font-weight:600;'}">${a.desvioMl > 0 ? '+' : ''}${nL(a.desvioMl, 0)} ml</td>
+      <td>${a.aprovado ? '<span style="color:var(--success);font-weight:600;">Aprovada</span>' : '<span style="color:var(--danger);font-weight:600;">Fora da tolerância</span>'}</td>
       <td>${a.retornouAoTanque ? 'Sim' : 'Não — saiu do estoque'}</td>
     </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhuma aferição registrada</td></tr>';
   } catch (e) { showAlert(e.message, 'error'); }

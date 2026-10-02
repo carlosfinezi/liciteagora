@@ -195,7 +195,7 @@ function bloco(titulo, cor, linhas, rodape){
   return `<div class="panel" style="border-left:4px solid var(--${cor});margin-bottom:10px;">
     <h3 style="margin:0 0 8px;font-size:0.95em;">${titulo}</h3>
     <div style="font-size:0.88em;line-height:1.7;">${linhas.join('<br>')}</div>
-    ${rodape ? `<div class="muted" style="font-size:0.8em;margin-top:8px;">${rodape}</div>` : ''}
+    ${rodape ? `<div class="muted" style="font-size:var(--text-xs);margin-top:8px;">${rodape}</div>` : ''}
   </div>`;
 }
 

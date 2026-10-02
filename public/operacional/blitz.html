@@ -14,15 +14,15 @@
         .tab.active { color:var(--primary, #4dabf7); border-bottom-color:var(--primary, #4dabf7); }
         .tab-pane { display:none; }
         .tab-pane.active { display:block; }
-        .badge-status { padding:2px 8px; border-radius:4px; font-size:0.8em; font-weight:600; text-transform:uppercase; }
+        .badge-status { padding:2px 8px; border-radius:4px; font-size:var(--text-xs); font-weight:600; text-transform:uppercase; }
         .badge-agendada { background:#fbbf2433; color: var(--warn); }
         .badge-executada { background:#4caf5033; color: var(--success); }
         .badge-cancelada { background:#88888833; color: var(--text-3); }
         .badge-expirada  { background:#f9731633; color: var(--warn); }
         .filters-bar { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:14px; padding:12px; background:var(--bg-1); border:1px solid var(--border); border-radius:6px; }
-        .filters-bar label { display:flex; flex-direction:column; gap:4px; font-size:0.85em; color:var(--text-2); }
+        .filters-bar label { display:flex; flex-direction:column; gap:4px; font-size:var(--text-xs); color:var(--text-2); }
         .filters-bar input, .filters-bar select { padding:6px 8px; }
-        .info-line { color:var(--text-2); font-size:0.85em; margin-bottom:8px; }
+        .info-line { color:var(--text-2); font-size:var(--text-xs); margin-bottom:8px; }
     </style>
 </head>
 <body>
@@ -163,11 +163,11 @@ async function carregarAgendadas() {
         lista.forEach(function(b){
             html += '<tr>'+
                 '<td><strong>'+esc(b.horario||'--')+'</strong></td>'+
-                '<td style="font-family:monospace;font-size:0.85em">'+esc(b.compraId)+'</td>'+
+                '<td style="font-family:monospace;font-size:var(--text-xs)">'+esc(b.compraId)+'</td>'+
                 '<td><strong>'+esc(b.itemNumero)+'</strong></td>'+
                 '<td>'+esc(b.modoBlitz||'cobrir')+'</td>'+
                 '<td style="text-align:right">'+(b.maxLances||50)+'</td>'+
-                '<td style="color:var(--text-2);font-size:0.85em">'+fmtData(b.agendadoEm)+'</td>'+
+                '<td style="color:var(--text-2);font-size:var(--text-xs)">'+fmtData(b.agendadoEm)+'</td>'+
                 '<td>'+
                   '<button class="btn btn-ghost btn-sm" onclick="abrirLance(\''+esc(b.compraId)+'\')">Abrir em Lances</button> '+
                   '<button class="btn btn-danger btn-sm" onclick="cancelar(\''+esc(b.compraId)+'\','+b.itemNumero+')">Cancelar</button>'+
@@ -216,15 +216,15 @@ async function carregarHistorico() {
         lista.forEach(function(h){
             var fim = h.executadoEm || h.canceladoEm || '--';
             html += '<tr>'+
-                '<td style="color:var(--text-2);font-size:0.85em">'+fmtData(h.agendadoEm)+'</td>'+
+                '<td style="color:var(--text-2);font-size:var(--text-xs)">'+fmtData(h.agendadoEm)+'</td>'+
                 '<td><strong>'+esc(h.horarioAlvo||'--')+'</strong></td>'+
-                '<td style="font-family:monospace;font-size:0.85em">'+esc(h.compraId)+'</td>'+
+                '<td style="font-family:monospace;font-size:var(--text-xs)">'+esc(h.compraId)+'</td>'+
                 '<td><strong>'+esc(h.itemNumero)+'</strong></td>'+
                 '<td><span class="badge-status badge-'+esc(h.status)+'">'+esc(h.status)+'</span></td>'+
                 '<td style="text-align:right">'+(h.lancesEnviados||0)+(h.maxLances?' / '+h.maxLances:'')+'</td>'+
                 '<td>'+esc(h.modoBlitz||'--')+'</td>'+
-                '<td style="color:var(--text-2);font-size:0.85em">'+(fim==='--'?'--':fmtData(fim))+'</td>'+
-                '<td style="color:var(--text-2);font-size:0.85em;max-width:280px;">'+esc(h.observacao||'')+'</td>'+
+                '<td style="color:var(--text-2);font-size:var(--text-xs)">'+(fim==='--'?'--':fmtData(fim))+'</td>'+
+                '<td style="color:var(--text-2);font-size:var(--text-xs);max-width:280px;">'+esc(h.observacao||'')+'</td>'+
             '</tr>';
         });
         html += '</tbody></table></div>';

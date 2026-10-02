@@ -231,7 +231,7 @@ function renderItens(){
   }
   const margemAgg = somaPreco>0 ? (somaPreco-somaCusto)/somaPreco*100 : null;
   const card=(rot,val,cor)=>`<div style="flex:1;min-width:130px;background:var(--surface-2,#1e293b30);border:1px solid var(--border,#33415530);border-radius:8px;padding:10px 12px;">
-    <div style="font-size:.72em;text-transform:uppercase;letter-spacing:.03em;color:var(--text-3);">${rot}</div>
+    <div style="font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.03em;color:var(--text-3);">${rot}</div>
     <div style="font-size:1.25em;font-weight:600;color:${cor||'var(--text-1,inherit)'};">${val}</div></div>`;
   document.getElementById('resumoTab').innerHTML = itens.length ? `
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 14px;">
@@ -241,7 +241,7 @@ function renderItens(){
       ${card('Abaixo da meta', abaixoMeta, abaixoMeta?'var(--warn)':'var(--success)')}
       ${card('< preço cadastro', abaixoCadastro, abaixoCadastro?'var(--warn)':'var(--text-1,inherit)')}
       <div style="flex:1;min-width:150px;display:flex;align-items:center;gap:6px;justify-content:flex-end;">
-        <label style="font-size:.8em;color:var(--text-3);white-space:nowrap;">Meta de margem</label>
+        <label style="font-size:var(--text-xs);color:var(--text-3);white-space:nowrap;">Meta de margem</label>
         <input type="number" value="${margemAlvo}" step="1" onchange="setMargemAlvo(this.value)" style="width:70px;"> %
       </div>
     </div>` : '';
@@ -330,7 +330,7 @@ async function abrirComparar(){
   const prods = [...prodMap.entries()].sort((a,b)=>a[1].descricao.localeCompare(b[1].descricao));
   const cobertura = ativas.map((t,ti)=> precoTab[ti].size);
   const head = `<tr><th>Código</th><th>Produto</th><th style="text-align:right;">Custo</th>` +
-    ativas.map((t,ti)=>`<th style="text-align:right;">${t.nome}<br><span style="font-weight:400;color:var(--text-3);font-size:.85em;">${precoTab[ti].size}/${totalProd} (${totalProd?Math.round(cobertura[ti]/totalProd*100):0}%)</span></th>`).join('') + `</tr>`;
+    ativas.map((t,ti)=>`<th style="text-align:right;">${t.nome}<br><span style="font-weight:400;color:var(--text-3);font-size:var(--text-xs);">${precoTab[ti].size}/${totalProd} (${totalProd?Math.round(cobertura[ti]/totalProd*100):0}%)</span></th>`).join('') + `</tr>`;
   const rows = prods.map(([pid,info])=>{
     const cells = ativas.map((t,ti)=> precoTab[ti].has(pid) ? precoTab[ti].get(pid).preco : null);
     const presentes = cells.filter(v=>v!=null);

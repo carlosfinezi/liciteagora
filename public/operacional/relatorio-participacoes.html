@@ -38,10 +38,10 @@
       <option value="agendada">Agendadas</option>
       <option value="sem-disputa">Sem disputa</option>
     </select>
-    <label style="font-size:0.85em;color:var(--text-2);">De
+    <label style="font-size:var(--text-xs);color:var(--text-2);">De
       <input type="date" id="filtDataInicio" onchange="carregar()" style="margin-left:4px;">
     </label>
-    <label style="font-size:0.85em;color:var(--text-2);">Até
+    <label style="font-size:var(--text-xs);color:var(--text-2);">Até
       <input type="date" id="filtDataFim" onchange="carregar()" style="margin-left:4px;">
     </label>
   </div>
@@ -143,7 +143,7 @@ function badgeDesfecho(p) {
   else if (r.situacaoFaseExterna) { txt = 'Pós-disputa (' + esc(r.situacaoFaseExterna) + ')'; cor = 'var(--text-3)'; }
   else return '';
   const link = r.linkPncp ? ` · <a href="${esc(r.linkPncp)}" target="_blank" rel="noopener" title="Ata/edital no PNCP">PNCP</a>` : '';
-  return `<div style="margin-top:4px;font-size:0.78em;color:${cor};font-weight:600;">${txt}${link}</div>`;
+  return `<div style="margin-top:4px;font-size:var(--text-xs);color:${cor};font-weight:600;">${txt}${link}</div>`;
 }
 function linksCol(p) {
   const pncp = p.linkPncp ? `<a href="${esc(p.linkPncp)}" target="_blank" rel="noopener" title="Abrir no PNCP">PNCP</a>` : '';
@@ -157,8 +157,8 @@ function linksCol(p) {
 function acoesPosDisputa(p) {
   if (!p.compraId) return '';
   const id = esc(String(p.compraId));
-  const btn = 'font-size:0.78em;padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-2);color:var(--text-2);cursor:pointer;white-space:nowrap;';
-  const btnDestaque = 'font-size:0.78em;padding:3px 8px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-weight:600;cursor:pointer;white-space:nowrap;';
+  const btn = 'font-size:var(--text-xs);padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-2);color:var(--text-2);cursor:pointer;white-space:nowrap;';
+  const btnDestaque = 'font-size:var(--text-xs);padding:3px 8px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-weight:600;cursor:pointer;white-space:nowrap;';
   return `
     <div style="display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;">
       <button style="${btn}" onclick="sincronizarArrematados('${id}')"
@@ -171,11 +171,11 @@ function acoesPosDisputa(p) {
 function renderLinha(p) {
   const orgaoObjeto = `
     <div style="font-weight:600;color:var(--text-0);">${esc(p.orgao || '—')}</div>
-    <div style="font-size:0.85em;color:var(--text-2);margin-top:2px;">${esc((p.objeto || '').slice(0, 120))}${(p.objeto || '').length > 120 ? '…' : ''}</div>
+    <div style="font-size:var(--text-xs);color:var(--text-2);margin-top:2px;">${esc((p.objeto || '').slice(0, 120))}${(p.objeto || '').length > 120 ? '…' : ''}</div>
   `;
   const compra = `
-    <div style="font-family:monospace;font-size:0.85em;">${esc(p.numero || '—')}</div>
-    <div style="font-size:0.75em;color:var(--text-3);margin-top:2px;">${esc(p.ano)}/${esc(p.sequencial)}</div>
+    <div style="font-family:monospace;font-size:var(--text-xs);">${esc(p.numero || '—')}</div>
+    <div style="font-size:var(--text-xs);color:var(--text-3);margin-top:2px;">${esc(p.ano)}/${esc(p.sequencial)}</div>
   `;
   const itens = p.itens_homologados > 0
     ? `<strong style="color:${p.itens_ganhos > 0 ? 'var(--success)' : 'var(--danger)'};">${p.itens_ganhos}</strong> / ${p.itens_homologados}`
@@ -189,12 +189,12 @@ function renderLinha(p) {
   return `<tr>
     <td>${orgaoObjeto}</td>
     <td style="text-align:center;">${compra}</td>
-    <td style="text-align:center;font-size:0.85em;">${esc(fmtData(p.dataHoraFimDisputa))}</td>
+    <td style="text-align:center;font-size:var(--text-xs);">${esc(fmtData(p.dataHoraFimDisputa))}</td>
     <td style="text-align:center;">${badgeStatus(p.statusLogico)}${enviada}${badgeDesfecho(p)}</td>
     <td style="text-align:right;">${itens}</td>
     <td style="text-align:right;font-weight:600;color:${p.valor_ganho > 0 ? 'var(--success)' : 'var(--text-3)'};">${p.valor_ganho > 0 ? fmtR$(p.valor_ganho) : '—'}</td>
     <td style="text-align:right;font-size:0.88em;">${lances}</td>
-    <td style="text-align:center;font-size:0.85em;">${linksCol(p)}${acoesPosDisputa(p)}</td>
+    <td style="text-align:center;font-size:var(--text-xs);">${linksCol(p)}${acoesPosDisputa(p)}</td>
   </tr>`;
 }
 

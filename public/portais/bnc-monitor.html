@@ -10,45 +10,45 @@
   .main-content { padding: 20px; }
   .status-bar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
   .status-item { background: var(--bg-2); padding: 10px 14px; border-radius: var(--r-md); flex: 1; min-width: 120px; text-align: center; }
-  .status-item .label { color: var(--text-3); font-size: 0.75em; margin-bottom: 3px; }
+  .status-item .label { color: var(--text-3); font-size: var(--text-xs); margin-bottom: 3px; }
   .status-item .value { font-size: 1.05em; font-weight: 600; }
   .value.azul { color: var(--accent); } .value.verde { color: var(--success); } .value.cinza { color: var(--text-3); }
 
   .filtros { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
-  .filtros select, .filtros label { font-size: 0.85em; color: var(--text-1); }
+  .filtros select, .filtros label { font-size: var(--text-xs); color: var(--text-1); }
   .filtros select { padding: 5px 8px; border-radius: 5px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text-0); }
   .filtros label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
   .filtros .sep { flex: 1; }
-  .upd { font-size: 0.75em; color: var(--text-3); }
+  .upd { font-size: var(--text-xs); color: var(--text-3); }
 
   .feed { display: flex; flex-direction: column; gap: 6px; }
   .msg { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 9px 12px; background: var(--bg-1); }
   .msg.nova { animation: flash 1.2s ease-out; }
   @keyframes flash { from { background: #4dabf733; } to { background: var(--bg-1); } }
   .msg-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
-  .msg-proc { font-size: 0.76em; font-weight: 600; color: var(--accent); }
-  .badge { font-size: 0.68em; font-weight: 700; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
+  .msg-proc { font-size: var(--text-xs); font-weight: 600; color: var(--accent); }
+  .badge { font-size: var(--text-xs); font-weight: 700; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
   .b-escopo { background: var(--bg-3); color: var(--text-2); }
   .b-preg { background: rgba(255,215,0,0.16); color: var(--warn); }
   .b-sis { background: #88888822; color: var(--text-3); }
   .b-part { background: rgba(77,171,247,0.15); color: var(--accent); }
-  .msg-time { font-size: 0.72em; color: var(--text-3); margin-left: auto; }
-  .msg-text { font-size: 0.85em; color: var(--text-1); line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+  .msg-time { font-size: var(--text-xs); color: var(--text-3); margin-left: auto; }
+  .msg-text { font-size: var(--text-xs); color: var(--text-1); line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
   .msg.sis .msg-text { color: var(--text-2); font-style: italic; }
   /* Agrupamento por sala/processo (mesmo padrão do monitor Comprasnet) */
   .grupo { border: 1px solid var(--border); border-radius: var(--r-sm); margin-bottom: 6px; overflow: hidden; }
   .grupo-head { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; background: var(--bg-2); transition: background .15s; }
   .grupo-head:hover { background: #0f346040; }
-  .grupo-chevron { color: var(--text-3); font-size: .8em; transition: transform .2s; flex-shrink: 0; }
+  .grupo-chevron { color: var(--text-3); font-size: var(--text-xs); transition: transform .2s; flex-shrink: 0; }
   .grupo.aberto .grupo-chevron { transform: rotate(90deg); }
   .grupo-title { flex: 1; min-width: 0; }
-  .grupo-proc { font-size: .85em; font-weight: 600; color: var(--accent); }
-  .grupo-org { font-size: .74em; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .grupo-proc { font-size: var(--text-xs); font-weight: 600; color: var(--accent); }
+  .grupo-org { font-size: var(--text-xs); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .grupo-badges { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
   .grupo-body { display: none; padding: 8px 10px; background: var(--bg-0); flex-direction: column; gap: 6px; }
   .grupo.aberto .grupo-body { display: flex; }
   .empty { text-align: center; color: var(--text-3); padding: 28px; font-size: 0.88em; }
-  .hint { font-size: 0.76em; color: var(--text-3); }
+  .hint { font-size: var(--text-xs); color: var(--text-3); }
   .hint a { color: var(--accent); }
 </style>
 </head>
@@ -71,7 +71,7 @@
     <div class="status-item"><div class="label">Salas com chat</div><div class="value" id="kSalas">0</div></div>
     <div class="status-item"><div class="label">Mensagens</div><div class="value azul" id="kMsgs">0</div></div>
     <div class="status-item"><div class="label">Do pregoeiro</div><div class="value verde" id="kPreg">0</div></div>
-    <div class="status-item"><div class="label">Última</div><div class="value cinza" id="kUlt" style="font-size:0.85em;">—</div></div>
+    <div class="status-item"><div class="label">Última</div><div class="value cinza" id="kUlt" style="font-size:var(--text-xs);">—</div></div>
   </div>
 
   <div class="filtros">

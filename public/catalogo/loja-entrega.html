@@ -13,7 +13,7 @@
 .linha-check { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 6px 0; }
 .linha-check input { width: 20px; height: 20px; accent-color: var(--primary); margin-top: 11px; flex-shrink: 0; }
 .linha-check label { padding-top: 10px; }
-.linha-check .dica { display: block; font-size: .8em; color: var(--text-3); font-weight: 400; }
+.linha-check .dica { display: block; font-size: var(--text-xs); color: var(--text-3); font-weight: 400; }
 
 .modos { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
 .modo { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 13px 15px;
@@ -21,18 +21,18 @@
 .modo:hover { border-color: var(--accent); }
 .modo.on { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
 .modo input { width: 19px; height: 19px; accent-color: var(--primary); margin-top: 2px; flex-shrink: 0; }
-.modo strong { display: block; font-size: .93em; }
-.modo span { font-size: .8em; color: var(--text-3); }
+.modo strong { display: block; font-size: var(--text-sm); }
+.modo span { font-size: var(--text-xs); color: var(--text-3); }
 
 .campo-valor { display: flex; flex-direction: column; gap: 5px; max-width: 220px; margin-top: 14px; }
-.campo-valor label { font-size: .84em; font-weight: 600; color: var(--text-2); }
+.campo-valor label { font-size: var(--text-xs); font-weight: 600; color: var(--text-2); }
 .campo-valor input { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
   background: var(--bg-0); color: var(--text-1); font-family: inherit;
   /* 16px: abaixo disto o iOS dá zoom ao focar. */
   font-size: 16px; min-height: 44px; }
 
 table.bairros { width: 100%; border-collapse: collapse; font-size: .9em; }
-table.bairros th { text-align: left; font-size: .78em; text-transform: uppercase;
+table.bairros th { text-align: left; font-size: var(--text-xs); text-transform: uppercase;
   letter-spacing: .05em; color: var(--text-3); padding: 8px 10px; border-bottom: 1px solid var(--border); }
 table.bairros td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
 table.bairros input[type="text"], table.bairros input[type="number"] {
@@ -43,7 +43,7 @@ table.bairros td.acoes { text-align: right; white-space: nowrap; }
   color: var(--text-3); font-size: .9em; min-height: 44px; min-width: 44px; font-family: inherit; }
 .bt-icone:hover { background: var(--bg-2); color: var(--text-1); border-color: var(--border); }
 .bt-icone.perigo:hover { color: var(--danger, #B3261E); }
-.chip-estado { font-size: .78em; padding: 3px 9px; border-radius: 999px; }
+.chip-estado { font-size: var(--text-xs); padding: 3px 9px; border-radius: 999px; }
 .chip-estado.on { background: #E7F3EC; color: #1F6B41; }
 .chip-estado.off { background: var(--bg-2); color: var(--text-3); }
 @media (max-width: 720px) {

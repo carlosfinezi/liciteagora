@@ -10,10 +10,10 @@
     <style>
         /* Barra de busca/resultados */
         .search-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
-        .search-row label { display: block; font-size: 0.72em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 5px; }
+        .search-row label { display: block; font-size: var(--text-xs); color: var(--text-2); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 5px; }
         .search-row input[type=text] { width: 100%; box-sizing: border-box; }
         .search-row select { width: auto; }
-        .search-hint { font-size: 0.78em; color: var(--text-3); margin-top: 10px; }
+        .search-hint { font-size: var(--text-xs); color: var(--text-3); margin-top: 10px; }
 
         /* Layout */
         /* Item flex (.layout > .main-content) precisa de min-width:0 pra encolher
@@ -29,21 +29,21 @@
         .results-card   { overflow: hidden; }
         body.no-sugestao .col-sugestao { display: none; }
         .results-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
-        .results-header h3 { color: var(--text-2); font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin: 0; }
+        .results-header h3 { color: var(--text-2); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin: 0; }
         .results-table  { width: 100%; border-collapse: collapse; }
-        .results-table th { background: var(--bg-3); padding: 9px 14px; text-align: left; font-size: 0.7em; color: var(--text-2); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; position: sticky; top: 0; z-index: 1; }
-        .results-table td { padding: 11px 14px; border-bottom: 1px solid var(--border); font-size: 0.85em; vertical-align: top; color: var(--text-1); }
+        .results-table th { background: var(--bg-3); padding: 9px 14px; text-align: left; font-size: var(--text-xs); color: var(--text-2); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; position: sticky; top: 0; z-index: 1; }
+        .results-table td { padding: 11px 14px; border-bottom: 1px solid var(--border); font-size: var(--text-xs); vertical-align: top; color: var(--text-1); }
         .results-table tbody tr:hover td { background: var(--bg-hover); color: var(--text-0); }
         .results-table .desc  { max-width: 450px; line-height: 1.4; }
         .results-table .valor { text-align: right; white-space: nowrap; font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; }
-        .results-table .orgao { color: var(--text-3); font-size: 0.78em; }
+        .results-table .orgao { color: var(--text-3); font-size: var(--text-xs); }
         /* SEM altura fixa: só o scroll natural do <main> rola — elimina duplo scrollbar. */
         .results-scroll       { overflow-x: auto; }
 
         /* ===== Filtros: principais + accordion ===== */
         .filtros-principais { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
         .filtros-avancados { margin-top: 12px; }
-        .filtros-avancados-toggle { background: none; border: none; cursor: pointer; color: var(--accent); font-size: 0.82em; font-weight: 500; padding: 4px 0; display: inline-flex; align-items: center; gap: 5px; }
+        .filtros-avancados-toggle { background: none; border: none; cursor: pointer; color: var(--accent); font-size: var(--text-xs); font-weight: 500; padding: 4px 0; display: inline-flex; align-items: center; gap: 5px; }
         .filtros-avancados-toggle .chev { transition: transform 0.2s; display: inline-block; }
         .filtros-avancados.open .filtros-avancados-toggle .chev { transform: rotate(90deg); }
         .filtros-avancados-body { display: none; padding-top: 14px; border-top: 1px dashed var(--border); margin-top: 10px; }
@@ -52,14 +52,14 @@
         /* ===== Chips dos filtros ativos ===== */
         .chips-bar { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 0; min-height: 0; }
         .chips-bar:empty { margin: 0; }
-        .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-soft); color: var(--accent); padding: 3px 10px 3px 12px; border-radius: 999px; font-size: 0.78em; font-weight: 500; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+        .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-soft); color: var(--accent); padding: 3px 10px 3px 12px; border-radius: 999px; font-size: var(--text-xs); font-weight: 500; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
         .chip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 0 0 4px; opacity: 0.7; }
         .chip button:hover { opacity: 1; }
         .chip.limpar-tudo { background: var(--danger-soft); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, transparent); cursor: pointer; }
 
         /* ===== Abas ===== */
         .tabs-bar { display: flex; gap: 2px; border-bottom: 1px solid var(--border); padding: 0 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-        .tab-btn { padding: 10px 16px; background: none; border: none; cursor: pointer; color: var(--text-2); font-size: 0.85em; font-weight: 500; border-bottom: 2px solid transparent; white-space: nowrap; transition: color 0.15s, border-color 0.15s; }
+        .tab-btn { padding: 10px 16px; background: none; border: none; cursor: pointer; color: var(--text-2); font-size: var(--text-xs); font-weight: 500; border-bottom: 2px solid transparent; white-space: nowrap; transition: color 0.15s, border-color 0.15s; }
         .tab-btn:hover { color: var(--text-0); }
         .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
         .tab-pane { display: none; }
@@ -67,8 +67,8 @@
 
         /* ===== Histórico de buscas ===== */
         .historico-buscas { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-        .historico-buscas .label { font-size: 0.72em; color: var(--text-3); }
-        .historico-chip { background: var(--bg-3); color: var(--text-1); padding: 3px 10px; border-radius: 999px; font-size: 0.78em; cursor: pointer; border: 1px solid var(--border); transition: border-color 0.15s, color 0.15s; }
+        .historico-buscas .label { font-size: var(--text-xs); color: var(--text-3); }
+        .historico-chip { background: var(--bg-3); color: var(--text-1); padding: 3px 10px; border-radius: 999px; font-size: var(--text-xs); cursor: pointer; border: 1px solid var(--border); transition: border-color 0.15s, color 0.15s; }
         .historico-chip:hover { border-color: var(--accent); color: var(--accent); }
 
         /* ===== Mobile: tabela vira cards ===== */
@@ -76,43 +76,43 @@
             .results-table thead { display: none; }
             .results-table, .results-table tbody, .results-table tr, .results-table td { display: block; width: 100%; }
             .results-table tr { border-bottom: 1px solid var(--border); padding: 10px 12px; }
-            .results-table td { border: none; padding: 4px 0; font-size: 0.85em; }
-            .results-table td::before { content: attr(data-label); display: inline-block; font-weight: 600; color: var(--text-3); text-transform: uppercase; font-size: 0.7em; letter-spacing: 0.04em; margin-right: 6px; min-width: 90px; }
+            .results-table td { border: none; padding: 4px 0; font-size: var(--text-xs); }
+            .results-table td::before { content: attr(data-label); display: inline-block; font-weight: 600; color: var(--text-3); text-transform: uppercase; font-size: var(--text-xs); letter-spacing: 0.04em; margin-right: 6px; min-width: 90px; }
             .results-table td.desc::before { display: block; margin-bottom: 4px; }
             .results-table .valor { text-align: left; }
         }
 
         /* Badge de status do vencedor */
-        .winner-badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 0.7em; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid transparent; }
+        .winner-badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid transparent; }
         .winner-badge.homologado    { background: var(--success-soft); color: var(--success); border-color: var(--success); }
         .winner-badge.pendente      { background: var(--warn-soft);    color: var(--warn);    border-color: var(--warn); }
         .winner-badge.sem-resultado { background: #37415160;            color: var(--text-3);  border-color: var(--border); }
         .winner-badge.erro          { background: var(--danger-soft);   color: var(--danger);  border-color: var(--danger); }
-        .winner-info .fornecedor    { color: var(--accent);  font-weight: 600; font-size: 0.82em; }
-        .winner-info .cnpj          { color: var(--text-3);  font-size: 0.72em; }
+        .winner-info .fornecedor    { color: var(--accent);  font-weight: 600; font-size: var(--text-xs); }
+        .winner-info .cnpj          { color: var(--text-3);  font-size: var(--text-xs); }
         .winner-info .valor-h       { color: var(--success); font-weight: 600; }
 
         /* Painéis analíticos (Top Fornecedores, Marcas, etc.) */
         .panel-header { padding: 12px 16px; border-bottom: 1px solid var(--border); }
-        .panel-header h3 { color: var(--text-2); font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin: 0; }
+        .panel-header h3 { color: var(--text-2); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin: 0; }
         .panel-body   { padding: 12px 16px; }
         .rank-item    { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); gap: 10px; }
         .rank-item:last-child { border: none; }
         .rank-item .rank-name  { font-size: 0.86em; color: var(--text-0); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .rank-item .rank-count { background: var(--accent-soft); color: var(--accent); padding: 2px 8px; border-radius: 10px; font-size: 0.72em; font-weight: 600; min-width: 28px; text-align: center; }
-        .rank-item .rank-valor { color: var(--success); font-size: 0.78em; font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; }
+        .rank-item .rank-count { background: var(--accent-soft); color: var(--accent); padding: 2px 8px; border-radius: 10px; font-size: var(--text-xs); font-weight: 600; min-width: 28px; text-align: center; }
+        .rank-item .rank-valor { color: var(--success); font-size: var(--text-xs); font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; }
 
         /* Progress */
         .progress-bar  { width: 100%; height: 4px; background: var(--bg-3); border-radius: 2px; overflow: hidden; margin-top: 10px; border: 1px solid var(--border); }
         .progress-bar .fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-strong)); transition: width 0.3s; }
-        .progress-text { font-size: 0.72em; color: var(--text-3); margin-top: 4px; }
+        .progress-text { font-size: var(--text-xs); color: var(--text-3); margin-top: 4px; }
 
         /* Paginação */
         .pagination     { padding: 14px; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
-        .pagination .btn { padding: 5px 12px; font-size: 0.8em; }
+        .pagination .btn { padding: 5px 12px; font-size: var(--text-xs); }
 
         /* Link PNCP */
-        a.pncp-link         { color: var(--accent); text-decoration: none; font-size: 0.72em; }
+        a.pncp-link         { color: var(--accent); text-decoration: none; font-size: var(--text-xs); }
         a.pncp-link:hover   { text-decoration: underline; }
 
         /* Empty state específico (com ícone grande) */
@@ -233,7 +233,7 @@
                     <span>🤖 <strong>Apenas validados pela IA</strong></span>
                     <span id="iaFiltroStatus" style="margin-left:auto;color:var(--text-3);font-size:12px;"></span>
                 </label>
-                <button type="button" id="btnClassificarIA" class="btn btn-sm btn-secondary" style="display:none;margin-top:8px;font-size:11px;padding:4px 10px;" onclick="classificarItensPendentes()">▶ Classificar pendentes</button>
+                <button type="button" id="btnClassificarIA" class="btn btn-sm btn-secondary" style="display:none;margin-top:8px;font-size:var(--text-xs);padding:4px 10px;" onclick="classificarItensPendentes()">▶ Classificar pendentes</button>
             </div>
 
             <!-- Painel de sugestão de produto (TerraMaster) — só aparece com grupo selecionado -->
@@ -242,7 +242,7 @@
                     <span>🎯 <strong>Sugestão de Produto</strong> <span id="sugestaoMarcaLabel" style="color:var(--text-3);font-weight:400;font-size:12px"></span></span>
                     <span id="sugestaoStatus" style="margin-left:auto;color:var(--text-3);font-size:12px;"></span>
                 </div>
-                <button type="button" id="btnSugerir" class="btn btn-sm btn-secondary" style="display:none;margin-top:8px;font-size:11px;padding:4px 10px;" onclick="sugerirProdutosPendentes()">▶ Sugerir produtos pendentes</button>
+                <button type="button" id="btnSugerir" class="btn btn-sm btn-secondary" style="display:none;margin-top:8px;font-size:var(--text-xs);padding:4px 10px;" onclick="sugerirProdutosPendentes()">▶ Sugerir produtos pendentes</button>
             </div>
 
             <!-- Chips dos filtros ativos -->
@@ -346,7 +346,7 @@
         <div class="icon" style="font-size:36px;margin-bottom:10px;">📊</div>
         <p style="margin-bottom:18px;">Pesquise um item para ver análises de mercado</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:600px;margin:0 auto;">
-            <span style="font-size:0.78em;color:var(--text-3);align-self:center;">Tente:</span>
+            <span style="font-size:var(--text-xs);color:var(--text-3);align-self:center;">Tente:</span>
             <span class="historico-chip" onclick="document.getElementById('txtBusca').value='switch 48 portas';pesquisar();">switch 48 portas</span>
             <span class="historico-chip" onclick="document.getElementById('txtBusca').value='notebook i7';pesquisar();">notebook i7</span>
             <span class="historico-chip" onclick="document.getElementById('txtBusca').value='servidor';pesquisar();">servidor</span>
@@ -584,24 +584,24 @@
             } else if (res && res.length > 0) {
                 const r = res[0];
                 statusHTML = `<span class="winner-badge homologado">Homologado</span>
-                    ${r.dataResultado ? `<div style="color: var(--text-2);font-size:10px;margin-top:3px">${formatarData(r.dataResultado)}</div>` : ''}`;
+                    ${r.dataResultado ? `<div style="color: var(--text-2);font-size:var(--text-xs);margin-top:3px">${formatarData(r.dataResultado)}</div>` : ''}`;
                 fornecedorHTML = `<div class="fornecedor" style="font-size:12px">${r.nomeRazaoSocialFornecedor || 'N/I'}</div>
-                    <div class="cnpj" style="font-size:11px;color: var(--text-2)">${formatarCNPJ(r.niFornecedor)}</div>`;
+                    <div class="cnpj" style="font-size:var(--text-xs);color: var(--text-2)">${formatarCNPJ(r.niFornecedor)}</div>`;
                 const marca = r.marcaFabricante || r.marca || '';
                 const modelo = r.modeloVersao || '';
                 if (marca || modelo) {
                     marcaHTML = `${marca ? `<div style="color: var(--warn);font-weight:600;font-size:12px">${marca}</div>` : ''}
-                        ${modelo ? `<div style="color: var(--border);font-size:11px">${modelo}</div>` : ''}`;
+                        ${modelo ? `<div style="color: var(--border);font-size:var(--text-xs)">${modelo}</div>` : ''}`;
                 }
                 valorHomolHTML = `<div class="valor-h" style="font-weight:600">${formatarMoeda(r.valorUnitarioHomologado)}</div>
-                    <div style="color: var(--border);font-size:11px">${formatarMoeda(r.valorTotalHomologado)} total</div>`;
+                    <div style="color: var(--border);font-size:var(--text-xs)">${formatarMoeda(r.valorTotalHomologado)} total</div>`;
             } else if (item.situacaoOrigem) {
                 // Resultado vindo do portal de origem (ex: PCP) quando o PNCP não homologou.
                 const so = item.situacaoOrigem;
-                const fonteTag = `<div style="color: var(--purple);font-size:10px;margin-top:3px">via ${item.fonteOrigem || 'origem'}</div>`;
+                const fonteTag = `<div style="color: var(--purple);font-size:var(--text-xs);margin-top:3px">via ${item.fonteOrigem || 'origem'}</div>`;
                 if (item.valorOrigem != null) {
                     statusHTML = `<span class="winner-badge homologado">${so}</span>${fonteTag}`;
-                    fornecedorHTML = `<div style="font-size:11px;color: var(--text-2)">vencedor não publicado no PNCP</div>`;
+                    fornecedorHTML = `<div style="font-size:var(--text-xs);color: var(--text-2)">vencedor não publicado no PNCP</div>`;
                     valorHomolHTML = `<div class="valor-h" style="font-weight:600">${formatarMoeda(item.valorOrigem)}</div>`;
                 } else {
                     statusHTML = `<span class="winner-badge sem-resultado">${so}</span>${fonteTag}`;
@@ -615,7 +615,7 @@
             return `<tr>
                 <td class="desc" data-label="Item">
                     <div>${highlightTerms(item.itemDescricao)}</div>
-                    <div style="margin-top:4px;font-size:11px;color: var(--text-2)">Item ${item.numeroItem} · Qtd: ${item.quantidade || '-'} ${item.unidadeMedida || ''}</div>
+                    <div style="margin-top:4px;font-size:var(--text-xs);color: var(--text-2)">Item ${item.numeroItem} · Qtd: ${item.quantidade || '-'} ${item.unidadeMedida || ''}</div>
                 </td>
                 <td data-label="Órgão">
                     <div style="font-weight:600;font-size:12px">${item.nomeUnidade || item.orgao}</div>
@@ -966,10 +966,10 @@
     function renderSugestaoCell(itemId) {
         const s = sugestaoMap[itemId];
         if (!s) {
-            return '<span style="color:var(--text-3);font-size:11px">não analisado</span>';
+            return '<span style="color:var(--text-3);font-size:var(--text-xs)">não analisado</span>';
         }
         if (!s.modelo || s.modelo.toLowerCase() === 'nenhum' || s.score === 0) {
-            return '<span style="color:var(--text-3);font-size:11px" title="' + escapeHtml(s.motivo || '') + '">sem match</span>';
+            return '<span style="color:var(--text-3);font-size:var(--text-xs)" title="' + escapeHtml(s.motivo || '') + '">sem match</span>';
         }
         let cor = 'var(--text-3)';
         let icone = '⚪';
@@ -978,7 +978,7 @@
         else if (s.score >= 50) { cor = '#ff9800'; icone = '🟠'; }
         const tooltip = (s.requisitos ? 'Requisitos: ' + s.requisitos + '\n' : '') + (s.motivo || '');
         return `<div style="font-weight:600;color:${cor};font-size:12px" title="${escapeHtml(tooltip)}">${icone} ${escapeHtml(s.modelo)}</div>
-                <div style="color:var(--text-3);font-size:10px">score ${s.score}</div>`;
+                <div style="color:var(--text-3);font-size:var(--text-xs)">score ${s.score}</div>`;
     }
 
     async function atualizarStatusSugestao() {
@@ -1068,15 +1068,15 @@
                 <td style="text-align:center;color: var(--text-2)">${i + 1}</td>
                 <td style="font-size:12px">
                     <div>${item.nomeUnidade || item.orgao || '-'}</div>
-                    <div style="color: var(--text-2);font-size:11px">UASG ${item.uasg || '-'} · ${item.numeroControlePNCP || ''}</div>
-                    <a href="${pncpLink}" target="_blank" style="color: var(--accent);font-size:11px;text-decoration:none">Ver no PNCP ↗</a>
+                    <div style="color: var(--text-2);font-size:var(--text-xs)">UASG ${item.uasg || '-'} · ${item.numeroControlePNCP || ''}</div>
+                    <a href="${pncpLink}" target="_blank" style="color: var(--accent);font-size:var(--text-xs);text-decoration:none">Ver no PNCP ↗</a>
                 </td>
                 <td style="font-size:12px">${item.itemDescricao || '-'}</td>
-                <td style="color: var(--accent);font-size:12px">${r.nomeRazaoSocialFornecedor || 'N/I'}<br><span style="color: var(--text-2);font-size:11px">${formatarCNPJ(r.niFornecedor)}</span></td>
+                <td style="color: var(--accent);font-size:12px">${r.nomeRazaoSocialFornecedor || 'N/I'}<br><span style="color: var(--text-2);font-size:var(--text-xs)">${formatarCNPJ(r.niFornecedor)}</span></td>
                 <td style="color: var(--warn);font-size:12px">${marcaTxt}</td>
                 <td style="text-align:right">${formatarMoeda(r.valorUnitarioHomologado)}</td>
                 <td style="text-align:right">${formatarMoeda(r.valorTotalHomologado)}</td>
-                <td style="color: var(--text-2);font-size:11px">${formatarData(r.dataResultado)}</td>
+                <td style="color: var(--text-2);font-size:var(--text-xs)">${formatarData(r.dataResultado)}</td>
             </tr>`;
         }).join('');
 
@@ -1228,7 +1228,7 @@
                     <button onclick="document.getElementById('modalDadosAbertos').remove()" class="btn btn-secondary">✕ Fechar</button>
                 </div>
                 ${temMarca ? '<div style="background:rgba(102,187,106,0.1);border:1px solid rgba(102,187,106,0.3);padding:10px;border-radius:8px;margin-bottom:15px;color: var(--success)">✅ <strong>Marca/Modelo encontrado!</strong> Esta fonte contém dados de marca e fabricante.</div>' : ''}
-                <div style="font-size:11px;color: var(--text-2);margin-bottom:10px">Campos disponíveis: ${campos.join(', ')}</div>
+                <div style="font-size:var(--text-xs);color: var(--text-2);margin-bottom:10px">Campos disponíveis: ${campos.join(', ')}</div>
                 <div style="overflow-x:auto">
                 <table class="results-table">
                     <thead><tr>`;
@@ -1349,29 +1349,29 @@
         const statsHtml = `
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
                 <div style="padding:10px;background:var(--bg-3);border-radius:6px;text-align:center">
-                    <div style="font-size:11px;color:var(--text-3);text-transform:uppercase">Itens (universo)</div>
+                    <div style="font-size:var(--text-xs);color:var(--text-3);text-transform:uppercase">Itens (universo)</div>
                     <div style="font-size:18px;color:var(--text-0);font-weight:600;margin-top:4px">${(t.itensTotal||0).toLocaleString('pt-BR')}</div>
                 </div>
                 <div style="padding:10px;background:var(--bg-3);border-radius:6px;text-align:center">
-                    <div style="font-size:11px;color:var(--text-3);text-transform:uppercase">Homologados</div>
+                    <div style="font-size:var(--text-xs);color:var(--text-3);text-transform:uppercase">Homologados</div>
                     <div style="font-size:18px;color:var(--success);font-weight:600;margin-top:4px">${(t.itensComResultado||0).toLocaleString('pt-BR')}</div>
                 </div>
                 <div style="padding:10px;background:var(--bg-3);border-radius:6px;text-align:center">
-                    <div style="font-size:11px;color:var(--text-3);text-transform:uppercase">Mediana unit.</div>
+                    <div style="font-size:var(--text-xs);color:var(--text-3);text-transform:uppercase">Mediana unit.</div>
                     <div style="font-size:14px;color:var(--text-0);font-weight:600;margin-top:4px;font-family:'SF Mono',Menlo,monospace">${med != null ? fmt(med) : '-'}</div>
                 </div>
                 <div style="padding:10px;background:var(--bg-3);border-radius:6px;text-align:center">
-                    <div style="font-size:11px;color:var(--text-3);text-transform:uppercase">Faixa unit.</div>
+                    <div style="font-size:var(--text-xs);color:var(--text-3);text-transform:uppercase">Faixa unit.</div>
                     <div style="font-size:12px;color:var(--text-0);margin-top:4px;font-family:'SF Mono',Menlo,monospace">${fmt(t.precoMin)} a ${fmt(t.precoMax)}</div>
                 </div>
                 <div style="padding:10px;background:var(--bg-3);border-radius:6px;text-align:center">
-                    <div style="font-size:11px;color:var(--text-3);text-transform:uppercase">Fornecedores</div>
+                    <div style="font-size:var(--text-xs);color:var(--text-3);text-transform:uppercase">Fornecedores</div>
                     <div style="font-size:18px;color:var(--accent);font-weight:600;margin-top:4px">${(t.fornecedoresUnicos||0).toLocaleString('pt-BR')}</div>
                 </div>
             </div>`;
 
         const cacheBadge = meta.cache === 'hit'
-            ? `<span style="display:inline-block;margin-left:10px;padding:3px 9px;background:rgba(102,187,106,0.15);color:var(--success);border:1px solid rgba(102,187,106,0.3);border-radius:10px;font-size:11px;font-weight:600">♻ Cache do dia</span>`
+            ? `<span style="display:inline-block;margin-left:10px;padding:3px 9px;background:rgba(102,187,106,0.15);color:var(--success);border:1px solid rgba(102,187,106,0.3);border-radius:10px;font-size:var(--text-xs);font-weight:600">♻ Cache do dia</span>`
             : '';
         // Atualiza o título (h3) com badge — atalho simples: reescreve via querySelector.
         const headerH3 = document.querySelector('#modalAnaliseIA h3');
@@ -1401,7 +1401,7 @@
 
             ${sec('💡 Insights acionáveis', `<ul style="list-style:none;padding:0;margin:0">${insights}</ul>`)}
 
-            <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);text-align:right">
+            <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border);font-size:var(--text-xs);color:var(--text-3);text-align:right">
                 Amostra: ${meta.n_amostra||'-'} itens de ${(meta.n_itens_universo||0).toLocaleString('pt-BR')} no universo · escopo "${escapeHtml(meta.escopo)}" · ${meta.modelo} · ${(meta.tempo_ms/1000).toFixed(1)}s
             </div>`;
     }

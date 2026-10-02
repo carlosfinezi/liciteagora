@@ -23,11 +23,11 @@
   .sugestoes .item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
   .sugestoes .item:hover { background: var(--bg-hover); }
   .sugestoes .item .nome { flex: 1; }
-  .sugestoes .item .sku { font-size: 0.78em; color: var(--text-2); }
+  .sugestoes .item .sku { font-size: var(--text-xs); color: var(--text-2); }
   .sugestoes .item .preco { font-weight: 700; color: var(--success); font-variant-numeric: tabular-nums; }
 
   .carrinho { width: 100%; border-collapse: collapse; margin-top: 10px; }
-  .carrinho th { text-align: left; font-size: 0.76em; text-transform: uppercase; color: var(--text-2); padding: 8px; border-bottom: 1px solid var(--border); }
+  .carrinho th { text-align: left; font-size: var(--text-xs); text-transform: uppercase; color: var(--text-2); padding: 8px; border-bottom: 1px solid var(--border); }
   .carrinho td { padding: 8px; border-bottom: 1px solid var(--border); font-size: 0.92em; }
   .carrinho td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .carrinho td input { background: var(--bg-input); color: var(--text-0); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 4px 8px; width: 80px; text-align: right; font-variant-numeric: tabular-nums; }
@@ -44,17 +44,21 @@
   .pag-opt.selected { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 700; }
 
   .consumidor-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-  .consumidor-row label { font-size: 0.78em; color: var(--text-2); display: block; margin-bottom: 3px; }
+  .consumidor-row label { font-size: var(--text-xs); color: var(--text-2); display: block; margin-bottom: 3px; }
   .consumidor-row input { width: 100%; background: var(--bg-input); color: var(--text-0); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 6px 10px; }
 
-  .btn-finalizar { width: 100%; padding: 14px; font-size: 1.1em; font-weight: 700; margin-top: 14px; background: var(--success); color: #001; border: 0; border-radius: var(--r-md); cursor: pointer; }
+  /* O texto era `#001` cravado, feito para o verde CLARO do tema escuro. No tema
+     claro o `--success` é verde escuro, e o quase-preto sobre ele dava 3,8:1 no
+     botão principal do caixa. O `--bg-2` acompanha o tema (escuro no escuro,
+     branco no claro): 9,2:1 e 5,5:1. */
+  .btn-finalizar { width: 100%; padding: 14px; font-size: 1.1em; font-weight: 700; margin-top: 14px; background: var(--success); color: var(--bg-2); border: 0; border-radius: var(--r-md); cursor: pointer; }
   .btn-finalizar:hover { opacity: 0.9; }
   .btn-finalizar:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .modal-sucesso .modal { max-width: 440px; text-align: center; }
   .qr-wrap { margin: 18px auto; background: white; padding: 10px; border-radius: var(--r-md); display: inline-block; }
   .qr-wrap img { display: block; }
-  .chave-display { font-family: monospace; font-size: 0.76em; word-break: break-all; color: var(--text-1); background: var(--bg-1); padding: 8px; border-radius: var(--r-md); margin-top: 10px; }
+  .chave-display { font-family: monospace; font-size: var(--text-xs); word-break: break-all; color: var(--text-1); background: var(--bg-1); padding: 8px; border-radius: var(--r-md); margin-top: 10px; }
 
   @media print {
     .sidebar, .pdv-layout > .card:first-child, .page-header { display: none !important; }
@@ -100,7 +104,7 @@
   <div class="pdv-layout">
     <div>
       <div class="card">
-        <h3>Buscar produto ou cliente (código de barras, código, descrição, CPF/CNPJ ou nome)</h3>
+        <h3>Buscar</h3>
         <div class="busca-wrap">
           <input type="text" id="inpBusca" autofocus autocomplete="off"
                  placeholder="Bipe o código de barras, digite código/descrição, ou CPF/nome do cliente…"
@@ -142,12 +146,12 @@
           <div><label>CPF/CNPJ</label><input type="text" id="iCpf" placeholder="000.000.000-00" oninput="atualizarConsumidorDebounced()"></div>
           <div><label>Nome</label><input type="text" id="iNome" placeholder="(opcional)"></div>
           <div><label>E-mail</label><input type="email" id="iEmail" placeholder="(opcional)"></div>
-          <div style="display:flex;align-items:flex-end;"><label style="display:flex;gap:6px;align-items:center;margin:0 0 6px;font-size:.85em;color:var(--text-1);">
+          <div style="display:flex;align-items:flex-end;"><label style="display:flex;gap:6px;align-items:center;margin:0 0 6px;font-size:var(--text-xs);color:var(--text-1);">
             <input type="checkbox" id="iPromocoes" style="width:auto;"> Aceita receber promoções</label></div>
         </div>
-        <div style="font-size:0.78em;color:var(--text-2);margin-top:6px;">Obrigatório acima de R$ 200 — e em qualquer valor quando a natureza gera conta a receber.</div>
+        <div style="font-size:var(--text-xs);color:var(--text-2);margin-top:6px;">Obrigatório acima de R$ 200 — e em qualquer valor quando a natureza gera conta a receber.</div>
 
-        <div id="naturezaSelo" style="margin-top:14px;padding:8px 12px;background:var(--bg-1);border-left:3px solid var(--accent);border-radius:var(--r-sm);font-size:0.85em;">
+        <div id="naturezaSelo" style="margin-top:14px;padding:8px 12px;background:var(--bg-1);border-left:3px solid var(--accent);border-radius:var(--r-sm);font-size:var(--text-xs);">
           → NFC-e (modelo 65) <span id="naturezaTexto" style="color:var(--text-2);"></span>
         </div>
 
@@ -169,8 +173,8 @@
     </div>
     <div id="mOkInfo" style="font-size:0.95em;color:var(--text-1);">—</div>
     <div class="qr-wrap" id="qrWrap"></div>
-    <div style="font-size:0.75em;color:var(--text-2);">Consulte em:</div>
-    <div style="font-size:0.82em;color:var(--accent);word-break:break-all;" id="urlChaveDisplay"></div>
+    <div style="font-size:var(--text-xs);color:var(--text-2);">Consulte em:</div>
+    <div style="font-size:var(--text-xs);color:var(--accent);word-break:break-all;" id="urlChaveDisplay"></div>
     <div class="chave-display" id="chaveDisplay">—</div>
     <div class="modal-actions" style="justify-content:center;">
       <button class="btn btn-secondary" onclick="window.print()">🖨️ Imprimir cupom</button>
@@ -240,18 +244,18 @@ function renderSugestoes(produtos, pessoas, clientePrimeiro){
   if (!produtos.length && !pessoas.length) { box.style.display = 'none'; return; }
 
   const secPessoas = pessoas.length ? `
-    <div style="padding:6px 10px;background:var(--bg-2);color:var(--text-2);font-size:0.75em;text-transform:uppercase;letter-spacing:0.5px;">👤 Clientes (${pessoas.length})</div>
+    <div style="padding:6px 10px;background:var(--bg-2);color:var(--text-2);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:0.5px;">👤 Clientes (${pessoas.length})</div>
     ${pessoas.map(p => {
       const pj = JSON.stringify(p).replace(/'/g,"&#39;");
       return `<div class="item" style="border-left:3px solid var(--accent);" onclick='selecionarCliente(${pj})'>
         <div class="nome">${escape(p.razaoSocial || '—')}<br><span class="sku">${escape(p.cpfCnpj || '')}${p.nomeFantasia ? ' · '+escape(p.nomeFantasia) : ''}</span></div>
-        <div class="preco" style="color:var(--accent);font-size:0.82em;">selecionar</div>
+        <div class="preco" style="color:var(--accent);font-size:var(--text-xs);">selecionar</div>
       </div>`;
     }).join('')}
   ` : '';
 
   const secProdutos = produtos.length ? `
-    <div style="padding:6px 10px;background:var(--bg-2);color:var(--text-2);font-size:0.75em;text-transform:uppercase;letter-spacing:0.5px;">📦 Produtos (${produtos.length})</div>
+    <div style="padding:6px 10px;background:var(--bg-2);color:var(--text-2);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:0.5px;">📦 Produtos (${produtos.length})</div>
     ${produtos.map(p => {
       const pj = JSON.stringify(p).replace(/'/g,"&#39;");
       return `<div class="item" onclick='adicionar(${pj});document.getElementById("inpBusca").value="";document.getElementById("sugestoes").style.display="none";document.getElementById("inpBusca").focus();'>

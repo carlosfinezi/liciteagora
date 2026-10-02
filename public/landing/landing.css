@@ -228,7 +228,7 @@ h4 { font-size: var(--fs-xl); }
   background: var(--bg-3);
   border-radius: 6px;
   padding: 4px 12px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-3);
   flex: 1;
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
@@ -245,19 +245,19 @@ h4 { font-size: var(--fs-xl); }
 /* Header do mockup */
 .mock-page-head { display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
 .mock-page-title { font-size: 14px; font-weight: 600; color: var(--text-1); }
-.mock-page-badge { font-size: 10px; padding: 3px 8px; border-radius: 999px; background: rgba(16,185,129,0.15); color: #10b981; font-weight: 600; }
+.mock-page-badge { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: rgba(16,185,129,0.15); color: #10b981; font-weight: 600; }
 
 /* KPIs do mockup */
 .mock-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .mock-kpi { background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
-.mock-kpi .l { font-size: 9px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.mock-kpi .l { font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
 .mock-kpi .v { font-size: 18px; font-weight: 700; color: var(--text-1); margin-top: 4px; }
-.mock-kpi .d { font-size: 10px; color: var(--green); margin-top: 2px; font-weight: 600; }
+.mock-kpi .d { font-size: 12px; color: var(--green); margin-top: 2px; font-weight: 600; }
 .mock-kpi .d.red { color: var(--red); }
 
 /* Chart do mockup */
 .mock-chart { background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
-.mock-chart-head { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-2); margin-bottom: 10px; font-weight: 600; }
+.mock-chart-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); margin-bottom: 10px; font-weight: 600; }
 .mock-bars { display: flex; align-items: flex-end; gap: 6px; height: 80px; }
 .mock-bars .bar {
   flex: 1;
@@ -293,7 +293,7 @@ h4 { font-size: var(--fs-xl); }
 .mock-row.flash { animation: flashGreen 1.5s ease-out forwards; }
 
 /* Linha de lance animada */
-.mock-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; }
+.mock-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; }
 .mock-row .mock-dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; animation: pulse 1.5s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.5); } }
 .mock-row .mock-label { color: var(--text-2); flex: 1; }
@@ -312,9 +312,9 @@ h4 { font-size: var(--fs-xl); }
   will-change: transform;
 }
 .float-card .fc-icon { font-size: 22px; margin-bottom: 6px; }
-.float-card .fc-title { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.float-card .fc-title { font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
 .float-card .fc-value { font-size: 16px; font-weight: 700; color: var(--text-1); margin-top: 2px; }
-.float-card .fc-sub { font-size: 10px; color: var(--green); margin-top: 2px; font-weight: 600; }
+.float-card .fc-sub { font-size: 12px; color: var(--green); margin-top: 2px; font-weight: 600; }
 
 .float-card.top-left { top: -20px; left: -30px; animation-delay: 0s; }
 .float-card.bottom-right { bottom: -20px; right: -20px; animation-delay: 2s; }
@@ -416,7 +416,7 @@ h4 { font-size: var(--fs-xl); }
 .pricing-card { padding: 32px 28px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); display: flex; flex-direction: column; }
 .pricing-card.destaque { background: linear-gradient(180deg, rgba(59,130,246,0.08), transparent); border: 1px solid rgba(59,130,246,0.3); transform: scale(1.02); box-shadow: var(--shadow-lg); position: relative; }
 .pricing-card.destaque::before { content: 'MAIS ESCOLHIDO'; position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
-  background: linear-gradient(135deg, var(--accent), var(--purple)); color: white; padding: 4px 14px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; }
+  background: linear-gradient(135deg, var(--accent), var(--purple)); color: white; padding: 4px 14px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em; }
 .pricing-card .plan-name { font-size: var(--fs-sm); color: var(--text-2); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 8px; }
 .pricing-card .plan-price { display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px; }
 .pricing-card .plan-price .amount { font-size: var(--fs-4xl); font-weight: 800; color: var(--text-1); }
