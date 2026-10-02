@@ -62,9 +62,9 @@
         <h3 style="font-size:1em;margin:0 0 10px;">Ritmo de envio</h3>
         <div id="ritmoBox"><small class="muted">Carregando…</small></div>
         <div class="form-row" id="ritmoCampos">
-          <div class="form-group"><label>Por hora</label><input type="number" id="rtHora" min="1" max="200" step="1"></div>
-          <div class="form-group"><label>Intervalo (s)</label><input type="number" id="rtIntervalo" min="1" max="3600" step="5"></div>
-          <div class="form-group"><label>Por dia</label><input type="number" id="rtDia" min="1" max="2000" step="10"></div>
+          <div class="form-group"><label for="rtHora">Por hora</label><input type="number" id="rtHora" min="1" max="200" step="1"></div>
+          <div class="form-group"><label for="rtIntervalo">Intervalo (s)</label><input type="number" id="rtIntervalo" min="1" max="3600" step="5"></div>
+          <div class="form-group"><label for="rtDia">Por dia</label><input type="number" id="rtDia" min="1" max="2000" step="10"></div>
         </div>
         <small class="muted" id="rtPadrao">Protege o número. Resposta a quem escreveu nunca é segurada.</small>
 
@@ -74,7 +74,7 @@
           <small class="muted">Vale para conversas novas. Em cada conversa dá para desligar individualmente.</small>
         </div></div>
         <div class="form-row"><div class="form-group full-width">
-          <label>Responde para quem</label>
+          <label for="iaEscopo">Responde para quem</label>
           <select id="iaEscopo">
             <option value="todos">Todos que escreverem</option>
             <option value="campanha">Só quem recebeu uma campanha</option>
@@ -87,10 +87,23 @@
 
       <div>
         <div class="form-row"><div class="form-group full-width">
-          <label>Instruções do atendente</label>
+          <label for="iaPrompt">Instruções do atendente</label>
           <textarea id="iaPrompt" rows="10" placeholder="Quem é o atendente, o que a empresa vende e o que ele precisa saber para responder"></textarea>
           <small class="muted">O que a IA pode afirmar sai da <a href="/comunicacao/ia.html">Base da IA</a>, que é a
             mesma para todos os números. Aqui fica quem ela é neste número.</small>
+        </div></div>
+
+        <div class="form-row"><div class="form-group full-width">
+          <label for="respPessoa">Quando pedirem para falar com uma pessoa</label>
+          <small class="muted">Sai como está escrito, sem passar pela IA. O atendimento automático é pausado por 4
+            horas, a conversa sobe para as não lidas e a equipe é avisada.</small>
+          <textarea id="respPessoa" rows="2" placeholder="Obrigado pela paciência! Alguém da equipe já está vindo para falar com você."></textarea>
+        </div></div>
+        <div class="form-row"><div class="form-group full-width">
+          <label for="respMaterial">Quando pedirem o link, o site, o aplicativo ou um arquivo</label>
+          <small class="muted">Vale para qualquer conversa, com ou sem campanha. Durante um roteiro, a pergunta da
+            etapa vai na mesma mensagem.</small>
+          <textarea id="respMaterial" rows="2" placeholder="Segue o link do site: liciteagora.app"></textarea>
         </div></div>
         <!-- Some inteiro enquanto o servidor não souber de horário. Metade do
              formulário visível seria pior que nenhum: a pessoa marcaria a caixa,
@@ -106,7 +119,7 @@
           <div id="horAgenda" style="display:none;">
             <div id="horDias"></div>
             <div class="form-row"><div class="form-group full-width">
-              <label>Mensagem fora do horário</label>
+              <label for="horMsg">Mensagem fora do horário</label>
               <textarea id="horMsg" rows="2" placeholder="Ex.: Recebemos sua mensagem. Nosso atendimento é de segunda a sexta, das 8h às 18h."></textarea>
               <small class="muted">Enviada uma vez a cada 8 horas por pessoa. Em branco, a IA apenas não responde.</small>
             </div></div>
@@ -148,11 +161,11 @@
         </div></div>
         <div id="agBloco" style="display:none;">
           <div class="form-row">
-            <div class="form-group"><label>Duração (min)</label>
+            <div class="form-group"><label for="agDuracao">Duração (min)</label>
               <input type="number" id="agDuracao" min="10" max="240" step="5"></div>
-            <div class="form-group"><label>Antecedência (min)</label>
+            <div class="form-group"><label for="agAntecedencia">Antecedência (min)</label>
               <input type="number" id="agAntecedencia" min="0" max="2880" step="30"></div>
-            <div class="form-group"><label>Até quantos dias</label>
+            <div class="form-group"><label for="agJanela">Até quantos dias</label>
               <input type="number" id="agJanela" min="1" max="30" step="1"></div>
           </div>
           <div id="agDias"></div>
@@ -252,6 +265,8 @@ async function carregarNumero(){
   if (ia?.success !== false && ia) {
     document.getElementById('iaLigada').checked = !!(ia.enabled || ia.ativo);
     document.getElementById('iaPrompt').value = ia.prompt || ia.system || '';
+    document.getElementById('respPessoa').value = (ia.respostas && ia.respostas.pessoa) || '';
+    document.getElementById('respMaterial').value = (ia.respostas && ia.respostas.material) || '';
     document.getElementById('iaEscopo').value = ia.escopo === 'campanha' ? 'campanha' : 'todos';
     const rt = ia.ritmo || {};
     document.getElementById('rtHora').value = rt.limiteHora ?? '';
@@ -584,6 +599,8 @@ async function salvarIA(){
   const body = { canalId: CANAL_SEL || undefined,
                  enabled: document.getElementById('iaLigada').checked,
                  prompt: document.getElementById('iaPrompt').value,
+                 respostas: { pessoa: document.getElementById('respPessoa').value,
+                              material: document.getElementById('respMaterial').value },
                  escopo: document.getElementById('iaEscopo').value };
   const horario = lerHorarioDaTela();
   if (horario) body.horario = horario;

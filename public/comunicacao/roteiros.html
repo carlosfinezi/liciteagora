@@ -66,7 +66,7 @@
 
     <section class="secao">
       <h2>Identificação</h2>
-      <div class="form-row"><div class="form-group full-width"><label>Nome *</label>
+      <div class="form-row"><div class="form-group full-width"><label for="rNome">Nome *</label>
         <input type="text" id="rNome" maxlength="120"></div></div>
     </section>
 
@@ -82,38 +82,37 @@
       <h2>Resultado</h2>
       <div class="sub">Ao fim das etapas, o lead que somou os pontos mínimos fica qualificado e vira oportunidade no CRM.</div>
       <div class="form-row">
-        <div class="form-group"><label>Pontos para qualificar *</label>
+        <div class="form-group"><label for="rCorte">Pontos para qualificar *</label>
           <input type="number" id="rCorte" min="0" step="1"></div>
-        <div class="form-group"><label>Funil do CRM</label>
+        <div class="form-group"><label for="rFunil">Funil do CRM</label>
           <select id="rFunil"></select></div>
       </div>
-      <div class="form-row"><div class="form-group full-width"><label>O que a IA faz com o qualificado</label>
+      <div class="form-row"><div class="form-group full-width"><label for="rProximo">O que a IA faz com o qualificado</label>
         <textarea id="rProximo" rows="2" placeholder="Ofereça o teste de 14 dias e diga que um consultor vai chamar."></textarea></div></div>
     </section>
 
     <section class="secao">
-      <h2>Quando o lead sai do roteiro</h2>
-      <div class="sub">Estas duas respostas saem como estão escritas aqui, sem passar pela IA. Deixe em branco para
-        a IA responder do jeito dela.</div>
+      <h2>Ao terminar o roteiro</h2>
+      <div class="sub">Estas mensagens saem como estão escritas aqui, sem passar pela IA. Em branco, a IA redige a
+        partir do campo "O que a IA faz com o qualificado".</div>
       <div class="form-row"><div class="form-group full-width">
-        <label>Ele pede para falar com uma pessoa</label>
-        <small class="muted">A IA é desligada nesta conversa e ela sobe para as não lidas, à espera de um atendente.</small>
-        <textarea id="rDesvioAtendente" rows="2" placeholder="Claro, só um momento. Já estou chamando alguém para falar com você."></textarea></div></div>
+        <label for="rFimQualificado">Para quem foi qualificado</label>
+        <small class="muted">A IA é pausada por 4 horas, a conversa sobe para as não lidas e a equipe é avisada.</small>
+        <textarea id="rFimQualificado" rows="2" placeholder="Obrigado pela paciência! Alguém da equipe já está vindo para falar com você."></textarea></div></div>
       <div class="form-row"><div class="form-group full-width">
-        <label>Ele pede o link, o site, o aplicativo ou um arquivo</label>
-        <small class="muted">A pergunta da etapa vai na mesma mensagem, e a conversa continua. O endereço pode vir
-          escrito aqui, ou como variável do roteiro.</small>
-        <textarea id="rDesvioMaterial" rows="2" placeholder="Segue o link: liciteagora.app"></textarea></div></div>
+        <label for="rFimDesqualificado">Para quem foi desqualificado</label>
+        <small class="muted">O atendimento automático continua, e ninguém é chamado.</small>
+        <textarea id="rFimDesqualificado" rows="2" placeholder="Entendi, obrigado pelo seu tempo. Qualquer coisa, estou por aqui."></textarea></div></div>
     </section>
 
     <section class="secao">
       <h2>Como a IA pergunta</h2>
-      <div class="form-row"><div class="form-group full-width"><label>Uma regra por linha</label>
+      <div class="form-row"><div class="form-group full-width"><label for="rConducao">Uma regra por linha</label>
         <textarea id="rConducao" rows="4"></textarea></div></div>
       <details>
         <summary style="cursor:pointer;font-size:0.88em;color:var(--text-2);">Variáveis do roteiro</summary>
         <div class="form-row" style="margin-top:8px;"><div class="form-group full-width">
-          <label>Variáveis</label><small class="muted">Uma por linha, no formato nome = valor. No texto, escreva {{nome}}.</small>
+          <label for="rValores">Variáveis</label><small class="muted">Uma por linha, no formato nome = valor. No texto, escreva {{nome}}.</small>
           <textarea id="rValores" rows="4"></textarea></div></div>
       </details>
     </section>
@@ -171,8 +170,8 @@ function abrirEditor(roteiro) {
   document.getElementById('rCorte').value = c.corte ?? 0;
   document.getElementById('rProximo').value = c.proximoPasso || '';
   document.getElementById('rConducao').value = (c.conducao || []).join('\n');
-  document.getElementById('rDesvioAtendente').value = (c.desvios && c.desvios.atendente) || '';
-  document.getElementById('rDesvioMaterial').value = (c.desvios && c.desvios.material) || '';
+  document.getElementById('rFimQualificado').value = (c.fim && c.fim.qualificado) || '';
+  document.getElementById('rFimDesqualificado').value = (c.fim && c.fim.desqualificado) || '';
   document.getElementById('rValores').value = Object.entries(c.valores || {}).map(([k, v]) => `${k} = ${v}`).join('\n');
   document.getElementById('rFunil').innerHTML = '<option value="">Primeiro funil</option>'
     + funis.map(f => `<option value="${f.id}"${Number(c.funilId) === f.id ? ' selected' : ''}>${esc(f.nome)}</option>`).join('');
@@ -294,12 +293,12 @@ async function salvar() {
     const prox = document.getElementById('rProximo').value.trim();
     if (prox) c.proximoPasso = prox; else delete c.proximoPasso;
     c.conducao = document.getElementById('rConducao').value.split('\n').map(s => s.trim()).filter(Boolean);
-    const desvios = {};
-    for (const [chave, campo] of [['atendente', 'rDesvioAtendente'], ['material', 'rDesvioMaterial']]) {
+    const fim = {};
+    for (const [chave, campo] of [['qualificado', 'rFimQualificado'], ['desqualificado', 'rFimDesqualificado']]) {
       const v = document.getElementById(campo).value.trim();
-      if (v) desvios[chave] = v;
+      if (v) fim[chave] = v;
     }
-    if (Object.keys(desvios).length) c.desvios = desvios; else delete c.desvios;
+    if (Object.keys(fim).length) c.fim = fim; else delete c.fim;
     c.valores = lerValores(document.getElementById('rValores').value);
     const nome = document.getElementById('rNome').value.trim();
     if (!nome) throw new Error('Dê um nome ao roteiro');

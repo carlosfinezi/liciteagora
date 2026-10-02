@@ -225,12 +225,20 @@ function buildSystemAtendimento(db, campanhaId, opts) {
   }
 
   const corpo = pedacos ? base + KB_SEP + pedacos : base;
-  // O roteiro vem depois do conhecimento: primeiro o que ela pode dizer, depois
-  // o que ela ainda precisa perguntar.
   const roteiro = blocoRoteiro(db, opts && opts.conversaId);
   // O guard-rail anti-invenção vinha só no caminho de campanha. Ele vale para
   // qualquer atendimento: inventar preço com cliente antigo é igualmente ruim.
-  return corpo + roteiro + '\n\n' + GUARDRAIL_INTERINO;
+  //
+  // O roteiro vai NA FRENTE das instruções, e não no fim.
+  //
+  // Ele ficava aos 91% de um prompt de 8,8 mil caracteres, e as instruções da
+  // empresa, aos 16%, mandam coletar nome, CNPJ e número de usuários quando o
+  // contato demonstra interesse. Em 30/09, com o roteiro no fim e até com o
+  // pedido de precedência escrito nele, a IA respondeu "Sim" de um lead de
+  // restaurante pedindo nome da empresa e quantos usuários usariam o
+  // LiciteAgora — duas vezes seguidas, com modelos diferentes. Ordem específica
+  // que aparece antes vence pedido genérico que aparece depois.
+  return (roteiro ? roteiro.trim() + '\n\n' : '') + corpo + '\n\n' + GUARDRAIL_INTERINO;
 }
 
 function evoCreds(cfg) {
@@ -289,10 +297,33 @@ function migrarQueue(db) {
       criado_em TEXT DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_wa_msg_jid ON whatsapp_messages(remote_jid, id);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_msg_waid ON whatsapp_messages(wa_message_id) WHERE wa_message_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_msg_waid_inst
+      ON whatsapp_messages(wa_message_id, instance) WHERE wa_message_id IS NOT NULL;
   `);
   // tabelas criadas antes da coluna from_bot (migração idempotente)
   try { db.exec('ALTER TABLE whatsapp_messages ADD COLUMN from_bot INTEGER DEFAULT 0'); } catch (_) { /* já existe */ }
+  // Quando o contato apagou a mensagem no WhatsApp (01/10/2026). A mensagem não
+  // é removida: quem apaga tira do aparelho dele, e o histórico do atendimento
+  // continua inteiro, agora com a marca. O boot também faz este ALTER
+  // (db-schema.js), que é o caminho que alcança tenant existente.
+  try { db.exec('ALTER TABLE whatsapp_messages ADD COLUMN apagadaEm TEXT'); } catch (_) { /* já existe */ }
+  // Citação e edição pela tela de Conversas (01/10/2026). Como a de cima, o boot
+  // é que alcança tenant existente (db-schema.js).
+  try { db.exec('ALTER TABLE whatsapp_messages ADD COLUMN citaWaId TEXT'); } catch (_) { /* já existe */ }
+  try { db.exec('ALTER TABLE whatsapp_messages ADD COLUMN editadaEm TEXT'); } catch (_) { /* já existe */ }
+  /**
+   * O único era em `wa_message_id` sozinho, e com vários números isso está
+   * errado: a MESMA mensagem tem duas visões, uma por instância. Um número da
+   * empresa mandando para outro gravava só a visão de quem enviou (`fromMe`), e
+   * o `INSERT OR IGNORE` engolia a visão de quem recebeu — a resposta nunca era
+   * tratada como recebida e a IA não era chamada (1bit, 30/09). O novo índice é
+   * mais permissivo que o antigo, então nada que já está gravado o viola.
+   */
+  try {
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_wa_msg_waid'").get()) {
+      db.exec('DROP INDEX idx_wa_msg_waid');
+    }
+  } catch (_) { /* índice antigo já removido */ }
   // Por qual número saiu (whatsapp-canais.js). A migração de verdade roda no
   // boot (db-schema.js); aqui só garante a coluna para fila criada depois.
   try { db.exec('ALTER TABLE whatsapp_queue ADD COLUMN canalId INTEGER'); } catch (_) { /* já existe */ }
@@ -429,7 +460,7 @@ function checarRitmo(db, cfg) {
  * `segurado: true` quer dizer "o ritmo deste número não deixa agora": quem
  * dispara em lote (campanhas) espera e tenta de novo, em vez de parar.
  */
-async function enviarWhatsApp(db, { telefone, texto, ignorarRitmo = false, canalId = null }) {
+async function enviarWhatsApp(db, { telefone, texto, ignorarRitmo = false, canalId = null, deBot = true, citar = null }) {
   migrarQueue(db);
 
   const cfg = loadProviderConfig(db, canalId);
@@ -464,10 +495,12 @@ async function enviarWhatsApp(db, { telefone, texto, ignorarRitmo = false, canal
   }
 
   try {
-    const result = await dispatchViaProvider(db, cfg, { telefone: telefoneNorm, texto });
+    const result = await dispatchViaProvider(db, cfg, { telefone: telefoneNorm, texto, citar });
     const id = db.prepare(
       'INSERT INTO whatsapp_queue (telefone, texto, status, provider, providerMessageId, dataEnvio, canalId) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)'
     ).run(telefoneNorm, texto, 'enviado', cfg.provider, result.providerMessageId || null, cid).lastInsertRowid;
+    registrarNoHistorico(db, cfg, { jid: result.jid, telefone: telefoneNorm, texto, id: result.providerMessageId, deBot,
+      citaWaId: citar && citar.waId });
     return { success: true, queueId: id, providerMessageId: result.providerMessageId, canalId: cid, instance: cfg.instance };
   } catch (err) {
     db.prepare(
@@ -477,22 +510,37 @@ async function enviarWhatsApp(db, { telefone, texto, ignorarRitmo = false, canal
   }
 }
 
-async function dispatchViaProvider(db, cfg, { telefone, texto }) {
+async function dispatchViaProvider(db, cfg, { telefone, texto, citar = null }) {
   if (cfg.provider === 'evolution') {
     const { base, apikey } = evoCreds(cfg);
     if (!base || !cfg.instance || !apikey) {
       throw new Error('Config evolution incompleta (baseUrl/instance/apikey)');
     }
+    // `quoted` é o que faz a mensagem sair como RESPOSTA a outra, com o balão
+    // citado em cima — o mesmo que o WhatsApp mostra. O `message` vai junto da
+    // `key` porque o Baileys monta o contextInfo a partir dele; sem ele a
+    // citação chega sem o trecho, como uma seta para o nada.
+    const corpo = { number: telefone, text: texto };
+    if (citar && citar.waId) {
+      corpo.quoted = {
+        key: { id: String(citar.waId), remoteJid: citar.jid || undefined, fromMe: !!citar.fromMe },
+        message: { conversation: String(citar.texto || '') },
+      };
+    }
     const r = await fetch(`${base}/message/sendText/${cfg.instance}`, {
       method: 'POST',
       headers: { apikey, 'content-type': 'application/json' },
-      body: JSON.stringify({ number: telefone, text: texto }),
+      body: JSON.stringify(corpo),
     });
     const data = await r.json().catch(() => ({}));
     if (r.status !== 200 && r.status !== 201) {
       throw new Error(`evolution http ${r.status}: ${JSON.stringify(data).slice(0, 200)}`);
     }
-    return { providerMessageId: data?.key?.id || null };
+    // O `remoteJid` da resposta é o número COMO O WHATSAPP O CONHECE, que não é
+    // sempre o que enviamos: mandamos para 5594984512288 e a conversa real é
+    // 559484512288, sem o nono dígito. Guardar o nosso faria a mensagem cair
+    // numa conversa que não existe.
+    return { providerMessageId: data?.key?.id || null, jid: data?.key?.remoteJid || null };
   }
   if (cfg.provider === 'zapi') {
     // TODO: implementar Z-API
@@ -506,6 +554,40 @@ async function dispatchViaProvider(db, cfg, { telefone, texto }) {
 }
 
 /**
+ * Grava na conversa o que o SISTEMA enviou (campanha, cobrança, OS, cardápio).
+ *
+ * Até 30/09 isso ia só para `whatsapp_queue`, e a tabela de mensagens ficava com
+ * as respostas do contato sem as mensagens que as provocaram. Dois estragos, um
+ * de cada lado: a tela de Conversas mostrava "Sim" solto, parecendo que faltavam
+ * mensagens; e a IA, que lê o mesmo histórico, não sabia a que o "Sim" respondia
+ * — respondia pelas instruções gerais, fora do assunto da campanha.
+ *
+ * **Não cria conversa.** Uma campanha de 27 mil contatos criaria 27 mil
+ * conversas na tela, e hoje a lista é de quem escreveu. A mensagem fica gravada
+ * e aparece inteira quando a pessoa responde; conversa que já existe é
+ * atualizada.
+ */
+function registrarNoHistorico(db, cfg, { jid, telefone, texto, id, deBot = true, citaWaId = null }) {
+  try {
+    const dest = jid || (String(telefone).replace(/\D/g, '') + '@s.whatsapp.net');
+    if (!dest.endsWith('@s.whatsapp.net')) return;       // grupo não é atendimento
+    db.prepare(`INSERT INTO whatsapp_messages (wa_message_id, instance, remote_jid, from_me, from_bot, texto, timestamp, citaWaId)
+      VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+      ON CONFLICT(wa_message_id, instance) WHERE wa_message_id IS NOT NULL DO UPDATE SET from_bot = excluded.from_bot`)
+      .run(id || null, cfg.instance, dest, deBot ? 1 : 0, texto, Math.floor(Date.now() / 1000), citaWaId || null);
+    const conv = db.prepare("SELECT id FROM conv_conversas WHERE jid = ? AND canal = 'whatsapp' AND canalId = ?")
+      .get(dest, cfg.canalId || 0);
+    if (conv) {
+      db.prepare('UPDATE conv_conversas SET ultimaMensagem = ?, ultimaEm = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(String(texto || '').slice(0, 200), conv.id);
+    }
+  } catch (e) {
+    // Histórico é registro, não pode derrubar um envio que já saiu.
+    console.error('[whatsapp] historico do enviado:', e.message);
+  }
+}
+
+/**
  * O que a Evolution precisa saber sobre o arquivo. O `mediatype` errado faz a
  * mensagem chegar como imagem quebrada: vídeo tem de ir como 'video'.
  * Os formatos aceitos são os do conjunto do modelo (comm-imagens.js).
@@ -513,10 +595,30 @@ async function dispatchViaProvider(db, cfg, { telefone, texto }) {
 function midiaDoCaminho(caminho) {
   const ext = require('path').extname(String(caminho || '')).toLowerCase();
   if (ext === '.mp4') return { mediatype: 'video', mimetype: 'video/mp4' };
+  // Documento: o anexo da tela de Conversas (01/10/2026). Fora destas
+  // extensões e das de imagem, o padrão continua sendo imagem, como era —
+  // quem chama com imagem não muda de comportamento.
+  if (DOCS[ext]) return { mediatype: 'document', mimetype: DOCS[ext] };
   return { mediatype: 'image',
            mimetype: ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp'
                    : ext === '.gif' ? 'image/gif' : 'image/jpeg' };
 }
+
+/** Os documentos que o anexo da conversa aceita, e o mimetype de cada um. */
+const DOCS = {
+  '.pdf': 'application/pdf',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.txt': 'text/plain',
+  '.csv': 'text/csv',
+  '.xml': 'application/xml',
+  '.zip': 'application/zip',
+  '.rar': 'application/vnd.rar',
+};
 
 /**
  * Envia imagem ou vídeo com legenda, pelo número `canalId` ou pelo padrão. Sem
@@ -559,12 +661,60 @@ async function enviarWhatsAppMidia(db, { telefone, texto, imagePath, canalId = n
     const pid = (data && data.key && data.key.id) || null;
     const id = db.prepare(`INSERT INTO whatsapp_queue (telefone, texto, status, provider, providerMessageId, dataEnvio, canalId)
       VALUES (?, ?, 'enviado', 'evolution', ?, CURRENT_TIMESTAMP, ?)`).run(tel, texto, pid, cid).lastInsertRowid;
+    registrarNoHistorico(db, cfg, { jid: (data && data.key && data.key.remoteJid) || null, telefone: tel, texto, id: pid });
     return { success: true, queueId: id, providerMessageId: pid, canalId: cid, instance: cfg.instance };
   } catch (e) {
     db.prepare("INSERT INTO whatsapp_queue (telefone, texto, status, erro, provider, canalId) VALUES (?, ?, 'erro', ?, 'evolution', ?)")
       .run(tel, texto, e.message, cid);
     return { success: false, error: e.message, canalId: cid };
   }
+}
+
+/**
+ * Apagar para todos e editar, as duas ações que o WhatsApp dá sobre uma
+ * mensagem JÁ ENVIADA — e que por isso não passam pelo caminho de envio: não
+ * há ritmo a contar, nem fila, nem histórico novo a criar.
+ *
+ * As duas precisam da chave da mensagem no WhatsApp (`waId` mais o jid do
+ * contato), que é o que temos em `whatsapp_messages.wa_message_id`. Mensagem
+ * gravada sem ele (envio que a Evolution não confirmou, ou histórico importado)
+ * não tem como ser alcançada, e isso é dito em vez de falhar calado.
+ *
+ * `editarMensagem` não é um envio novo: o WhatsApp substitui o conteúdo da
+ * mensagem original, e só dentro de 15 minutos (regra dele, conferida pela
+ * rota, que é quem conhece a hora do envio).
+ */
+async function chatDaEvolution(db, canalId, { caminho, metodo, corpo }) {
+  const cfg = loadProviderConfig(db, canalId);
+  if (!cfg) return { success: false, error: 'Número de WhatsApp não configurado' };
+  if (cfg.provider !== 'evolution') return { success: false, error: `Ação não disponível no provedor ${cfg.provider}` };
+  const { base, apikey } = evoCreds(cfg);
+  if (!base || !cfg.instance || !apikey) return { success: false, error: 'Config evolution incompleta (baseUrl/instance/apikey)' };
+  try {
+    const r = await fetch(`${base}/chat/${caminho}/${cfg.instance}`, {
+      method: metodo, headers: { apikey, 'content-type': 'application/json' },
+      body: JSON.stringify(corpo), signal: AbortSignal.timeout(20000),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.status !== 200 && r.status !== 201) {
+      return { success: false, error: `evolution http ${r.status}: ${JSON.stringify(data).slice(0, 200)}` };
+    }
+    return { success: true, data };
+  } catch (e) { return { success: false, error: e.message }; }
+}
+
+async function apagarParaTodos(db, { canalId = null, jid, waId }) {
+  if (!waId || !jid) return { success: false, error: 'Esta mensagem não tem registro no WhatsApp' };
+  return chatDaEvolution(db, canalId, { caminho: 'deleteMessageForEveryone', metodo: 'DELETE',
+    corpo: { id: String(waId), remoteJid: String(jid), fromMe: true } });
+}
+
+async function editarMensagem(db, { canalId = null, jid, waId, telefone, texto }) {
+  if (!waId || !jid) return { success: false, error: 'Esta mensagem não tem registro no WhatsApp' };
+  let tel = String(telefone || jid).replace(/\D/g, '');
+  if (tel && !tel.startsWith('55')) tel = '55' + tel;
+  return chatDaEvolution(db, canalId, { caminho: 'updateMessage', metodo: 'POST',
+    corpo: { number: tel, text: String(texto), key: { id: String(waId), remoteJid: String(jid), fromMe: true } } });
 }
 
 // Guard: só tenants com o módulo WhatsApp habilitado acessam /api/whatsapp/*.
@@ -909,6 +1059,10 @@ function registrarRotasWhatsApp(app, db) {
       const num = (k) => { const n = Number(get(k)); return Number.isFinite(n) && n > 0 ? n : null; };
       res.json({ success: true, canal: semApikey(canal), enabled: get('whatsapp_ai_enabled') === '1',
                  prompt: get('whatsapp_ai_prompt') || '',
+                 // As duas respostas prontas do atendimento (02/10/2026): saem
+                 // literais, sem o modelo redigir, e o gatilho é do código.
+                 respostas: { pessoa: get('whatsapp_ai_resp_pessoa') || '',
+                              material: get('whatsapp_ai_resp_material') || '' },
                  escopo: get('whatsapp_ai_escopo') === 'campanha' ? 'campanha' : 'todos',
                  horario: hor,
                  ritmo: { limiteHora: num('limite_hora'), intervaloMinS: num('intervalo_min_s'), limiteDia: num('limite_dia'),
@@ -921,7 +1075,7 @@ function registrarRotasWhatsApp(app, db) {
   app.post('/api/whatsapp/ai-config', gate, (req, res) => {
     try {
       migrarQueue(db);
-      const { enabled, prompt, kb, escopo, horario, popupAtivo, estilo, ritmo } = req.body || {};
+      const { enabled, prompt, kb, escopo, horario, popupAtivo, estilo, ritmo, respostas } = req.body || {};
       const canal = canais.canalOuPadrao(db, canalDe(req));
       if (!canal && canalDe(req)) return res.status(404).json({ success: false, error: 'Número não encontrado' });
       // O que é do número vai para ele; sem número cadastrado, para a empresa,
@@ -954,6 +1108,14 @@ function registrarRotasWhatsApp(app, db) {
         }
       }
       if (typeof prompt === 'string') up.run('whatsapp_ai_prompt', prompt.slice(0, 8000));
+      // As respostas prontas vão LITERAIS para o cliente, então o teto é curto
+      // de propósito: mensagem de WhatsApp, e não um documento.
+      if (respostas && typeof respostas === 'object') {
+        for (const [campo, chave] of [['pessoa', 'whatsapp_ai_resp_pessoa'], ['material', 'whatsapp_ai_resp_material']]) {
+          if (typeof respostas[campo] !== 'string') continue;
+          up.run(chave, respostas[campo].trim().slice(0, 600));
+        }
+      }
       // Só grava o escopo se ele veio: a tela antiga (whatsapp.html) salva sem
       // esse campo, e um default aqui apagaria a escolha feita na tela nova.
       if (escopo === 'campanha' || escopo === 'todos') up.run('whatsapp_ai_escopo', escopo);
@@ -1047,4 +1209,4 @@ function registrarRotasWhatsApp(app, db) {
   console.log('[WhatsApp] Rotas registradas (modo: ' + (loadProviderConfig(db)?.provider || 'fila') + ')');
 }
 
-module.exports = { enviarWhatsApp, enviarWhatsAppMidia, midiaDoCaminho, migrarQueue, loadProviderConfig, configDoAtendimento, registrarRotasWhatsApp, buildSystemAtendimento, FALLBACK_SEM_RESPOSTA, checarRitmo, ESTILO, lerEstilo, frasesDeEstilo, blocoRoteiro };
+module.exports = { enviarWhatsApp, enviarWhatsAppMidia, apagarParaTodos, editarMensagem, midiaDoCaminho, migrarQueue, loadProviderConfig, configDoAtendimento, registrarRotasWhatsApp, buildSystemAtendimento, FALLBACK_SEM_RESPOSTA, checarRitmo, ESTILO, lerEstilo, frasesDeEstilo, blocoRoteiro };

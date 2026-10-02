@@ -4,6 +4,79 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-02, o fim do roteiro, e a IA que pausa quando promete gente
+
+Três frentes da conversa do WhatsApp, todas sobre o mesmo problema: a IA
+prometia coisas que o sistema não cumpria.
+
+**A IA pausa quando promete que alguém vem.** Até aqui ela dizia "vou pedir ao
+Carlos" ou "alguém já está vindo" e seguia respondendo na mensagem seguinte,
+sem ninguém ser avisado. Agora a promessa cobra o efeito: pausa com contador de
+4 h, a conversa sobe para as não lidas e a equipe é avisada pelos canais que o
+tenant tiver ligado. Três situações disparam isso — o contato pede uma pessoa,
+o roteiro termina qualificado, e a IA promete atendimento humano na própria
+resposta. O desqualificado não pausa: é despedida, e não há ninguém para chamar.
+
+A pausa é **pausa**, e não `iaAtiva = 0`: tem contador, volta sozinha e o
+"Retomar" a anula. Desligar continua sendo decisão de quem atende.
+
+**A pausa ganhou uma segunda origem, e ela é um evento.** Até hoje ela se media
+por "existe mensagem nossa com `from_bot = 0` nas últimas 4 h", isto é, alguém
+digitou à mão. Gravar a mensagem da IA como humana faria a pausa começar, e
+quebraria duas coisas que leem essa marca: o "✓ certo / corrigir", que só
+aparece no que a IA escreveu, e o extrator do roteiro, que lê o par
+pergunta→resposta. A marca diz quem falou, e mentir nela para obter um efeito
+colateral é o começo de um defeito difícil. Então a pausa pedida pelo sistema é
+uma linha em `conv_eventos`, lida pelas duas pontas: o `SQL_IA_PAUSADA` da lista
+e o `pausaDaIA` do envio, que precisam concordar.
+
+**`strftime('%s', …)` devolve TEXT**, e em SQLite uma expressão TEXT comparada
+com número é SEMPRE maior, porque número vem antes de texto na ordem de tipos.
+Sem `CAST(… AS INTEGER)`, pausa de cinco horas atrás valia para sempre. O
+trecho antigo acerta sem CAST por sorte de desenho: ele compara com
+`m2.timestamp`, que é COLUNA de afinidade numérica, e aí o SQLite converte o
+texto sozinho. Comparação entre duas expressões não tem essa sorte.
+
+**O fim do roteiro virou mensagem literal, com um texto por desfecho.** O campo
+antigo dizia à IA o que fazer e ela redigia; daí saíram "Ótimo, obrigado pelas
+informações!" e um parágrafo sobre escolher subdomínio que ninguém pediu. Agora
+`fim.qualificado` e `fim.desqualificado` saem como estão escritos. Com eles
+preenchidos o `proximoPasso` não vai mais ao prompt, senão a IA ofereceria o
+link outra vez na mensagem seguinte. Roteiro sem `fim` continua no caminho
+antigo, e nada precisou ser reescrito.
+
+**Só a passagem que FECHA o roteiro sabe que ele fechou.** Lido do banco depois
+de gravado, o estado diz apenas "terminado", e a mensagem de término sairia a
+cada mensagem do contato. Por isso o desfecho viaja do `qualificarPeloRoteiro`
+até o `autoResponder`, em vez de ser consultado.
+
+**As duas respostas prontas saíram do roteiro e foram para o NÚMERO.** Quem vê
+um anúncio e pergunta o link nunca passou por campanha, e o desvio não valia
+para ele. O gatilho continua no código, onde está provado; o texto agora é do
+Canal e vale em qualquer conversa.
+
+Provas: a etapa 166 (`test-roteiro-desvio-webhook`) foi reescrita e tem 11
+checagens, com o `conversas-routes` de verdade — um dublê de `pausarIA` provaria
+só que a chamada existe, e não que a pausa acontece. O bloco D da 150 foi
+refeito para o desenho novo (32 ok).
+
+Sete sabotagens reprovaram: o CAST da pausa, a segunda origem no SQL da lista, a
+pausa no pedido de pessoa, o desqualificado **não** pausando, a detecção da
+promessa, o `proximoPasso` fora do prompt, e o término repetido a cada mensagem.
+
+**E uma lição sobre o próprio método de sabotar.** Três delas "passaram verde"
+na primeira rodada e quase foram lidas como cobertura frouxa. Não eram:
+`String.replace` devolve a string intacta quando não encontra o trecho, então a
+sabotagem nunca foi aplicada e o teste passou com o código certo. Refeitas com
+uma conferência de que o arquivo mudou de fato, duas reprovaram na hora. A
+terceira era redundância real — o elo está protegido em três camadas —, e foi
+ela que revelou um buraco de verdade: nenhuma checagem pegava alguém trocando a
+condição do envio por "o roteiro está fechado". Essa é a W9.
+
+O diário das duas frentes de roteiro foi para `docs/boots.md`, e no `CLAUDE.md`
+ficaram só as regras. O arquivo segue 16 KB acima do limite de 48 KB, por cinco
+seções datadas de outras frentes de 01 e 02/10 que não são desta rodada.
+
 ## 2026-10-02, o piso de 12px e a cor que acompanha o tema
 
 Segunda leva da revisão de interface, toda de aparência: CSS, estrutura visual

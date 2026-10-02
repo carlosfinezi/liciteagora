@@ -44,6 +44,10 @@ const CHAVES_DO_CANAL = [
   'whatsapp_ai_tom', 'whatsapp_ai_tamanho', 'whatsapp_ai_emoji', 'whatsapp_ai_limites',
   'whatsapp_horario_ativo', 'whatsapp_horario_faixas', 'whatsapp_horario_msg',
   'limite_hora', 'intervalo_min_s', 'limite_dia',
+  // As duas respostas prontas do atendimento (02/10/2026). Moram no NÚMERO, e
+  // não no roteiro, porque quem vê um anúncio e pergunta o link nunca passou
+  // por campanha nenhuma. O gatilho continua no código (`roteiros.desvioPedido`).
+  'whatsapp_ai_resp_pessoa', 'whatsapp_ai_resp_material',
 ];
 
 // Colunas de conv_conversas, na ordem da reconstrução. Qualquer coluna que a

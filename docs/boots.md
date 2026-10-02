@@ -1,4 +1,4 @@
-# Diário de boots do LiciteAgora (17/09 a 01/10/2026)
+# Diário de boots do LiciteAgora (17/09 a 02/10/2026)
 
 Saiu do CLAUDE.md em 02/10/2026, com o texto preservado. É o registro do que
 cada restart pôs no ar, com as provas, e NÃO serve para saber o que está em
@@ -16,6 +16,93 @@ Correções feitas na mudança:
   "Pendente (28/09, c323e54)" se resolveu nesse boot;
 - o comentário da remoção do `cicloAvisoAlcadas` está hoje em
   `scheduler.js:500`, e não na linha 462 citada.
+
+### Em vigor desde o boot de 2026-10-02 16:06:14: o fim do roteiro e a pausa pedida pelo sistema
+
+O boot foi de outra sessão, pela frente da ordem do scan, e levou junto os seis
+arquivos desta (`roteiros.js`, `roteiro-conversa.js`, `whatsapp-webhook.js`,
+`whatsapp-adapter.js`, `whatsapp-canais.js`, `conversas-routes.js`). As duas
+telas (`roteiros.html`, `canal.html`) já estavam no ar desde a edição.
+
+**A ORDEM importava, e o boot alheio a atropelou.** As duas respostas prontas
+(pedir uma pessoa, pedir o link) saíram do roteiro e passaram a morar no NÚMERO,
+mas gravá-las dependia do código novo: a rota em vigor ignorava o campo, e a
+primeira tentativa gravou nada. Por isso o roteiro 3 do 1bit ficou com os
+`desvios` E o `fim` ao mesmo tempo, de propósito, para que nem o servidor antigo
+nem o novo ficassem sem texto. O boot de 16:06:14 chegou antes do planejado e
+deixou o canal vazio por 51 minutos; nenhuma mensagem chegou nesse intervalo, e
+às 16:57 as respostas foram gravadas no canal 1 e os `desvios` saíram do roteiro.
+
+Provas: etapa 166 (`test-roteiro-desvio-webhook`, 11 checagens, com o
+`conversas-routes` de VERDADE — um dublê de `pausarIA` provaria só que a chamada
+existe), bloco D da 150 (32 ok), e em `/tmp`, enquanto durar, `provar-pausa.js`
+(6 estados nas duas leituras) e `provar-promessa.js` (13 frases). A W9 nasceu de
+uma sabotagem que ninguém pegava: trocar a condição do envio do término por "o
+roteiro está fechado".
+
+Três sabotagens "passaram verde" por engano de método: o `String.replace` do
+script não casava o trecho e o arquivo nunca mudava. Refeitas com conferência
+antes/depois (`if (depois === antes) exit 9`), duas reprovaram. Todo script de
+sabotagem passou a comparar o arquivo antes e depois.
+
+### Em vigor desde o boot de 2026-10-01 14:31:09 (outra sessão): a numeração contaminava o extrator
+
+Os dois arquivos (`roteiros.js`, `roteiro-conversa.js`) são de 12:38:30, antes
+daquele boot, então **nada ficou pendente** — o restart que esta frente ia pedir
+já tinha acontecido por outra sessão.
+
+Na rodada 20 da campanha 5, às 12:18 (local), as quatro primeiras etapas casaram
+pelo número (os trechos gravados em `roteiro_visitas` são `"3"`, `"2"`, `"3"`,
+`"2"`). Na quinta, às 12:20, o lead escreveu "eu sou o dono" e a groq respondeu
+`{"decisor":{"resposta":"1",…}}`, **o número da posição no lugar do id**, porque
+a conversa inteira está cheia das listas numeradas que nós passamos a oferecer e
+o modelo copia o padrão que lê. O `conferirExtracao` recusou com "opção
+inexistente: 1" e a etapa travou.
+
+**Os horários das mensagens no banco são UTC** (`whatsapp_messages.criado_em`), e
+os desta seção são locais: quem for cruzar com o journal subtraia 3 horas do
+banco. Os três sintomas que o usuário viu saíram todos daquela recusa:
+
+1. a pergunta repetida, porque a etapa seguia pendente;
+2. uma pergunta INVENTADA ("Posso saber se você tem interesse em conhecer o
+   LiciteAgora?"), que não existe em roteiro nenhum: sem rumo, a IA caiu nas
+   instruções da empresa, que são de licitação;
+3. o link que não saiu. A guarda arranca link enquanto há etapa pendente, e
+   deixou "você pode testar 14 dias grátis agora pelo link abaixo:" sem nada
+   embaixo.
+
+Os consertos:
+
+- **`conferirExtracao` aceita a POSIÇÃO** e a mapeia para o id, e o prompt de
+  extração passa a dizer que o número da lista não é o id. A prova não afrouxa:
+  continua sendo o trecho, que tem de estar no que o contato escreveu e não pode
+  ser só um número.
+- **`semLinkNoRoteiro` garante a pergunta mesmo SEM link.** Antes ela só agia
+  quando havia URL, então a resposta inventada passava inteira e a conversa ficava
+  sem saída.
+- **Ela remove também a frase que ANUNCIA o link** (`RE_ANUNCIA_LINK`), para não
+  prometer o que ela mesma acabou de tirar.
+- Efeito colateral que apareceu no caminho e foi fechado junto: a reconstrução do
+  texto junta as linhas com um `\n` só, e passar por ela achataria a linha em
+  branco entre parágrafos, que no WhatsApp vira um bloco corrido. O caso comum
+  (sem link e com a pergunta presente) sai INTACTO, sem reconstrução.
+
+Provas: N2c e o Q6d ampliado da etapa 150 (31 checagens). Sabotadas as quatro
+(mapeamento por posição, guarda só com link, frase órfã do link, atalho do texto
+intacto), reprovou em todas.
+
+**Os dois desvios do roteiro 3 do 1bit foram preenchidos às 17:24:33** ("Claro,
+só um momento. Alguém já está vindo para falar com você." e "Segue o link do
+site: liciteagora.app"), um minuto antes da rodada 21. O "cade o link?" das
+12:22, na rodada 20, caiu no caminho antigo porque ainda não havia desvio.
+
+**A rodada 21, às 17:24, provou os três consertos em produção**: as quatro
+primeiras etapas pelo número, "eu sou o dono" casando com `dono` (o que travava
+na 20), qualificado com 7 pontos, o link do próximo passo saindo, e o pedido de
+atendente desligando a IA às 17:28:41.
+
+**A rodada 19 provou o ciclo completo** antes disso: qualificado com 7 pontos e a
+oportunidade #66684 criada.
 
 ### Em vigor desde o boot de 2026-10-01 12:15:33: opção numerada e os dois desvios do roteiro
 
