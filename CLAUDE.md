@@ -573,7 +573,7 @@ que muda. **Mantenha a lista atualizada a cada edição de `.js` da raiz**, e
 esvazie a parte do serviço que foi reiniciado.
 
 **Servidor web (`consulta-licitacoes.service`): nada pendente** desde o boot de
-02/10 às 18:40:30. O `scheduler.js` não é reiniciado desde 30/09 às 15:01:09.
+02/10 às 18:50:23. O `scheduler.js` não é reiniciado desde 30/09 às 15:01:09.
 
 As seções abaixo são as REGRAS que cada frente deixou. Elas já estão no ar; o
 que cada boot pôs em vigor está em `docs/boots.md`.
