@@ -126,9 +126,8 @@ São **três**, iguais no cuidado e trocáveis entre si:
 | `demo3` | `demo3.liciteagora.app` | `sudo bash scripts/encerrar-demo.sh demo3 --sim` |
 
 Os três estão no plano **Vitalício/Interno** (`plano_id = 4`), e isso não é
-detalhe: o `sandbox` estava no Mensal, que vencia em **11/10/2026** e o
-suspenderia sozinho — no meio de uma gravação, sem aviso. Tenant de
-demonstração não vence (trocado em 01/10/2026 pelo `setPlanoTenant`).
+detalhe: no Mensal eles vencem e se suspendem sozinhos, no meio de uma gravação
+e sem aviso. Tenant de demonstração não vence.
 
 Os três nascem vazios, sem certificado, sem SMTP, sem WhatsApp, sem provedor
 de boleto e sem integração nenhuma, e **é assim que ficam**: quem monta um
@@ -148,10 +147,10 @@ lista `FEATURES` do control-plane, então o `ligarFeature` a recusa com
 "feature inválida" e mata o script no meio; ela é gravada direto na `config`
 do tenant, que é onde o `lerFeatures` a procura.
 
-**Pegue um que esteja SUSPENDED, e só esse.** Isto não é etiqueta: em
-01/10/2026 duas sessões montaram retrato no `sandbox` com quatro horas de
-diferença, e a segunda só soube da primeira porque o tenant apareceu ACTIVE
-com nome de outro ramo. A primeira coisa de qualquer trabalho de retrato é:
+**Pegue um que esteja SUSPENDED, e só esse.** Isto não é etiqueta: duas sessões
+já montaram retrato no mesmo demo com quatro horas de diferença, e a segunda só
+soube da primeira porque o tenant apareceu ACTIVE com nome de outro ramo. A
+primeira coisa de qualquer trabalho de retrato é:
 
 ```
 sqlite3 -readonly data/control.db \
@@ -177,11 +176,10 @@ restaura o tenant vazio; se a sua sessão tirou um backup ao começar — e
 deveria —, passe-o em `--pncp`, porque ele tem as migrações que rodaram desde
 então. Banco antigo demais deixa o servidor vivo batendo em "no such table".
 
-Precisando de um QUARTO, há `sandbox2` a `sandbox6` no `control.db`, todos
-limpos e suspensos, mas **sem vhost**: sem endereço eles não abrem no
-navegador e não servem para print. Provisionar um custa o
-`liciteagora-provision-vhost <slug>` mais o resselo do FIM, e a receita
-inteira é a do `criar-demo3.sh`. O `sandbox5` ainda é o alvo padrão do
+Precisando de um QUARTO, há `sandbox2` a `sandbox6` no `control.db`, limpos e
+suspensos, mas **sem vhost**: sem endereço não abrem no navegador nem servem
+para print. Provisionar custa o `liciteagora-provision-vhost <slug>` mais o
+resselo do FIM. O `sandbox5` é o alvo do
 `scripts/test-provisionamento-tenant-novo.js` — esse não se usa.
 
 ### Chave do certificado A1: `/etc/liciteagora/chave-certificado.env`
@@ -211,16 +209,14 @@ sozinho entregava o pfx e a senha que o abre.
   como root, somente leitura (faz uma consulta de status à SEFAZ e um
   controle com senha errada, que tem de falhar).
 
-**O pfx é aberto em memória, sem arquivo** (`cert-memoria.js`, desde
-28/09/2026). A node-sped-nfe abre o certificado com o `pem.readPkcs12`, e o
-pacote `pem` rodava o `openssl` gravando o pfx, a senha e a chave privada
-aberta em `/tmp`, com permissão 644, apagando só no callback. Em 27/09 sobraram
-quatro desses arquivos, de um processo que saiu antes do callback. O
-`cert-memoria.instalar()`, chamado ao carregar o `nfe-emit-routes.js` e o
-`nfce-routes.js`, troca esse `readPkcs12` por uma leitura com o node-forge. Não
-abre processo nem toca em disco. Código novo que crie `Tools` da biblioteca
-fora desses dois módulos precisa chamar `instalar()` antes. O `/proc` está com
-`hidepid=invisible`: outro usuário não enxerga o processo do servidor.
+**O pfx é aberto em memória, sem arquivo** (`cert-memoria.js`). O pacote `pem`
+rodava o `openssl` gravando o pfx, a senha e a chave privada aberta em `/tmp`
+com permissão 644, apagando só no callback — e sobraram quatro desses arquivos
+de um processo que saiu antes dele. O `cert-memoria.instalar()`, chamado ao
+carregar o `nfe-emit-routes.js` e o `nfce-routes.js`, troca o `readPkcs12` por
+uma leitura com node-forge, sem processo e sem disco. Código novo que crie
+`Tools` da biblioteca fora desses dois módulos precisa chamar `instalar()`
+antes. O `/proc` está com `hidepid=invisible`.
 
 **Se a chave se perder:** toda senha já migrada fica ilegível. A NF-e, a
 NFC-e, a NFS-e, o PDF assinado e o certificado entregue ao Electron passam a
@@ -484,40 +480,23 @@ e já carrega 420 arquivos sujos; não é lugar para artefato de ferramenta.
   `nopecha-ext/`, os dois `cndfed-perfil*` e o `/CHANGELOG.md`. Sem ele a
   varredura cospe 59 avisos de permissão e o grafo passa a se descrever a si
   mesmo.
-- **O custo**, medido em 16/09/2026: **1min10 e ~0,72 GB de pico**, em toda
-  rodada. Não existe rodada barata — o cache AST do graphify ignora `.js` por
-  construção, então 717 arquivos são re-extraídos mesmo com o disco intocado.
-- **Ele NÃO ignora documento**, ao contrário do que esta seção afirmou até
-  01/10/2026. Medido no grafo: **90 arquivos-documento**, entre eles o
-  `CLAUDE.md` (38 nós) e os `docs/`. A extração deles é AST, sem LLM, e o
-  coalescedor apaga as chaves de IA do ambiente do filho de propósito, então
-  custo zero em token. Quem passa por LLM é o `graphify label`, que nomeia as
-  comunidades e não é chamado pelo coalescedor.
-- **O `CHANGELOG.md` é a exceção, e saiu por escolha** em 01/10/2026. Ele
-  ocupava 91 nós e **15 comunidades, 14 delas puramente de data**
-  ("2026-09-16", "2026-09-24"…), que não dizem nada sobre como o sistema é
-  organizado e empurram para fora as comunidades que dizem. Ele continua sendo
-  escrito e atualizado como sempre; só não entra no grafo.
+- **Toda rodada custa ~1min10 e ~0,72 GB de pico.** Não existe rodada barata: o
+  cache AST do graphify ignora `.js` por construção, e os 717 arquivos são
+  re-extraídos mesmo com o disco intocado.
+- **Ele NÃO ignora documento**: 90 arquivos-documento entram, o `CLAUDE.md` e os
+  `docs/` entre eles. A extração é AST, sem LLM, e o coalescedor apaga as chaves
+  de IA do ambiente do filho de propósito — custo zero em token. Quem passa por
+  LLM é o `graphify label`, que nomeia as comunidades e o coalescedor não chama.
+- **O `CHANGELOG.md` é a exceção, e saiu por escolha.** Ele ocupava 91 nós e 15
+  comunidades, 14 delas puramente de data, que nada dizem sobre como o sistema é
+  organizado e empurram para fora as que dizem. Continua sendo escrito como
+  sempre; só não entra no grafo.
 
-### O primeiro grafo retrata um estado que ninguém aprovou
-
-Isto vale até o próximo commit, e quem ler o grafo antes dele precisa saber:
-**o repositório está há 19 dias sem commit** — o último é de 28/08/2026 —,
-com **259 arquivos modificados** (+15.154 / −2.529 linhas) e **134 nunca
-rastreados**. O grafo foi construído sobre esse disco.
-
-Ou seja, ele retrata a produção como ela está rodando, e não um estado
-revisado: código a meio caminho, módulos inteiros que nunca entraram no
-histórico (`farmacia/`, `locacao/`, `posto/`, `restaurante/`), e a
-reorganização de páginas que está montada no índice sem ter sido commitada.
-Nada disso passou por revisão de ninguém.
-
-Isso não é defeito do grafo — aqui a árvore É a produção, e retratá-la é
-justamente o que ele deve fazer. Mas é diferente de um grafo construído sobre
-histórico revisado, e a diferença muda o quanto se pode confiar nele para
-responder "como este sistema está organizado". Ver "Frentes pendentes de
-commit", cujo mapa é de 2026-08-11 e já conta 271 entradas contra as 420 de
-hoje.
+- **O grafo retrata a PRODUÇÃO como ela está rodando**, e não um estado
+  revisado: a árvore tem centenas de arquivos sujos e módulos inteiros fora do
+  histórico. Isso não é defeito dele — aqui a árvore é a produção —, mas muda o
+  quanto se pode confiar nele para responder "como este sistema está
+  organizado".
 
 ## Convenções
 
@@ -573,14 +552,10 @@ do modo de planejamento é decisão do usuário.
   OS vira "atrasada" às 21h; `movimentacoes_estoque.data` mistura data local
   com data e hora UTC da baixa do restaurante; o evento SNGPC da farmácia grava
   a emissão da NFC-e e merece conferência própria.
-- **`[Alerta] Erro ao verificar disputas: no such table:
-  participacoes_comprasnet`** — 31.737 ocorrências no `server.log` até
-  2026-08-11, a primeira lá pela linha 520.699. Alguma verificação de disputa
-  falha calada há muito tempo: o alerta é engolido e o erro só aparece no log.
-  Não investigado — trabalho para outro dia.
-- `[Polling Boletos] Erro boleto #32 e #51: MercadoPago 404` — 16.410
-  ocorrências no mesmo período. Mesma situação: antigo, recorrente, não
-  investigado.
+- **Dois erros antigos, engolidos e nunca investigados**, aos milhares no
+  `server.log`: `no such table: participacoes_comprasnet` na verificação de
+  disputa, e `MercadoPago 404` no polling dos boletos #32 e #51. Em ambos o
+  alerta é engolido e o erro só aparece no log.
 - **`enviarAlerta` é tudo ou nada por canal e por tenant**: não há como recusar
   um tipo de aviso só. O `logTag` já chega ao ponto da decisão, e o padrão que
   resolve é o `os_notificacoes_config` de `os-notificacoes.js`. Decisão do
@@ -597,6 +572,12 @@ Esta lista existe porque aqui a edição de um `.js` não entra em vigor sozinha
 o processo vivo segue com a versão que leu no boot. Antes de reiniciar, leia o
 que muda. **Mantenha a lista atualizada a cada edição de `.js` da raiz**, e
 esvazie a parte do serviço que foi reiniciado.
+
+**Servidor web (`consulta-licitacoes.service`): nada pendente** desde o boot de
+02/10 às 17:25:35, que levou o que havia. O `scheduler.js` não foi reiniciado.
+
+As seções abaixo são as REGRAS que cada frente deixou. Elas já estão no ar; o
+que cada boot pôs em vigor está em `docs/boots.md`.
 
 ### A pausa que o sistema pede, e o fim do roteiro
 
@@ -629,84 +610,14 @@ esvazie a parte do serviço que foi reiniciado.
   { pessoa, material }`, no canal): quem vê um anúncio pergunta pelo link ou por
   um atendente sem estar em campanha nenhuma. Mudar uma delas no roteiro não tem
   mais efeito.
-- **Falta**: o texto do desqualificado (`fim.desqualificado`, que o usuário
-  escreve) e a reescrita das Instruções do atendente junto da Base da IA.
+- **Falta, e o desvio está PARADO até isso ser feito**: as duas respostas do
+  canal 1 do 1bit nunca foram gravadas (`whatsapp_ai_resp_pessoa` e
+  `whatsapp_ai_resp_material`, em Canal). Sem elas o `desvioPedido` devolve
+  null, e quem pede uma pessoa não recebe a resposta pronta nem pausa a IA. Os
+  textos estão em `/tmp/canal1-respostas.json`. Falta também o
+  `fim.desqualificado`, que o usuário escreve.
 
-### Em vigor desde o boot de 2026-10-02 16:06:14: a ordem do scan decide o dono da licitação
-
-A pedido, boot limpo (`NRestarts=0`, HTTP 302, sem erro no journal), sandboxes
-SUSPENDED e nenhuma campanha em `enviando`. Levou junto, com a sintaxe conferida
-antes, seis arquivos de outras frentes (`whatsapp-canais`, `whatsapp-adapter`,
-`roteiros`, `conversas-routes`, `roteiro-conversa`, `whatsapp-webhook`).
-
-**O scan pula licitação que já tem análise, então quem roda primeiro fica com
-ela** — e o veredito dele vale para os outros grupos. A ordem era a do `SELECT`
-sem `ORDER BY`, isto é, o menor grupoId, que é acidente de cadastro. Em 02/10 o
-"Servidor NAS corporativo" foi analisado por APENAS SERVIDORES (id 3) antes de
-APENAS NAS (id 14) e saiu como "empresa não vende hardware NAS", score 65, fora
-do corte de 70. O grupo do NAS ficava vazio sem ninguém entender por quê.
-
-- **`ordenarPorEspecificidade` ordena pelo TAMANHO do membership**: grupo que
-  casa menos itens roda primeiro. Não fixa id de grupo no código, que é de cada
-  tenant. Grupo sem membership construído vai para o fim.
-- **O rótulo "NÃO vendemos" virou "FORA DO ESCOPO DESTE GRUPO"** nos quatro
-  grupos que se sobrepõem (3, 14, 21, 22), com a instrução de redigir a recusa
-  como "fora do escopo desta linha; atendido pela linha X". A lista que o
-  usuário escreveu ficou intacta: só o rótulo mudou. A exclusividade do filtro é
-  intencional, mas "a empresa não vende NAS" é falso e contaminava os outros
-  grupos.
-- **Sobreposição medida em 60 dias, 13 grupos, par a par:** só dois pares
-  importam — MICROCOMPUTADOR×MONITOR (31 licitações) e SERVIDORES×NAS (3, que é
-  5,5% de um grupo que tem 54). Os outros 70 pares dão 0 ou 1.
-- **`ensureGrupo` passou a ser chamado no início de cada scan.** Antes, o
-  membership só se reconstruía quando alguém ABRIA a tela de BI daquele grupo
-  (`bi-routes.js`, janela de 6h): o do NAS estava parado em 02/09 e o do Digifort
-  em 08/06. Medido: um rebuild custa 0,1 a 9,3 s sobre 22,5 milhões de linhas, e
-  os 13 grupos do 1bit levaram 45,8 s somados.
-- **O LOCAÇÃO DE PROJETOR não casa nenhuma licitação há 60 dias.** Não
-  investigado.
-
-### Em vigor desde o boot de 2026-10-02 11:41:12: o contexto da IA é de TODOS os grupos da licitação
-
-A pedido, boot limpo (`NRestarts=0`, HTTP 302, journal sem erro de
-carregamento), sandboxes SUSPENDED e nenhuma campanha em `enviando`. O arquivo é
-o `analise-ia-scheduler.js`, e o serviço é o **servidor web**: o scan de IA é
-armado pelo `server.js`, e não pelo `scheduler.js`. **Nada pendente deste
-serviço por esta frente.** O boot levou junto, com a sintaxe conferida antes, o
-`pre-auth-routes.js` (11:33) e o `conversas-routes.js` (11:39), de outras
-frentes.
-
-**O `cp -p` da restauração de uma sabotagem preserva o mtime**, então o arquivo
-alterado não apareceu no `find -newer` do levantamento pré-restart. Quem
-conferir o que entra num boot por mtime precisa saber disso: depois de restaurar
-por cópia, `touch` no arquivo antes de levantar a lista.
-
-A licitação que cai em dois grupos é analisada **uma vez só**, pelo grupo que
-chegar primeiro, porque o scan pula o que já tem análise. Com o contexto de um
-grupo só, o item do outro é recusado por não constar da lista: em 02/10 o grupo
-de monitor recusou estações de trabalho completas com "nenhum item corresponde
-exclusivamente a monitores". Medido no 1bit: **4.849 licitações (17,8%) estão em
-dois ou mais grupos**, uma delas em sete.
-
-Agora o scan monta o contexto com o `produtos_que_vendo` de todos os grupos
-ativos a que a licitação pertence (`bi_grupo_item`), com o grupo da vez
-primeiro e um rótulo `LINHA DE PRODUTO — <nome>` por bloco. Uma consulta por
-lote, não por licitação. **Decisão do usuário: contexto somado, e não uma
-análise por grupo** — esta não exigiria recriar `licitacao_analise` nos 22
-tenants (a chave é `numeroControlePNCP UNIQUE`) nem acertar as leituras que
-assumem uma análise por licitação.
-
-- **O slug sai de `db.name`**, e isso só vale porque o scheduler recebe o handle
-  real do `tenant-manager.getDb`, nunca o proxy de request. Sem slug, sem
-  Postgres ou com um grupo só, o scan cai no texto do próprio grupo, que é o
-  comportamento anterior.
-- **Nenhuma suíte do verify cita este arquivo** ("sem suíte nenhuma" no modo
-  rápido). A prova é `/tmp/albus/provar-contexto-multigrupo.js`, 11 checagens
-  contra o banco real sem chamar IA, e enquanto o `/tmp` durar. Sabotadas a
-  ordem do grupo da vez e o `l."id"` do SELECT, reprovou nas duas.
-- Isso **não reanalisa** o que já foi julgado.
-
-### Armadilhas da tela de Conversas (01 e 02/10/2026)
+### Armadilhas da tela de Conversas
 
 Regras que não se deduzem do código, e que custaram número errado em produção:
 
@@ -748,92 +659,6 @@ Regras que não se deduzem do código, e que custaram número errado em produç�
    conversa). As duas leituras têm de concordar, e é isso que a etapa A13 da
    `test-conversas-acoes` guarda.
 
-**Boot de 10:18:17 (02/10), a pedido** (limpo, `NRestarts=0`, HTTP 302, sem
-migração): o selo "IA pausada" na lista. A pausa de 4 h é calculada por
-`SQL_IA_PAUSADA`, que precisa dizer o MESMO que o `pausaDaIA` do envio — a
-primeira versão olhava só "existe mensagem humana nas últimas 4 h" e marcava
-conversa já retomada ou pausada por outro número, e a lista contradizia o botão
-da conversa. As três partes da regra: mensagem nossa e não da IA, pela instância
-DESTA conversa, e posterior à última retomada.
-
-**Boot de 08:51:00 (02/10), a pedido** (limpo, `NRestarts=0`, HTTP 302, sem
-migração): a reação fora da conversa, os rótulos do que não tem texto e o
-seletor de situação (que juntou responderam/não responderam e o resultado do
-roteiro, e passou a valer fora do nicho). Na tela, a faixa "Retomar a IA" deu
-lugar ao contador no próprio botão de IA, e os chips ficaram só com "Não
-lidas" — "Minhas" aparece quando alguém assume conversa.
-
-**Boot de 17:43:11 (01/10), a pedido** (limpo, `NRestarts=0`, HTTP 302, sem
-migração nova): o `conversas-routes.js` com as três regras acima. A campanha 4
-do 1bit estava em `enviando` e esperando ritmo; o `wa-scheduler` a retoma
-sozinho no primeiro tique.
-
-### Em vigor desde o boot de 2026-10-01 13:13:06: as ações sobre a mensagem, na tela de Conversas
-
-A pedido (limpo, `NRestarts=0`, HTTP 302, depois do backup
-`backups/db/2026-10-01-1311`; sandboxes SUSPENDED e nenhuma campanha em
-`enviando` conferidos antes). **Nada pendente do servidor web por esta frente.**
-A conversa só mandava texto novo; agora o botão direito sobre o balão abre
-Responder, Copiar, Editar e Apagar para todos, e a barra de escrever manda
-arquivo.
-
-**Schema no boot, conferido nos 22 tenants**: `whatsapp_messages.citaWaId` e
-`.editadaEm`, pelo `db-schema.js`, ao lado do `apagadaEm` de hoje de manhã. O
-`citaWaId` guarda o id DO WHATSAPP da mensagem citada, e não o nosso: é esse o
-id que viaja no `contextInfo` do que o contato cita e no `quoted` do que sai
-daqui.
-
-| Arquivo | O que o boot pôs no ar |
-|---|---|
-| `conversas-routes.js` | `DELETE` e `PUT /api/conversas/:id/mensagens/:msgId`, `POST /api/conversas/:id/anexo`, `citarId` no responder, e a citação na listagem |
-| `whatsapp-adapter.js` | `quoted` no envio, `apagarParaTodos`, `editarMensagem`, e documento no `midiaDoCaminho` |
-| `whatsapp-webhook.js` | `idCitado`: a resposta do contato chega sabendo o que ela cita |
-| `wa-midia.js` | `guardarEnviada`: o arquivo que sai daqui fica no disco do tenant |
-| `db-schema.js` | os dois ALTER acima |
-
-- **Os limites são do WhatsApp, e a recusa é nossa**: só mensagem NOSSA se
-  apaga e se edita, e editar só nos primeiros 15 minutos. Conferir aqui faz a
-  recusa chegar dita em vez de voltar como erro cru da Evolution — e, no caso da
-  edição, sem gastar a chamada.
-- **Apagar NÃO remove a linha**: grava `apagadaEm`, igual ao que o webhook já
-  fazia quando era o contato que apagava. O histórico do atendimento é registro;
-  apagar no aparelho do outro não apaga o que aconteceu.
-- **O anexo passa pelo `reentrarContextoTenant`** logo depois do multer, pela
-  mesma razão do PDF da base da IA (29/09): o busboy lê o corpo em streaming e o
-  contexto do tenant se perde no meio. Teto de 16 MB, imagem/vídeo/documento das
-  extensões do `DOCS`; extensão fora da lista é recusada ANTES de qualquer envio.
-- Prova: etapa 169 (`test-conversas-acoes`, 8 checagens) e a parte N da etapa
-  da tela. **Doze sabotagens reprovaram**: envio sem `quoted`, janela de 15 min
-  desligada, guarda da mensagem do contato, apagar REMOVENDO a linha, anexo sem
-  o tipo da mídia, `idCitado` sem recursão, marcas de volta em linha própria,
-  hora fora do balão, chip com "Hoje" no lugar da data, "certo/corrigir" em toda
-  mensagem enviada, "Editar" oferecido fora dos 15 min, e a tela sem o polegar.
-
-**Já no ar (estático), 01/10: a tela de Conversas no desenho do WhatsApp.**
-
-- **A rolagem é o polegar do biturion**, portado para `public/js/polegar.js`
-  (`web/src/lib/polegar.js` de lá; muda só a embalagem, que aqui é script
-  clássico com auto-início). A barra nativa do Chrome ocupa largura de layout
-  mesmo estilizada: numa coluna de 340px isso é texto perdido. Medido em
-  produção depois do boot: 0px de barra nativa e polegar de 4px flutuante.
-- **Todo card da lista tem a MESMA altura.** As marcas ("IA desligada", dono,
-  número) saíram da terceira linha e foram para a linha da prévia, à direita, e
-  a linha tem altura fixa. Medido na produção do 1bit: 300 cards, todos com
-  68px. Antes, o de IA desligada ia a 94px e o de estado, a 119px.
-- **A hora foi para dentro do balão**, no canto inferior direito, com uma vaga
-  reservada no fim da última linha do texto — o balão de "boa tarde, feito"
-  passou de ~70px para 39px. A data entra num chip entre os grupos do mesmo dia
-  (sticky), com a DATA e não "Hoje"/"Ontem", a pedido.
-- **"✓ certo" e "corrigir" ficaram só nas mensagens da IA** (`from_bot`), a
-  pedido. Apareciam em toda mensagem enviada, inclusive no que o atendente
-  escreveu à mão. As rotas `/api/ia/aprovar` e `/api/ia/corrigir` e o modal
-  continuam, e a base de correções já gravada segue valendo.
-- **A barra de escrever é a do WhatsApp, sem figurinha**: moldura arredondada,
-  emoji, clipe de anexo e enviar redondo; Enter envia e Shift+Enter quebra a
-  linha (o Ctrl+Enter de antes continua valendo). Editar acontece NO campo, com
-  a faixa de cima dizendo que é edição — e não numa caixa do navegador por cima
-  da conversa, que é justamente o que se consulta para reescrever.
-
 ### A lista numerada contamina o extrator do roteiro
 
 A resposta pelo número é resolvida pelo Node, antes da IA. Mas oferecer as opções
@@ -853,116 +678,38 @@ link enquanto há etapa pendente).
   reconstrução achataria a linha em branco entre parágrafos, que no WhatsApp vira
   um bloco corrido.
 
-**A abertura cordial da IA ("Ótimo, obrigado pelas informações!") não sai de
-lugar nenhum do sistema.** Procurada nos 8.668 caracteres do prompt montado:
-nem o roteiro, nem as instruções da empresa, nem o estilo, nem a base de
-conhecimento a contêm. É geração do modelo, e a prova é que ela muda a cada vez
-("Obrigado pela resposta!", "Obrigado por informar!", "Obrigado pela
-confirmação!"). Texto configurado não varia. Em 01/10, a pedido, as instruções da
-empresa do canal 1 do 1bit ganharam a linha que a proíbe (a cópia do texto
-anterior está em `/tmp/1bit-canal1-prompt-antes.txt` enquanto o `/tmp` durar).
-Sendo prompt, ela vale na maior parte das vezes e falha de vez em quando; a única
-forma que não falha é a mensagem sair literal do roteiro, sem o modelo redigir.
-
-### Pendente (01/10): o contato do certificado SSL é do CLIENTE, nunca do tenant
-
-**A tela já está no ar; a recusa da compra espera o restart do servidor web.**
-Em Novo certificado, escolher o contrato passa a puxar a pessoa de contato do
-cliente junto da organização. O que não vale até o boot é o servidor recusar a
-compra quando essa pessoa não existe.
-
-| Arquivo | O que muda no boot |
-|---|---|
-| `ssl-certificados-routes.js` | `contatoDoCliente`, `erroIdentidadeContato` e `erroDadosDoPedido`; `montarParams` ganha a camada do cliente na mescla |
-
-**O caso:** o **#79** (`educacao.caldasnovas.go.gov.br`, contrato CT-2026-0004)
-foi comprado em 01/10 às 14:52 e foi à NicSRS com `atendimento@1bit.net.br` e
-"Carlos Finezi" nos **três** papéis de contato. Reproduzido por execução sobre
-o banco vivo, em leitura: `montarParams` devolve o contato do tenant nos três.
-
-A causa não é a mescla, e sim o que faltava antes dela. O bloco "Dados da
-organização" preenche endereço, cidade, CEP e telefone, e **nenhum desses
-campos é nome ou e-mail**; `mesclarContato` então completava os buracos com o
-contato do tenant, em silêncio. A ficha do cliente 174 não tem e-mail e
-`pessoas_contatos` está vazia em todos os clientes.
-
-- **Por que isso é pior do que um campo errado:** é para o e-mail do contato
-  que a CA manda a validação do domínio, o aviso de emissão e o de expiração.
-  Com o e-mail de quem revende no lugar do dono do domínio, o cliente não
-  recebe nada e ninguém descobre até o certificado vencer.
-- **A regra vale em DV**, e não só em OV/EV. O #79 é DV (Certum Commercial DV
-  MultiDomain), e `erroDadosOv` não opina em DV de propósito, porque lá a CA
-  não valida organização nenhuma. A identidade do contato é outra conversa.
-- **Os três caminhos até o `/ssl/place`** (o `/aprovar` da tela, o pedido de
-  compra e as assinaturas do pedido) passaram a conferir pelo mesmo
-  `erroDadosDoPedido`. Enquanto cada um chamava `erroDadosOv` por conta, uma
-  guarda nova precisava ser pendurada em três lugares.
-- **A rota `/api/ssl/contato-cliente` deixou de ter leitura própria.** Eram
-  duas cópias da mesma consulta, e a tela mostrava um contato enquanto o
-  payload montava outro.
-- **Certificado sem cliente vinculado não é afetado**: ali o contato é da
-  própria 1bit e está correto.
-- Provas: etapa 167 (`test-ssl-contato-cliente`, 11 checagens). Sabotadas a
-  guarda e a camada do cliente na mescla, reprovou nas etapas 2, 3 e 4. As
-  etapas 17 e 18 da `test-ssl-contato-ov` mediam o NOME da guarda antiga e
-  passaram a medir a garantia; sabotadas (um caminho sem guarda, guarda sem
-  repassar o `validationType`), reprovam em 2 e 1.
-
-**O #79 não tem conserto pela API.** A NicSRS não tem endpoint para trocar
-contato de pedido em andamento, e o `/ssl/reissue` manda só `certId`, `reason`,
-`uniqueValue` e `refId`. Ou se corrige no painel deles, ou se cancela e compra
-de novo (US$ 1,86, estornável dentro do prazo).
-
-**O `Administrator` que está certo no painel da NicSRS não saiu daqui.** O
-`applyParams` do `/ssl/collect` traz Eduardo Vinicius Ferreira de Oliveira,
-`administracao.educacao@caldasnovas.go.gov.br` e o endereço da Rua Capitão João
-Crisóstomo, e nada disso existe em tabela alguma do `1bit` (conferido por busca
-no endereço, no CEP, no e-mail e no nome). `tech` e `finance` continuam com o
-contato da 1bit e são a testemunha do que o sistema mandou.
-
-**Por que a liberação em `pre-auth-routes.js` existe, para quem for mexer nela:**
-o static de `public/` vive atrás do `requireAuth`
-(`auth-bootstrap.installProtectedStatic`), então quem pede `/js/x.js` sem sessão
-recebe o HTML da tela de login **com status 200** — e um `<script src>` que
-recebe HTML não avisa nada. A loja pública, o cardápio do QR Code, o portal do
-cliente e as telas de orçamento usam as duas peças, e sem a liberação elas
-ficariam sem nenhuma. Conferido em 01/10 às 10:45 contra a produção:
-`GET /js/campo-formato.js` sem cookie devolve 22.414 bytes de
-`application/javascript` nos hosts de `cantinhoverde`, `1bit` e
-`produtosbomgosto`. A suíte 161 (`test-pecas-pre-auth`) guarda isso, e
-`menu-config.js` e `sidebar.js` seguem atrás do login de propósito.
-
-Nenhuma migração de banco. A validação do documento vale só para cadastro novo,
-e as 8 fichas com dígito errado que já estão gravadas não travam — elas estão
-listadas por `node scripts/listar-documentos-invalidos.js`, que é leitura pura.
-
-**O boot de 12:34:33, de outra sessão, não estava registrado aqui** (esta nota
-dizia 10:59:26). Quem for conferir o que está em vigor: compare o `mtime` do
-arquivo com o `ExecMainStartTimestamp` da unit, e não com o que estiver escrito
-aqui.
-
-**Em vigor desde o boot de 2026-10-01 10:59:26, a pedido (limpo,
-`NRestarts=0`, HTTP 302, depois do backup `backups/db/2026-10-01-1058`): a
-mídia do WhatsApp guardada no recebimento, e a mensagem apagada marcada.**
-Conferido depois do boot: a coluna `apagadaEm` nos 20 tenants, nenhum sem a
-tabela. Antes do boot: `sandbox` ACTIVE mas sem robô do PCP ligado, nenhuma
-campanha em `enviando` em tenant nenhum. **Só o servidor web** — o scheduler
-não carrega o webhook nem a mídia, e reiniciá-lo levaria junto a pendência de
-28/09 do estoque mais o que outras sessões deixaram hoje. O
-`reiniciar-com-sandbox-suspenso.sh` não foi usado de propósito: ele existe para
-o SCHEDULER não armar os jobs do sandbox, e mexe no status de um tenant que
-outra sessão ativou.
-
-**O diário dos boots** (o que cada restart pôs no ar de 17/09 a 01/10/2026, com
-as provas e as sabotagens) está em `docs/boots.md`. Leia-o para saber por que
-uma regra existe ou como uma frente foi provada. Para saber o que está no ar,
-ele não serve: compare o `mtime` com o `ExecMainStartTimestamp`, como manda o
-aviso do topo.
+**Frase que a IA repete e que ninguém escreveu é GERAÇÃO DO MODELO, e não
+configuração.** A prova é que ela varia ("Ótimo, obrigado pelas informações!",
+"Obrigado por informar!"): texto configurado não varia. Proibi-la por prompt
+vale na maior parte das vezes e falha de vez em quando; a única forma que não
+falha é a mensagem sair literal do roteiro, sem o modelo redigir.
 
 ## O que o diário de boots ensinou
 
 Cada item saiu de um defeito real, e o relato está em `docs/boots.md`.
 
+- **O scan de IA pula licitação que já tem análise, então a ORDEM decide o dono
+  dela.** Roda primeiro o grupo de membership MENOR
+  (`ordenarPorEspecificidade`), e `ensureGrupo` roda no início de cada scan — o
+  membership só se reconstruía quando alguém abria a tela de BI daquele grupo. O
+  contexto da análise soma o `produtos_que_vendo` de todos os grupos da
+  licitação (17,8% delas estão em dois ou mais), e nos grupos que se sobrepõem o
+  rótulo é "FORA DO ESCOPO DESTE GRUPO", nunca "não vendemos": a recusa de um
+  grupo valia para os outros.
+- **O `cp -p` preserva o mtime**, então arquivo restaurado de uma sabotagem não
+  aparece no `find -newer` do levantamento pré-restart. Depois de restaurar por
+  cópia, `touch` antes de levantar a lista.
+- **O contato do pedido de certificado SSL é do CLIENTE, e vale em DV também.**
+  O bloco "Dados da organização" não tem nome nem e-mail, e a mescla completava
+  os buracos com o contato do tenant em silêncio: é para esse e-mail que a CA
+  manda validação, emissão e expiração. Os três caminhos até o `/ssl/place`
+  conferem pelo mesmo `erroDadosDoPedido`. Pedido já enviado não tem conserto
+  pela API da NicSRS: ou se corrige no painel deles, ou se cancela e compra de
+  novo.
+- **No WhatsApp, editar vale 15 minutos e apagar para todos vale 60 horas.**
+  Conferir nos dois lados faz a recusa chegar dita, em vez de erro cru da
+  Evolution — e sem gastar a chamada. Apagar grava `apagadaEm` e NÃO remove a
+  linha: o histórico do atendimento é registro.
 - **Schema vai no `db-schema.js`.** O `migrarDB` chamado pelo registro de rotas
   passa pelo BOOT_STUB do proxy multi-tenant e não alcança tenant nenhum.
 - **Upload pelo multer precisa do `reentrarContextoTenant`**, porque em produção
