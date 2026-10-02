@@ -22,11 +22,11 @@
     <h3>Importar lista</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Arquivo (.xlsx da CMED)</label>
+        <label for="arquivo">Arquivo (.xlsx da CMED)</label>
         <input type="file" id="arquivo" accept=".xlsx,.xls">
       </div>
       <div class="form-group">
-        <label>Competência</label>
+        <label for="competencia">Competência</label>
         <input type="text" id="competencia" placeholder="AAAA-MM" data-formato="data">
         <small class="muted">Em branco usa o mês corrente. Reimportar a mesma competência atualiza no lugar de duplicar.</small>
       </div>
@@ -69,6 +69,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('farmacia-cmed');</script>
 <script>

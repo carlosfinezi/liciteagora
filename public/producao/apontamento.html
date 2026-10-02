@@ -30,7 +30,7 @@
 
   <div class="card chao" style="max-width:760px;">
     <div class="form-group">
-      <label>Ordem de produção</label>
+      <label for="op">Ordem de produção</label>
       <select id="op" onchange="aoTrocarOp()"><option value="">Selecione…</option></select>
     </div>
 
@@ -42,30 +42,30 @@
 
     <div class="form-row">
       <div class="form-group" id="grpEquipe">
-        <label>Equipe</label>
+        <label for="equipe">Equipe</label>
         <select id="equipe"><option value="">Selecione…</option></select>
       </div>
       <div class="form-group" id="grpFuncionario" style="display:none;">
-        <label>Funcionário</label>
+        <label for="funcionario">Funcionário</label>
         <select id="funcionario"><option value="">Selecione…</option></select>
       </div>
     </div>
 
     <div class="form-row">
-      <div class="form-group"><label>Data</label><input type="date" id="data"></div>
-      <div class="form-group"><label>Início</label><input type="time" id="hIni"></div>
-      <div class="form-group"><label>Fim</label><input type="time" id="hFim"></div>
+      <div class="form-group"><label for="data">Data</label><input type="date" id="data"></div>
+      <div class="form-group"><label for="hIni">Início</label><input type="time" id="hIni"></div>
+      <div class="form-group"><label for="hFim">Fim</label><input type="time" id="hFim"></div>
     </div>
 
     <div class="form-row">
-      <div class="form-group"><label>Unidades produzidas</label>
+      <div class="form-group"><label for="prod">Unidades produzidas</label>
         <input type="number" id="prod" min="0" step="1" value="0"></div>
-      <div class="form-group"><label>Refugo</label>
+      <div class="form-group"><label for="refugo">Refugo</label>
         <input type="number" id="refugo" min="0" step="1" value="0" onchange="aoTrocarRefugo()"></div>
     </div>
 
     <div class="form-group" id="grpMotivo" style="display:none;">
-      <label>Motivo do refugo <small class="muted">(obrigatório)</small></label>
+      <label for="motivo">Motivo do refugo <small class="muted">(obrigatório)</small></label>
       <input type="text" id="motivo" placeholder="trinca, falha de vibração, forma desalinhada…">
     </div>
 

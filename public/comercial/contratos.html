@@ -79,7 +79,7 @@
     </div>
     <div class="form-row">
       <div class="form-group" style="flex:1;position:relative;">
-        <label>Cliente *</label>
+        <label for="fCliBusca">Cliente *</label>
         <input type="text" id="fCliBusca" placeholder="Razão social…" oninput="acCli()" autocomplete="off">
         <input type="hidden" id="fClienteId">
         <div id="acCliList" class="ac-list"></div>
@@ -87,53 +87,53 @@
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Descrição *</label>
+        <label for="fDesc">Descrição *</label>
         <input type="text" id="fDesc" placeholder="Ex.: Locação mensal de equipamentos">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Periodicidade *</label>
+        <label for="fPeriodicidade">Periodicidade *</label>
         <select id="fPeriodicidade" onchange="ajustarRotuloValor()">
           <option value="mensal">Mensal</option>
           <option value="anual">Anual</option>
         </select>
       </div>
       <div class="form-group">
-        <label id="lblValor">Valor mensal (R$) *</label>
+        <label for="fValor" id="lblValor">Valor mensal (R$) *</label>
         <input type="text" id="fValor" data-formato="dinheiro">
       </div>
       <div class="form-group">
-        <label>Dia de vencimento</label>
+        <label for="fDia">Dia de vencimento</label>
         <input type="number" id="fDia" min="1" max="28" value="10">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Início *</label>
+        <label for="fIni">Início *</label>
         <input type="date" id="fIni">
       </div>
       <div class="form-group">
-        <label>Fim (opcional, indeterminado se vazio)</label>
+        <label for="fFim">Fim (opcional, indeterminado se vazio)</label>
         <input type="date" id="fFim">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Renovação automática</label>
+        <label for="fRenov">Renovação automática</label>
         <select id="fRenov">
           <option value="1">Sim</option>
           <option value="0">Não</option>
         </select>
       </div>
       <div class="form-group">
-        <label>Prazo de renovação (meses)</label>
+        <label for="fRenovMeses">Prazo de renovação (meses)</label>
         <input type="number" id="fRenovMeses" value="12" min="1">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Índice de reajuste</label>
+        <label for="fIndice">Índice de reajuste</label>
         <select id="fIndice">
           <option value="">—</option>
           <option>IPCA</option>
@@ -144,17 +144,17 @@
         </select>
       </div>
       <div class="form-group">
-        <label>% reajuste</label>
+        <label for="fPercReajuste">% reajuste</label>
         <input type="number" id="fPercReajuste" step="0.01" placeholder="ex.: 5">
       </div>
       <div class="form-group">
-        <label>Próximo reajuste</label>
+        <label for="fDataReajuste">Próximo reajuste</label>
         <input type="date" id="fDataReajuste">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Observações</label>
+        <label for="fObs">Observações</label>
         <textarea id="fObs" rows="2"></textarea>
       </div>
     </div>
@@ -172,21 +172,21 @@
     <div id="recFields" style="display:none;">
       <div class="form-row">
         <div class="form-group">
-          <label>Cód. Tributação Nacional *</label>
+          <label for="fRecCodTrib">Cód. Tributação Nacional *</label>
           <input type="text" id="fRecCodTrib" placeholder="ex.: 01.01.01">
         </div>
         <div class="form-group">
-          <label>Alíquota ISS (%)</label>
+          <label for="fRecAliquota">Alíquota ISS (%)</label>
           <input type="number" id="fRecAliquota" step="0.01" placeholder="ex.: 2.00">
         </div>
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Gerar boleto MP</label>
+          <label for="fRecBoleto">Gerar boleto MP</label>
           <select id="fRecBoleto"><option value="0">Não</option><option value="1">Sim</option></select>
         </div>
         <div class="form-group">
-          <label>Enviar email</label>
+          <label for="fRecEmail">Enviar email</label>
           <select id="fRecEmail"><option value="0">Não</option><option value="1">Sim</option></select>
         </div>
       </div>
@@ -201,6 +201,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('contratos');</script>

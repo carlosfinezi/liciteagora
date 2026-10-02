@@ -38,7 +38,7 @@
     <h3>Gerar arquivo</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Tipo</label>
+        <label for="gTipo">Tipo</label>
         <select id="gTipo" onchange="trocarTipo()">
           <option value="movimentacao">Movimentação do período</option>
           <option value="inventario">Inventário (estoque de controlados)</option>
@@ -46,11 +46,11 @@
         <small class="muted">O inventário é pré-requisito da primeira transmissão.</small>
       </div>
       <div class="form-group">
-        <label>CNPJ do emissor</label>
+        <label for="gCnpj">CNPJ do emissor</label>
         <input type="text" id="gCnpj" placeholder="vem da configuração se em branco" data-formato="cnpj">
       </div>
       <div class="form-group">
-        <label>CPF do RT transmissor</label>
+        <label for="gCpf">CPF do RT transmissor</label>
         <input type="text" id="gCpf">
       </div>
     </div>
@@ -74,8 +74,8 @@
     <div class="modal-content">
       <h3>Transmitir à ANVISA</h3>
       <p class="muted">Credencial do RT Transmissor. Não é gravada: o acesso ao SNGPC é pessoal e intransferível do farmacêutico responsável.</p>
-      <div class="form-group"><label>E-mail do RT</label><input type="email" id="eEmail"></div>
-      <div class="form-group"><label>Senha</label><input type="password" id="eSenha"></div>
+      <div class="form-group"><label for="eEmail">E-mail do RT</label><input type="email" id="eEmail"></div>
+      <div class="form-group"><label for="eSenha">Senha</label><input type="password" id="eSenha"></div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="document.getElementById('mdEnviar').style.display='none'">Cancelar</button>
         <button class="btn btn-primary" id="btEnviar" onclick="enviar()">Transmitir</button>
@@ -89,6 +89,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('farmacia-sngpc');</script>
 <script>

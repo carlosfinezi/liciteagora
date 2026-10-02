@@ -130,11 +130,11 @@
             <small class="muted">Botões, links e preço em destaque.</small>
           </div>
           <div class="form-group">
-            <label>Fundo</label>
+            <label for="tFundo">Fundo</label>
             <select id="tFundo" onchange="mudouTema()"><option value="claro">Claro</option><option value="escuro">Escuro</option></select>
           </div>
           <div class="form-group">
-            <label>Tipografia</label>
+            <label for="tFonte">Tipografia</label>
             <select id="tFonte" onchange="mudouTema()">
               <!-- O VALOR `editorial` continua o mesmo: renomear a chave quebraria todo
                    tenant que já a escolheu. Só o rótulo mudou, porque a fonte deixou
@@ -143,13 +143,13 @@
             </select>
           </div>
           <div class="form-group">
-            <label>Cantos <small class="muted" id="raioVal"></small></label>
+            <label for="tRaio">Cantos <small class="muted" id="raioVal"></small></label>
             <input type="range" id="tRaio" min="0" max="24" step="2" oninput="mudouTema()">
           </div>
         </div>
 
         <div class="form-row"><div class="form-group full-width">
-          <label>Logotipo</label>
+          <label for="fileLogo">Logotipo</label>
           <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
             <img id="logoAtual" class="logo-atual" hidden alt="Logotipo atual">
             <input type="file" id="fileLogo" accept="image/*" style="max-width:260px;">
@@ -185,15 +185,15 @@
   <!-- ============ CONFIG ============ -->
   <div class="tab-pane" id="tab-config">
     <div class="form-row">
-      <div class="form-group" style="flex:2;"><label>Nome da loja *</label><input type="text" id="cNome" maxlength="80"></div>
-      <div class="form-group"><label>WhatsApp</label><input type="text" id="cZap" placeholder="5511999998888"></div>
+      <div class="form-group" style="flex:2;"><label for="cNome">Nome da loja *</label><input type="text" id="cNome" maxlength="80"></div>
+      <div class="form-group"><label for="cZap">WhatsApp</label><input type="text" id="cZap" placeholder="5511999998888"></div>
     </div>
     <div class="form-row"><div class="form-group full-width">
-      <label>Descrição</label><textarea id="cDesc" rows="2" maxlength="300" placeholder="Uma linha sobre o que você vende"></textarea>
+      <label for="cDesc">Descrição</label><textarea id="cDesc" rows="2" maxlength="300" placeholder="Uma linha sobre o que você vende"></textarea>
     </div></div>
     <div class="form-row">
-      <div class="form-group"><label>E-mail de contato</label><input type="email" id="cEmail"></div>
-      <div class="form-group"><label>Telefone</label><input type="text" id="cTel"></div>
+      <div class="form-group"><label for="cEmail">E-mail de contato</label><input type="email" id="cEmail"></div>
+      <div class="form-group"><label for="cTel">Telefone</label><input type="text" id="cTel"></div>
     </div>
     <div class="form-row">
       <div class="form-group"><label><input type="checkbox" id="cPreco" style="width:auto;"> Mostrar preços na vitrine</label>
@@ -203,7 +203,7 @@
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Cobrança no fechamento do pedido</label>
+        <label for="cPagModo">Cobrança no fechamento do pedido</label>
         <select id="cPagModo">
           <option value="nenhum">Não cobrar — a loja confere e cobra depois</option>
           <option value="pix">Pix na hora</option>
@@ -213,7 +213,7 @@
         <small class="muted">Usa o provedor já configurado no financeiro. A baixa entra sozinha pelo webhook.</small>
       </div>
       <div class="form-group">
-        <label>Vencimento em (dias)</label>
+        <label for="cPagVenc">Vencimento em (dias)</label>
         <input type="number" id="cPagVenc" min="0" max="60" step="1" style="max-width:110px;">
       </div>
     </div>

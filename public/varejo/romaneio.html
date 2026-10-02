@@ -28,21 +28,21 @@
     <h3>Adicionar parada</h3>
     <div class="form-row">
       <div class="form-group" style="flex:1;position:relative;">
-        <label>De pedido</label><small class="muted">Opcional. Preenche o endereço sozinho</small>
+        <label for="parPedidoBusca">De pedido</label><small class="muted">Opcional. Preenche o endereço sozinho</small>
         <input type="text" id="parPedidoBusca" placeholder="Número do pedido…" oninput="acPedido()">
         <input type="hidden" id="parPedidoId">
         <div id="acPedidoList" class="ac-list"></div>
       </div>
-      <div class="form-group"><label>Hora prevista</label><input type="time" id="parHora"></div>
+      <div class="form-group"><label for="parHora">Hora prevista</label><input type="time" id="parHora"></div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Endereço</label><input type="text" id="parEnd"><small class="muted">Preencha à mão quando não houver pedido.</small></div>
+      <div class="form-group full-width"><label for="parEnd">Endereço</label><input type="text" id="parEnd"><small class="muted">Preencha à mão quando não houver pedido.</small></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Cidade</label><input type="text" id="parCidade"></div>
-      <div class="form-group"><label>UF</label><input type="text" id="parUf" maxlength="2" style="text-transform:uppercase"></div>
-      <div class="form-group"><label>Contato</label><input type="text" id="parContato"></div>
-      <div class="form-group"><label>Telefone</label><input type="text" id="parTel"></div>
+      <div class="form-group"><label for="parCidade">Cidade</label><input type="text" id="parCidade"></div>
+      <div class="form-group"><label for="parUf">UF</label><input type="text" id="parUf" maxlength="2" style="text-transform:uppercase"></div>
+      <div class="form-group"><label for="parContato">Contato</label><input type="text" id="parContato"></div>
+      <div class="form-group"><label for="parTel">Telefone</label><input type="text" id="parTel"></div>
     </div>
     <div class="actions-bar"><button class="btn btn-primary btn-sm" onclick="addParada()">+ Adicionar parada</button></div>
   </div>

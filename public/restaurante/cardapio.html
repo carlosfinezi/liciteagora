@@ -75,14 +75,14 @@
       <button class="btn btn-ghost btn-sm" onclick="fechar('modalCard')" style="font-size:1.2em;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Nome *</label><input type="text" id="ncNome" placeholder="Almoço, Jantar, Delivery"></div>
-      <div class="form-group"><label>Canal</label>
+      <div class="form-group full-width"><label for="ncNome">Nome *</label><input type="text" id="ncNome" placeholder="Almoço, Jantar, Delivery"></div>
+      <div class="form-group"><label for="ncCanal">Canal</label>
         <select id="ncCanal">
           <option value="salao">Salão</option><option value="balcao">Balcão</option>
           <option value="delivery">Delivery</option><option value="quilo">Por quilo</option>
         </select>
       </div>
-      <div class="form-group"><label>Ordem</label><input type="number" id="ncOrdem" value="0" title="Menor ordem vence quando dois cardápios cobrem o mesmo horário"></div>
+      <div class="form-group"><label for="ncOrdem">Ordem</label><input type="number" id="ncOrdem" value="0" title="Menor ordem vence quando dois cardápios cobrem o mesmo horário"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fechar('modalCard')">Cancelar</button>
@@ -120,16 +120,16 @@
       <button class="btn btn-ghost btn-sm" onclick="fechar('modalItem')" style="font-size:1.2em;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Setor de produção</label><select id="miSetor"></select></div>
-      <div class="form-group"><label>Tempo de preparo (min)</label><input type="number" id="miTempo" value="0"></div>
-      <div class="form-group"><label>Tipo</label>
+      <div class="form-group"><label for="miSetor">Setor de produção</label><select id="miSetor"></select></div>
+      <div class="form-group"><label for="miTempo">Tempo de preparo (min)</label><input type="number" id="miTempo" value="0"></div>
+      <div class="form-group"><label for="miTipo">Tipo</label>
         <select id="miTipo">
           <option value="preparado">Preparado na casa</option>
           <option value="revenda">Revenda (bebida industrializada)</option>
           <option value="servico">Serviço</option>
         </select>
       </div>
-      <div class="form-group"><label>Preço por kg (item pesável)</label><input type="text" id="miPrecoKg" placeholder="vazio = não pesável" data-formato="dinheiro"></div>
+      <div class="form-group"><label for="miPrecoKg">Preço por kg (item pesável)</label><input type="text" id="miPrecoKg" placeholder="vazio = não pesável" data-formato="dinheiro"></div>
     </div>
     <div class="form-group full-width">
       <label>Grupos de opção deste item</label>
@@ -146,6 +146,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('restaurante-cardapio');</script>
 <script>

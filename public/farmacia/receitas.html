@@ -48,7 +48,7 @@
       <h3>Nova receita</h3>
       <div class="form-row">
         <div class="form-group">
-          <label>Tipo</label>
+          <label for="nTipo">Tipo</label>
           <select id="nTipo" onchange="dicaValidade()">
             <option value="controle_especial">Receituário de Controle Especial (2 vias)</option>
             <option value="notificacao_b">Notificação de Receita B (azul)</option>
@@ -59,43 +59,43 @@
           <small class="muted" id="dicaVal"></small>
         </div>
         <div class="form-group">
-          <label>Número / notificação</label>
+          <label for="nNumero">Número / notificação</label>
           <input type="text" id="nNumero">
         </div>
         <div class="form-group">
-          <label>Data de emissão</label>
+          <label for="nData">Data de emissão</label>
           <input type="date" id="nData">
         </div>
         <div class="form-group">
-          <label>UF de emissão</label>
+          <label for="nUf">UF de emissão</label>
           <input type="text" id="nUf" maxlength="2" style="text-transform:uppercase;">
         </div>
       </div>
 
       <h4>Prescritor</h4>
       <div class="form-row">
-        <div class="form-group"><label>Nome</label><input type="text" id="nPresNome"></div>
+        <div class="form-group"><label for="nPresNome">Nome</label><input type="text" id="nPresNome"></div>
         <div class="form-group">
-          <label>Conselho</label>
+          <label for="nPresConselho">Conselho</label>
           <select id="nPresConselho">
             <option>CRM</option><option>CRO</option><option>CRMV</option><option>COREN</option>
           </select>
         </div>
-        <div class="form-group"><label>UF do conselho</label><input type="text" id="nPresUf" maxlength="2" style="text-transform:uppercase;"></div>
-        <div class="form-group"><label>Número</label><input type="text" id="nPresNumero"></div>
+        <div class="form-group"><label for="nPresUf">UF do conselho</label><input type="text" id="nPresUf" maxlength="2" style="text-transform:uppercase;"></div>
+        <div class="form-group"><label for="nPresNumero">Número</label><input type="text" id="nPresNumero"></div>
       </div>
 
       <h4>Paciente</h4>
       <div class="form-row">
-        <div class="form-group"><label>Nome</label><input type="text" id="nPacNome"></div>
-        <div class="form-group"><label>Documento</label><input type="text" id="nPacDoc"></div>
+        <div class="form-group"><label for="nPacNome">Nome</label><input type="text" id="nPacNome"></div>
+        <div class="form-group"><label for="nPacDoc">Documento</label><input type="text" id="nPacDoc"></div>
       </div>
 
       <h4>Comprador</h4>
       <div class="form-row">
-        <div class="form-group"><label>Nome</label><input type="text" id="nCompNome"></div>
-        <div class="form-group"><label>Documento</label><input type="text" id="nCompDoc"></div>
-        <div class="form-group"><label>Endereço</label><input type="text" id="nCompEnd"></div>
+        <div class="form-group"><label for="nCompNome">Nome</label><input type="text" id="nCompNome"></div>
+        <div class="form-group"><label for="nCompDoc">Documento</label><input type="text" id="nCompDoc"></div>
+        <div class="form-group"><label for="nCompEnd">Endereço</label><input type="text" id="nCompEnd"></div>
       </div>
 
       <h4>Itens prescritos</h4>

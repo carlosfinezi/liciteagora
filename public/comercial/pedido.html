@@ -199,7 +199,7 @@
     <div class="panel">
       <div class="form-row">
         <div class="form-group full-width">
-          <label>Tipo de operação *</label>
+          <label for="tipoOperacaoId">Tipo de operação *</label>
           <select id="tipoOperacaoId" onchange="onTrocarTipoOp()"></select>
           <div id="tipoOpResumo" class="muted" style="font-size:var(--text-xs);margin-top:6px;"></div>
         </div>
@@ -212,7 +212,7 @@
     <div class="panel">
       <div class="form-row">
         <div class="form-group full-width" style="position:relative;">
-          <label>Cliente *</label>
+          <label for="clBusca">Cliente *</label>
           <div style="display:flex;gap:8px;">
             <input type="text" id="clBusca" placeholder="CNPJ ou razão social…" oninput="acCliente()" autocomplete="off" style="flex:1;">
             <input type="hidden" id="clId">
@@ -222,9 +222,9 @@
         </div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>CPF/CNPJ</label><input type="text" id="clCpfCnpj" disabled data-formato="cnpj"></div>
-        <div class="form-group"><label>Nome fantasia</label><input type="text" id="clNomeFantasia" disabled></div>
-        <div class="form-group"><label>Email</label><input type="text" id="clEmail" disabled data-formato="email"></div>
+        <div class="form-group"><label for="clCpfCnpj">CPF/CNPJ</label><input type="text" id="clCpfCnpj" disabled data-formato="cnpj"></div>
+        <div class="form-group"><label for="clNomeFantasia">Nome fantasia</label><input type="text" id="clNomeFantasia" disabled></div>
+        <div class="form-group"><label for="clEmail">Email</label><input type="text" id="clEmail" disabled data-formato="email"></div>
       </div>
     </div>
 
@@ -234,19 +234,19 @@
     </p>
     <div class="panel">
       <div class="form-row">
-        <div class="form-group" style="flex:3;"><label>Endereço</label><input type="text" id="enderecoEntrega"></div>
-        <div class="form-group"><label>Número</label><input type="text" id="numeroEntrega"></div>
-        <div class="form-group"><label>Complemento</label><input type="text" id="complementoEntrega"></div>
+        <div class="form-group" style="flex:3;"><label for="enderecoEntrega">Endereço</label><input type="text" id="enderecoEntrega"></div>
+        <div class="form-group"><label for="numeroEntrega">Número</label><input type="text" id="numeroEntrega"></div>
+        <div class="form-group"><label for="complementoEntrega">Complemento</label><input type="text" id="complementoEntrega"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Bairro</label><input type="text" id="bairroEntrega"></div>
-        <div class="form-group"><label>Cidade</label><input type="text" id="cidadeEntrega"></div>
-        <div class="form-group"><label>UF</label><input type="text" id="ufEntrega" maxlength="2"></div>
-        <div class="form-group"><label>CEP</label><input type="text" id="cepEntrega"></div>
+        <div class="form-group"><label for="bairroEntrega">Bairro</label><input type="text" id="bairroEntrega"></div>
+        <div class="form-group"><label for="cidadeEntrega">Cidade</label><input type="text" id="cidadeEntrega"></div>
+        <div class="form-group"><label for="ufEntrega">UF</label><input type="text" id="ufEntrega" maxlength="2"></div>
+        <div class="form-group"><label for="cepEntrega">CEP</label><input type="text" id="cepEntrega"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Contato</label><input type="text" id="contatoEntrega" placeholder="Nome da pessoa que recebe"></div>
-        <div class="form-group"><label>Telefone</label><input type="text" id="telefoneEntrega" data-formato="telefone"></div>
+        <div class="form-group"><label for="contatoEntrega">Contato</label><input type="text" id="contatoEntrega" placeholder="Nome da pessoa que recebe"></div>
+        <div class="form-group"><label for="telefoneEntrega">Telefone</label><input type="text" id="telefoneEntrega" data-formato="telefone"></div>
         <div class="form-group" style="justify-content:flex-end;">
           <button class="btn btn-ghost btn-sm" onclick="copiarEnderecoCliente()" type="button">Copiar endereço do cliente</button>
         </div>
@@ -257,7 +257,7 @@
   <div class="ped-painel" data-aba="itens">
     <h3 id="tituloItens">Itens do documento</h3>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-      <label style="color:var(--text-2);font-size:.9em;white-space:nowrap;">Tabela de preço</label>
+      <label for="pedTabelaPreco" style="color:var(--text-2);font-size:.9em;white-space:nowrap;">Tabela de preço</label>
       <select id="pedTabelaPreco" onchange="salvarTabelaPedido()" style="min-width:240px;">
         <option value="">Automática (tabela do cliente / vigente)</option>
       </select>
@@ -275,7 +275,7 @@
     <div class="card card-info" id="addItemCard" style="margin-top:16px;">
       <h4 style="margin-bottom:12px; color:var(--text-1); font-weight:500;">Adicionar item</h4>
       <div class="form-row">
-        <div class="form-group"><label>Produto (opcional)</label>
+        <div class="form-group"><label for="itBusca">Produto (opcional)</label>
           <input type="text" id="itBusca" placeholder="Código ou descrição…" oninput="acItemProd()" autocomplete="off">
           <input type="hidden" id="itProdId">
           <div id="itProdList" class="ac-list"></div>
@@ -285,11 +285,11 @@
              input de uma linha o celular mostrava "MEIO TEMPERO COMPLETO COM AÇ…".
              Quem confere o item não conseguia ver o que estava adicionando.
              `ajustarAltura` cresce conforme o texto; o valor salvo é o mesmo. -->
-        <div class="form-group"><label>Descrição *</label>
+        <div class="form-group"><label for="itDesc">Descrição *</label>
           <textarea id="itDesc" rows="1" class="auto-altura" oninput="ajustarAltura(this)"
                     spellcheck="false"></textarea></div>
-        <div class="form-group"><label>Qtd *</label><input type="number" id="itQtd" step="0.01" onchange="resolverPrecoItem()"></div>
-        <div class="form-group"><label>V.Unit *</label><input type="number" id="itPu" step="0.01">
+        <div class="form-group"><label for="itQtd">Qtd *</label><input type="number" id="itQtd" step="0.01" onchange="resolverPrecoItem()"></div>
+        <div class="form-group"><label for="itPu">V.Unit *</label><input type="number" id="itPu" step="0.01">
           <span id="itPrecoFonte" class="muted" style="font-size:var(--text-xs);"></span>
         </div>
       </div>
@@ -302,7 +302,7 @@
     <div class="panel">
       <div class="form-row">
         <div class="form-group full-width" style="position:relative;">
-          <label>Transportadora</label>
+          <label for="tpBusca">Transportadora</label>
           <div style="display:flex;gap:8px;">
             <input type="text" id="tpBusca" placeholder="CNPJ ou razão social…" oninput="acTransportadora()" autocomplete="off" style="flex:1;">
             <input type="hidden" id="tpId">
@@ -313,8 +313,8 @@
         </div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Tipo de frete</label><select id="tipoFrete"></select></div>
-        <div class="form-group"><label>Valor do frete (R$)</label><input type="text" id="valorFrete" data-formato="dinheiro"></div>
+        <div class="form-group"><label for="tipoFrete">Tipo de frete</label><select id="tipoFrete"></select></div>
+        <div class="form-group"><label for="valorFrete">Valor do frete (R$)</label><input type="text" id="valorFrete" data-formato="dinheiro"></div>
       </div>
     </div>
   </div>
@@ -323,23 +323,23 @@
     <h3>Datas e referências</h3>
     <div class="panel">
       <div class="form-row">
-        <div class="form-group"><label>Entrega prevista</label><input type="date" id="dataEntregaPrevista"></div>
-        <div class="form-group"><label id="lblValidade">Validade do pedido</label><input type="date" id="dataValidade"></div>
-        <div class="form-group"><label>Faturamento previsto</label><input type="date" id="dataFaturamentoPrevista"></div>
+        <div class="form-group"><label for="dataEntregaPrevista">Entrega prevista</label><input type="date" id="dataEntregaPrevista"></div>
+        <div class="form-group"><label for="dataValidade" id="lblValidade">Validade do pedido</label><input type="date" id="dataValidade"></div>
+        <div class="form-group"><label for="dataFaturamentoPrevista">Faturamento previsto</label><input type="date" id="dataFaturamentoPrevista"></div>
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Vendedor</label>
+          <label for="vendedorId">Vendedor</label>
           <select id="vendedorId"></select>
           <small>Base das metas e da apuração de comissão</small>
         </div>
         <div class="form-group">
-          <label>Depósito</label>
+          <label for="depositoId">Depósito</label>
           <select id="depositoId"></select>
           <small>De onde a mercadoria sai na entrega</small>
         </div>
         <div class="form-group" style="grid-column: span 2;">
-          <label id="lblCodCliente">Código do pedido no cliente</label>
+          <label for="codigoPedidoCliente" id="lblCodCliente">Código do pedido no cliente</label>
           <input type="text" id="codigoPedidoCliente">
           <small id="lblCodClienteAjuda">Nº do pedido no ERP do cliente (referência externa)</small>
         </div>
@@ -363,7 +363,7 @@
     <div class="panel" style="margin-bottom:10px;">
       <div class="form-row">
         <div class="form-group" style="grid-column: span 2;">
-          <label>Condição de pagamento
+          <label for="politicaPrazo">Condição de pagamento
             <a href="/financeiro/politicas-prazo.html" target="_blank" style="font-size:var(--text-xs);font-weight:normal;margin-left:6px;">⚙ gerenciar</a></label>
           <select id="politicaPrazo" onchange="aoTrocarPolitica()"></select>
           <small id="politicaPrazoInfo" class="muted" style="display:block;margin-top:4px;"></small>
@@ -374,12 +374,12 @@
     <!-- Modo pagamento único (padrão) -->
     <div class="panel" id="pgtoModoUnico">
       <div class="form-row">
-        <div class="form-group" style="grid-column: span 2;"><label>Meio de pagamento</label>
+        <div class="form-group" style="grid-column: span 2;"><label for="meioPagamento">Meio de pagamento</label>
           <select id="meioPagamento"></select>
           <small id="meioPagamentoRestricao" class="muted" style="display:block;color:var(--warn);"></small>
           <small id="meioPagamentoHint" class="muted"></small>
         </div>
-        <div class="form-group"><label>Valor total</label><input type="text" id="resValorTotal" disabled data-formato="dinheiro"></div>
+        <div class="form-group"><label for="resValorTotal">Valor total</label><input type="text" id="resValorTotal" disabled data-formato="dinheiro"></div>
       </div>
       <div style="margin-top:10px;">
         <button class="btn btn-secondary btn-sm" onclick="ativarParcelamento()">➕ Dividir em parcelas (mesclar formas)</button>
@@ -445,11 +445,11 @@
     <h3>Observações</h3>
     <div class="panel">
       <div class="form-row"><div class="form-group full-width">
-        <label>Observações (visíveis ao cliente)</label>
+        <label for="observacao">Observações (visíveis ao cliente)</label>
         <textarea id="observacao" rows="4"></textarea>
       </div></div>
       <div class="form-row"><div class="form-group full-width">
-        <label>Observações internas</label>
+        <label for="observacoesInterna">Observações internas</label>
         <textarea id="observacoesInterna" rows="4"></textarea>
       </div></div>
     </div>
@@ -536,7 +536,7 @@
     <div id="motivoPreview" class="card card-info" style="margin-bottom:14px;"></div>
     <div id="motivoAvisoEstoque" class="card" style="background:var(--danger-soft);border-color:var(--danger);color:var(--danger);margin-bottom:14px;display:none;"></div>
     <div class="form-row"><div class="form-group full-width">
-      <label>Motivo *</label>
+      <label for="motivoTexto">Motivo *</label>
       <textarea id="motivoTexto" rows="3" placeholder="Descreva o motivo…"></textarea>
     </div></div>
     <!-- Venda perdida no cancelamento: é aqui que a informação existe.
@@ -549,9 +549,9 @@
       </label>
       <div id="motivoCamposPerda" style="display:none;">
         <div class="form-row">
-          <div class="form-group"><label>Motivo da perda</label><select id="motivoPerdaTipo" onchange="togglePerdaConcorrente()"></select></div>
+          <div class="form-group"><label for="motivoPerdaTipo">Motivo da perda</label><select id="motivoPerdaTipo" onchange="togglePerdaConcorrente()"></select></div>
           <div class="form-group" id="motivoPerdaConcorrenteWrap" style="display:none;">
-            <label>Concorrente</label><input type="text" id="motivoPerdaConcorrente" placeholder="Quem levou">
+            <label for="motivoPerdaConcorrente">Concorrente</label><input type="text" id="motivoPerdaConcorrente" placeholder="Quem levou">
           </div>
         </div>
         <small class="muted" id="motivoPerdaResumo"></small>
@@ -601,9 +601,9 @@
     </div>
     <div id="perdaPreview" class="card card-info" style="margin-bottom:14px;"></div>
     <div class="form-row">
-      <div class="form-group"><label>Motivo *</label><select id="perdaMotivo" onchange="togglePerdaModalConcorrente()"></select></div>
+      <div class="form-group"><label for="perdaMotivo">Motivo *</label><select id="perdaMotivo" onchange="togglePerdaModalConcorrente()"></select></div>
       <div class="form-group" id="perdaConcorrenteWrap" style="display:none;">
-        <label>Concorrente</label><input type="text" id="perdaConcorrente" placeholder="Quem levou">
+        <label for="perdaConcorrente">Concorrente</label><input type="text" id="perdaConcorrente" placeholder="Quem levou">
       </div>
     </div>
     <div class="tbl-wrap" style="max-height:320px;overflow:auto;">
@@ -617,7 +617,7 @@
       </table>
     </div>
     <div class="form-row" style="margin-top:10px;">
-      <div class="form-group full-width"><label>Observação</label><input type="text" id="perdaObs" placeholder="Opcional"></div>
+      <div class="form-group full-width"><label for="perdaObs">Observação</label><input type="text" id="perdaObs" placeholder="Opcional"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharModalPerda()">Cancelar</button>
@@ -632,7 +632,7 @@
     <div class="modal-header"><h3>Bandeira do cartão</h3></div>
     <p class="muted" style="margin-bottom:12px;font-size:0.88em;">Pagamento em cartão — informe a adquirente (Cielo, Stone, Rede…). A conta a receber sai em nome do cliente, vinculada à adquirente que vai liquidar; a taxa dela vira despesa financeira na liquidação.</p>
     <div class="form-row"><div class="form-group full-width" style="position:relative;">
-      <label>Bandeira *</label>
+      <label for="fatBandeiraBusca">Bandeira *</label>
       <input type="text" id="fatBandeiraBusca" placeholder="Ex.: Cielo, Stone, Rede…" oninput="acBandeira()" autocomplete="off">
       <input type="hidden" id="fatBandeiraId">
       <div id="fatBandeiraList" class="ac-list"></div>
@@ -649,35 +649,35 @@
   <div class="modal">
     <div class="modal-header"><h3>Nova transportadora</h3></div>
     <div class="form-row">
-      <div class="form-group"><label>CNPJ/CPF *</label>
+      <div class="form-group"><label for="tCpfCnpj">CNPJ/CPF *</label>
         <div style="display:flex;gap:8px;">
           <input type="text" id="tCpfCnpj" style="flex:1;" data-formato="cnpj">
           <button class="btn btn-secondary btn-sm" onclick="consultarCnpjTransp()" type="button">Consultar</button>
         </div>
         <small id="tCnpjStatus"></small>
       </div>
-      <div class="form-group"><label>RNTRC</label><input type="text" id="tRntrc"></div>
-      <div class="form-group"><label>Placa</label><input type="text" id="tPlaca" maxlength="8" data-formato="placa"></div>
+      <div class="form-group"><label for="tRntrc">RNTRC</label><input type="text" id="tRntrc"></div>
+      <div class="form-group"><label for="tPlaca">Placa</label><input type="text" id="tPlaca" maxlength="8" data-formato="placa"></div>
     </div>
-    <div class="form-row"><div class="form-group full-width"><label>Razão social *</label><input type="text" id="tRazaoSocial"></div></div>
+    <div class="form-row"><div class="form-group full-width"><label for="tRazaoSocial">Razão social *</label><input type="text" id="tRazaoSocial"></div></div>
     <div class="form-row">
-      <div class="form-group"><label>Nome fantasia</label><input type="text" id="tNomeFantasia"></div>
-      <div class="form-group"><label>Insc. estadual</label><input type="text" id="tInscricaoEstadual" data-formato="inscricao"></div>
-    </div>
-    <div class="form-row">
-      <div class="form-group"><label>Endereço</label><input type="text" id="tEndereco"></div>
-      <div class="form-group"><label>Número</label><input type="text" id="tNumero"></div>
-      <div class="form-group"><label>Bairro</label><input type="text" id="tBairro"></div>
+      <div class="form-group"><label for="tNomeFantasia">Nome fantasia</label><input type="text" id="tNomeFantasia"></div>
+      <div class="form-group"><label for="tInscricaoEstadual">Insc. estadual</label><input type="text" id="tInscricaoEstadual" data-formato="inscricao"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Cidade</label><input type="text" id="tCidade"></div>
-      <div class="form-group"><label>UF</label><input type="text" id="tUf" maxlength="2"></div>
-      <div class="form-group"><label>CEP</label><input type="text" id="tCep"></div>
+      <div class="form-group"><label for="tEndereco">Endereço</label><input type="text" id="tEndereco"></div>
+      <div class="form-group"><label for="tNumero">Número</label><input type="text" id="tNumero"></div>
+      <div class="form-group"><label for="tBairro">Bairro</label><input type="text" id="tBairro"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Telefone</label><input type="text" id="tTelefone" data-formato="telefone"></div>
-      <div class="form-group"><label>Email</label><input type="email" id="tEmail"></div>
-      <div class="form-group"><label>Contato</label><input type="text" id="tContato"></div>
+      <div class="form-group"><label for="tCidade">Cidade</label><input type="text" id="tCidade"></div>
+      <div class="form-group"><label for="tUf">UF</label><input type="text" id="tUf" maxlength="2"></div>
+      <div class="form-group"><label for="tCep">CEP</label><input type="text" id="tCep"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label for="tTelefone">Telefone</label><input type="text" id="tTelefone" data-formato="telefone"></div>
+      <div class="form-group"><label for="tEmail">Email</label><input type="email" id="tEmail"></div>
+      <div class="form-group"><label for="tContato">Contato</label><input type="text" id="tContato"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharModalTransp()">Cancelar</button>
@@ -688,6 +688,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/politica-prazo.js"></script>
 <script>initSidebar('pedidos');</script>
 <script>
@@ -2143,7 +2144,7 @@ function montarPainelPix(d){
   }
   if (d.provedorPronto) {
     const campoTaxa = entrega
-      ? '<div class="form-group" style="max-width:200px;margin:0;"><label>Taxa de entrega (R$)</label>'
+      ? '<div class="form-group" style="max-width:200px;margin:0;"><label for="pixTaxa">Taxa de entrega (R$)</label>'
         + '<input type="number" id="pixTaxa" step="0.01" min="0" value="' + (e.aCombinar ? '' : (e.frete || 0)) + '"></div>'
       : '';
     partes.push('<div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">' + campoTaxa

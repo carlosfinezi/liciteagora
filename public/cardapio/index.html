@@ -64,7 +64,7 @@
 <dialog id="dlgItem"><div class="dlg-corpo">
   <h2 id="diNome"></h2>
   <div id="diGrupos"></div>
-  <div class="campo"><label>Observação</label>
+  <div class="campo"><label for="diObs">Observação</label>
     <input type="text" id="diObs" placeholder="sem cebola, bem passado…"></div>
   <button class="btn" onclick="confirmarItem()">Adicionar</button>
   <button class="btn sec" onclick="document.getElementById('dlgItem').close()">Cancelar</button>
@@ -74,12 +74,12 @@
 <dialog id="dlgCheck"><div class="dlg-corpo">
   <h2>Seus dados</h2>
   <div id="ckResumo" style="margin-bottom:12px;"></div>
-  <div class="campo"><label>Nome *</label><input type="text" id="ckNome"></div>
-  <div class="campo"><label>Telefone *</label><input type="tel" id="ckTel" placeholder="(11) 99999-9999"></div>
-  <div class="campo"><label>Bairro</label><select id="ckBairro" onchange="atualizarResumo()"></select></div>
-  <div class="campo"><label>Endereço *</label><input type="text" id="ckEnd" placeholder="Rua, avenida…"></div>
-  <div class="campo"><label>Número</label><input type="text" id="ckNum"></div>
-  <div class="campo"><label>Complemento / referência</label><input type="text" id="ckComp"></div>
+  <div class="campo"><label for="ckNome">Nome *</label><input type="text" id="ckNome"></div>
+  <div class="campo"><label for="ckTel">Telefone *</label><input type="tel" id="ckTel" placeholder="(11) 99999-9999"></div>
+  <div class="campo"><label for="ckBairro">Bairro</label><select id="ckBairro" onchange="atualizarResumo()"></select></div>
+  <div class="campo"><label for="ckEnd">Endereço *</label><input type="text" id="ckEnd" placeholder="Rua, avenida…"></div>
+  <div class="campo"><label for="ckNum">Número</label><input type="text" id="ckNum"></div>
+  <div class="campo"><label for="ckComp">Complemento / referência</label><input type="text" id="ckComp"></div>
   <div id="ckErro" style="color:var(--ac);margin:8px 0;"></div>
   <button class="btn" id="ckBtn" onclick="enviarPedido()">Enviar pedido</button>
   <button class="btn sec" onclick="document.getElementById('dlgCheck').close()">Voltar</button>

@@ -91,11 +91,11 @@ function renderCards(portais) {
 
         <div class="form-row" style="margin-top:14px;">
           <div class="form-group">
-            <label>${escapeHtml(p.rotuloUsuario || 'Usuário')}</label>
+            <label for="u-${escapeHtml(p.key)}">${escapeHtml(p.rotuloUsuario || 'Usuário')}</label>
             <input type="text" id="u-${escapeHtml(p.key)}" placeholder="${escapeHtml(p.rotuloUsuario || 'Usuário')}" autocomplete="username" value="${escapeHtml(p.usuario || '')}">
           </div>
           <div class="form-group">
-            <label>${escapeHtml(p.rotuloSenha || 'Senha')}</label>
+            <label for="s-${escapeHtml(p.key)}">${escapeHtml(p.rotuloSenha || 'Senha')}</label>
             <input type="password" id="s-${escapeHtml(p.key)}" placeholder="${p.configurado ? '••••••••  (deixe em branco para manter)' : (escapeHtml(p.rotuloSenha || 'Senha'))}" autocomplete="new-password">
           </div>
         </div>

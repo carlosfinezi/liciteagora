@@ -60,49 +60,49 @@
 
     <div class="form-row">
       <div class="form-group">
-        <label>Nome *</label>
+        <label for="tNome">Nome *</label>
         <input type="text" id="tNome" placeholder="ex.: Portal do Fornecedor X">
       </div>
       <div class="form-group">
-        <label>Slug *</label>
+        <label for="tSlug">Slug *</label>
         <input type="text" id="tSlug" placeholder="ex.: portal-x">
         <small class="muted">identificador interno — não muda depois de criado</small>
       </div>
       <div class="form-group">
-        <label>Ativo</label>
+        <label for="tAtivo">Ativo</label>
         <select id="tAtivo"><option value="1">Sim</option><option value="0">Não</option></select>
       </div>
     </div>
 
     <div class="form-row">
       <div class="form-group">
-        <label>Executa via (handler) *</label>
+        <label for="tHandler">Executa via (handler) *</label>
         <select id="tHandler"></select>
         <small class="muted" id="tHandlerDica"></small>
       </div>
       <div class="form-group">
-        <label>Texto do botão</label>
+        <label for="tRotulo">Texto do botão</label>
         <input type="text" id="tRotulo" placeholder="ex.: Enviar para o portal X">
       </div>
     </div>
 
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Descrição</label>
+        <label for="tDescricao">Descrição</label>
         <input type="text" id="tDescricao" placeholder="para que serve este tipo">
       </div>
     </div>
 
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Pergunta de confirmação</label>
+        <label for="tConfirmacao">Pergunta de confirmação</label>
         <textarea id="tConfirmacao" rows="2" placeholder="vazio = sem confirmação"></textarea>
       </div>
     </div>
 
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Campos do canal (JSON)</label>
+        <label for="tCampos">Campos do canal (JSON)</label>
         <textarea id="tCampos" rows="8" style="font-family:monospace;font-size:var(--text-xs);"></textarea>
         <small class="muted">
           Lista de <code>{"chave","rotulo","dica","tipo"}</code>. <code>tipo:"textarea"</code> para campo longo.

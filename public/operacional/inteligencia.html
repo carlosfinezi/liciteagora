@@ -141,21 +141,21 @@
             <!-- Filtros principais (sempre visíveis) -->
             <div class="filtros-principais">
                 <div style="flex:1;min-width:260px;">
-                    <label>Pesquisar item</label>
+                    <label for="txtBusca">Pesquisar item</label>
                     <input type="text" id="txtBusca" placeholder="Ex: servidor NAS, switch 48 portas, notebook i7…" autocomplete="off">
                 </div>
                 <div style="min-width:200px;">
-                    <label>Ou usar grupo</label>
+                    <label for="fltGrupo">Ou usar grupo</label>
                     <select id="fltGrupo">
                         <option value="">— Busca livre —</option>
                     </select>
                 </div>
                 <div>
-                    <label>UF</label>
+                    <label for="fltUF">UF</label>
                     <select id="fltUF"><option value="">Todas</option></select>
                 </div>
                 <div>
-                    <label>Status</label>
+                    <label for="fltStatus">Status</label>
                     <select id="fltStatus">
                         <option value="">Qualquer</option>
                         <option value="homologado">Homologados</option>
@@ -164,7 +164,7 @@
                     </select>
                 </div>
                 <div>
-                    <label>Marca do vencedor</label>
+                    <label for="fltMarcaColetada">Marca do vencedor</label>
                     <select id="fltMarcaColetada" title="Marca do fornecedor vencedor, coletada do portal de origem. Não confundir com o filtro Marca, que é a marca citada no edital.">
                         <option value="">Qualquer</option>
                         <option value="1">Com marca coletada</option>
@@ -172,7 +172,7 @@
                     </select>
                 </div>
                 <div>
-                    <label>Resultados</label>
+                    <label for="selTamanho">Resultados</label>
                     <select id="selTamanho">
                         <option value="25">25</option>
                         <option value="50" selected>50</option>
@@ -191,35 +191,35 @@
                 <div class="filtros-avancados-body">
                     <div class="search-row">
                         <div>
-                            <label>Encerramento de</label>
+                            <label for="fltDataInicio">Encerramento de</label>
                             <input type="date" id="fltDataInicio">
                         </div>
                         <div>
-                            <label>até</label>
+                            <label for="fltDataFim">até</label>
                             <input type="date" id="fltDataFim">
                         </div>
                         <div>
-                            <label>Modalidade</label>
+                            <label for="fltModalidade">Modalidade</label>
                             <select id="fltModalidade"><option value="">Todas</option></select>
                         </div>
                         <div>
-                            <label>Situação PNCP</label>
+                            <label for="fltSituacao">Situação PNCP</label>
                             <select id="fltSituacao"><option value="">Todas</option></select>
                         </div>
                         <div style="flex:1;min-width:180px;">
-                            <label>Marca citada no edital</label>
+                            <label for="fltMarca">Marca citada no edital</label>
                             <select id="fltMarca"><option value="">Todas</option></select>
                         </div>
                         <div style="flex:1;min-width:200px;">
-                            <label>Fornecedor (nome ou CNPJ)</label>
+                            <label for="fltFornecedor">Fornecedor (nome ou CNPJ)</label>
                             <input type="text" id="fltFornecedor" placeholder="Razão social ou CNPJ">
                         </div>
                         <div>
-                            <label>Valor homol. mín</label>
+                            <label for="fltValorMin">Valor homol. mín</label>
                             <input type="text" id="fltValorMin" placeholder="R$" style="width:110px;" data-formato="dinheiro">
                         </div>
                         <div>
-                            <label>Valor homol. máx</label>
+                            <label for="fltValorMax">Valor homol. máx</label>
                             <input type="text" id="fltValorMax" placeholder="R$" style="width:110px;" data-formato="dinheiro">
                         </div>
                     </div>
@@ -1522,6 +1522,7 @@
 </div>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script>initSidebar('inteligencia');</script>
 </body>
 </html>

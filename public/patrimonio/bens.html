@@ -72,7 +72,7 @@
       <button class="btn btn-ghost btn-sm" onclick="fecharDepr()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Competência</label><input type="month" id="dpComp"></div>
+      <div class="form-group"><label for="dpComp">Competência</label><input type="month" id="dpComp"></div>
       <div class="form-group" style="display:flex;align-items:flex-end;gap:8px;">
         <button class="btn btn-ghost btn-sm" onclick="apurarDepr(true)">🔍 Simular</button>
         <button class="btn btn-primary btn-sm" onclick="apurarDepr(false)">Apurar e lançar</button>
@@ -97,15 +97,15 @@
       Deixe a categoria em branco para o mapeamento padrão. Só contas analíticas aceitam lançamento.
     </p>
     <div class="form-row">
-      <div class="form-group"><label>Categoria</label><input type="text" id="ctCategoria" placeholder="em branco = padrão"></div>
-      <div class="form-group"><label>Imobilizado *</label><select id="ctImob"></select></div>
+      <div class="form-group"><label for="ctCategoria">Categoria</label><input type="text" id="ctCategoria" placeholder="em branco = padrão"></div>
+      <div class="form-group"><label for="ctImob">Imobilizado *</label><select id="ctImob"></select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Depreciação acumulada *</label><select id="ctAcum"></select></div>
-      <div class="form-group"><label>Despesa de depreciação *</label><select id="ctDesp"></select></div>
+      <div class="form-group"><label for="ctAcum">Depreciação acumulada *</label><select id="ctAcum"></select></div>
+      <div class="form-group"><label for="ctDesp">Despesa de depreciação *</label><select id="ctDesp"></select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Resultado na baixa</label><select id="ctResult"></select>
+      <div class="form-group"><label for="ctResult">Resultado na baixa</label><select id="ctResult"></select>
         <small class="muted" style="font-size:var(--text-xs);">Sem ela, baixar bem com valor contábil restante é recusado.</small>
       </div>
     </div>
@@ -127,26 +127,26 @@
       <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group" style="flex:2;"><label>Descrição *</label><input type="text" id="fDesc"></div>
-      <div class="form-group"><label>Categoria</label><input type="text" id="fCatM" placeholder="Ex.: TI, Móveis, Veículos"></div>
+      <div class="form-group" style="flex:2;"><label for="fDesc">Descrição *</label><input type="text" id="fDesc"></div>
+      <div class="form-group"><label for="fCatM">Categoria</label><input type="text" id="fCatM" placeholder="Ex.: TI, Móveis, Veículos"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Marca</label><input type="text" id="fMarca"></div>
-      <div class="form-group"><label>Modelo</label><input type="text" id="fModelo"></div>
-      <div class="form-group"><label>Nº de série</label><input type="text" id="fSerie"></div>
+      <div class="form-group"><label for="fMarca">Marca</label><input type="text" id="fMarca"></div>
+      <div class="form-group"><label for="fModelo">Modelo</label><input type="text" id="fModelo"></div>
+      <div class="form-group"><label for="fSerie">Nº de série</label><input type="text" id="fSerie"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Valor de aquisição (R$) *</label><input type="text" id="fValor" data-formato="dinheiro"></div>
-      <div class="form-group"><label>Valor residual (R$)</label><input type="number" id="fResidual" step="0.01" min="0" value="0"></div>
-      <div class="form-group"><label>Vida útil (meses)</label><input type="number" id="fVida" min="1" value="60"></div>
-      <div class="form-group"><label>Data de aquisição *</label><input type="date" id="fData"></div>
+      <div class="form-group"><label for="fValor">Valor de aquisição (R$) *</label><input type="text" id="fValor" data-formato="dinheiro"></div>
+      <div class="form-group"><label for="fResidual">Valor residual (R$)</label><input type="number" id="fResidual" step="0.01" min="0" value="0"></div>
+      <div class="form-group"><label for="fVida">Vida útil (meses)</label><input type="number" id="fVida" min="1" value="60"></div>
+      <div class="form-group"><label for="fData">Data de aquisição *</label><input type="date" id="fData"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Localização</label><input type="text" id="fLoc"></div>
-      <div class="form-group"><label>Responsável</label><input type="text" id="fResp"></div>
-      <div class="form-group"><label>Centro de custo</label><select id="fCC"><option value="">—</option></select></div>
+      <div class="form-group"><label for="fLoc">Localização</label><input type="text" id="fLoc"></div>
+      <div class="form-group"><label for="fResp">Responsável</label><input type="text" id="fResp"></div>
+      <div class="form-group"><label for="fCC">Centro de custo</label><select id="fCC"><option value="">—</option></select></div>
     </div>
-    <div class="form-row"><div class="form-group full-width"><label>Observações</label><textarea id="fObs" rows="2"></textarea></div></div>
+    <div class="form-row"><div class="form-group full-width"><label for="fObs">Observações</label><textarea id="fObs" rows="2"></textarea></div></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="salvar()">Cadastrar</button>
@@ -156,6 +156,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('patrimonio-bens');</script>

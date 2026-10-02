@@ -28,17 +28,17 @@
   <div class="card" style="max-width:720px;">
     <h4>Numeração</h4>
     <div class="form-row">
-      <div class="form-group"><label>Prefixo da OP</label><input type="text" id="producao_prefixo_ordem" maxlength="10"></div>
-      <div class="form-group"><label>Prefixo da obra</label><input type="text" id="producao_prefixo_projeto" maxlength="10"></div>
-      <div class="form-group"><label>Prefixo do romaneio</label><input type="text" id="producao_prefixo_romaneio" maxlength="10"></div>
+      <div class="form-group"><label for="producao_prefixo_ordem">Prefixo da OP</label><input type="text" id="producao_prefixo_ordem" maxlength="10"></div>
+      <div class="form-group"><label for="producao_prefixo_projeto">Prefixo da obra</label><input type="text" id="producao_prefixo_projeto" maxlength="10"></div>
+      <div class="form-group"><label for="producao_prefixo_romaneio">Prefixo do romaneio</label><input type="text" id="producao_prefixo_romaneio" maxlength="10"></div>
     </div>
 
     <h4 style="margin-top:16px;">Custo</h4>
     <div class="form-row">
-      <div class="form-group"><label>Custo-hora padrão (R$)</label>
+      <div class="form-group"><label for="producao_custo_hora_padrao">Custo-hora padrão (R$)</label>
         <input type="number" id="producao_custo_hora_padrao" step="0.01" min="0">
         <small class="muted">Em 0, a mão de obra não entra no custo da peça — e o painel de custo avisa em vez de fingir precisão.</small></div>
-      <div class="form-group"><label>Alertar peça parada</label><small class="muted">Depois de quantos dias no pátio</small>
+      <div class="form-group"><label for="producao_dias_alerta_patio">Alertar peça parada</label><small class="muted">Depois de quantos dias no pátio</small>
         <input type="number" id="producao_dias_alerta_patio" step="1" min="1"></div>
     </div>
 

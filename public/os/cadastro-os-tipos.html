@@ -88,33 +88,33 @@
       <div class="subtab-content" data-subtab-pane="geral">
         <div class="form-row">
           <div class="form-group" style="flex:2;">
-            <label>Nome *</label>
+            <label for="fNome">Nome *</label>
             <input type="text" id="fNome" placeholder="Ex.: Manutenção em campo">
           </div>
           <div class="form-group" style="flex:0 0 90px;">
-            <label>Cor</label>
+            <label for="fCor">Cor</label>
             <input type="color" id="fCor" value="#4dabf7">
           </div>
         </div>
         <div class="form-row">
           <div class="form-group full-width">
-            <label>Slug <small class="muted">(usado internamente; gerado do nome se vazio)</small></label>
+            <label for="fSlug">Slug <small class="muted">(usado internamente; gerado do nome se vazio)</small></label>
             <input type="text" id="fSlug" placeholder="manutencao-em-campo">
           </div>
         </div>
         <div class="form-row">
           <div class="form-group full-width">
-            <label>Descrição</label>
+            <label for="fDesc">Descrição</label>
             <textarea id="fDesc" rows="2"></textarea>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label>SLA padrão (dias)</label>
+            <label for="fSla">SLA padrão (dias)</label>
             <input type="number" id="fSla" min="0" placeholder="ex: 7">
           </div>
           <div class="form-group">
-            <label>Natureza <small class="muted">(o que a OS é)</small></label>
+            <label for="fNatureza">Natureza <small class="muted">(o que a OS é)</small></label>
             <select id="fNatureza">
               <option value="cliente">Cliente</option>
               <option value="garantia-propria">Garantia própria</option>
@@ -129,7 +129,7 @@
             <small class="muted" style="font-size:var(--text-xs);">As de garantia abrem a OS já marcada como em garantia.</small>
           </div>
           <div class="form-group">
-            <label>Local de prestação</label>
+            <label for="fLocalPrestacao">Local de prestação</label>
             <select id="fLocalPrestacao">
               <option value="indefinido">— indefinido —</option>
               <option value="interno">Interno (na oficina)</option>
@@ -140,7 +140,7 @@
         </div>
         <div class="form-row">
           <div class="form-group full-width">
-            <label>Tipo de Operação padrão
+            <label for="fTipoOperacaoPadrao">Tipo de Operação padrão
               <small class="muted">(natureza fiscal: NFS-e, CFOP, finalidade — usada como padrão ao criar OS deste tipo)</small>
             </label>
             <select id="fTipoOperacaoPadrao">
@@ -161,7 +161,7 @@
         </p>
         <div class="form-row">
           <div class="form-group">
-            <label>Tipo de cálculo</label>
+            <label for="fCalcModo">Tipo de cálculo</label>
             <select id="fCalcModo" onchange="atualizarCamposCalculo()">
               <option value="livre">Livre — quem lança define</option>
               <option value="preco-fixo">Preço fixo do catálogo</option>
@@ -170,12 +170,12 @@
             </select>
           </div>
           <div class="form-group" id="grpValorHora" style="display:none;">
-            <label>Valor hora padrão (R$)</label>
+            <label for="fValorHoraPadrao">Valor hora padrão (R$)</label>
             <input type="text" id="fValorHoraPadrao" placeholder="ex: 120,00" data-formato="dinheiro">
             <small class="muted" style="font-size:var(--text-xs);">Usado quando a linha não traz valor hora próprio.</small>
           </div>
           <div class="form-group" id="grpAlterarCalc" style="display:none;">
-            <label>Alteração do valor</label>
+            <label for="fPermiteAlterarCalc">Alteração do valor</label>
             <select id="fPermiteAlterarCalc">
               <option value="1">Permitir alterar na OS</option>
               <option value="0">Travar no valor calculado</option>
@@ -191,7 +191,7 @@
         </p>
         <div class="form-row">
           <div class="form-group">
-            <label>Como cobrar</label>
+            <label for="fDeslocModo">Como cobrar</label>
             <select id="fDeslocModo" onchange="atualizarCamposDeslocamento()">
               <option value="manual">Manual — lançado à mão em Serviços</option>
               <option value="nao-cobrar">Não cobrar</option>
@@ -200,11 +200,11 @@
             </select>
           </div>
           <div class="form-group" id="grpDeslocKm" style="display:none;">
-            <label>Valor por km (R$)</label>
+            <label for="fDeslocValorKm">Valor por km (R$)</label>
             <input type="text" id="fDeslocValorKm" placeholder="ex: 2,50" data-formato="dinheiro">
           </div>
           <div class="form-group" id="grpDeslocFixo" style="display:none;">
-            <label>Valor fixo (R$)</label>
+            <label for="fDeslocValorFixo">Valor fixo (R$)</label>
             <input type="text" id="fDeslocValorFixo" placeholder="ex: 80,00" data-formato="dinheiro">
           </div>
         </div>
@@ -223,7 +223,7 @@
         </p>
         <div class="form-row">
           <div class="form-group">
-            <label>Faturar para</label>
+            <label for="fFaturarPara">Faturar para</label>
             <select id="fFaturarPara" onchange="atualizarAvisoFaturarPara()">
               <option value="cliente">O cliente da OS</option>
               <option value="fabrica">A fábrica</option>
@@ -278,7 +278,7 @@
         </p>
         <div class="form-row">
           <div class="form-group">
-            <label>Peça orçada não confirmada</label>
+            <label for="fEncPeca">Peça orçada não confirmada</label>
             <select id="fEncPeca">
               <option value="permitido">Permitido</option>
               <option value="venda-perdida">Permitido, com venda perdida</option>
@@ -286,7 +286,7 @@
             </select>
           </div>
           <div class="form-group">
-            <label>Serviço orçado não confirmado</label>
+            <label for="fEncServico">Serviço orçado não confirmado</label>
             <select id="fEncServico">
               <option value="permitido">Permitido</option>
               <option value="venda-perdida">Permitido, com venda perdida</option>
@@ -296,7 +296,7 @@
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label>Item de terceiro sem custo</label>
+            <label for="fEncTerceiro">Item de terceiro sem custo</label>
             <select id="fEncTerceiro">
               <option value="permitido">Permitido</option>
               <option value="bloqueado">Não permitido</option>
@@ -304,7 +304,7 @@
             <small class="muted" style="font-size:var(--text-xs);">Sem custo lançado, o a pagar do fornecedor não nasce.</small>
           </div>
           <div class="form-group">
-            <label>Km não informado</label>
+            <label for="fEncKm">Km não informado</label>
             <select id="fEncKm">
               <option value="permitido">Permitido</option>
               <option value="bloqueado">Não permitido</option>
@@ -312,7 +312,7 @@
             <small class="muted" style="font-size:var(--text-xs);">Só vale quando o deslocamento é cobrado por km.</small>
           </div>
           <div class="form-group">
-            <label>Apontamento em aberto</label>
+            <label for="fEncApontamento">Apontamento em aberto</label>
             <select id="fEncApontamento">
               <option value="permitido">Permitido</option>
               <option value="bloqueado">Não permitido</option>
@@ -337,6 +337,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('cadastro-os-tipos');</script>

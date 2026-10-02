@@ -67,14 +67,14 @@
     <h2>Editar faixa</h2>
     <div class="resumo-pag" id="eRegraResumo" style="background:var(--bg-1);padding:10px 12px;border-radius:var(--r-sm);margin-bottom:14px;color:var(--text-1);font-size:0.88em;"></div>
     <div class="row-2">
-      <div class="row"><label id="eLimiteLabel">Acima de</label><input type="number" step="0.01" min="0" id="eLimite"></div>
-      <div class="row"><label>Validade da aprovação (dias)</label><input type="number" min="1" max="365" id="eValidade"></div>
+      <div class="row"><label for="eLimite" id="eLimiteLabel">Acima de</label><input type="number" step="0.01" min="0" id="eLimite"></div>
+      <div class="row"><label for="eValidade">Validade da aprovação (dias)</label><input type="number" min="1" max="365" id="eValidade"></div>
     </div>
     <div class="row">
-      <label>Papel do aprovador</label>
+      <label for="ePapel">Papel do aprovador</label>
       <select id="ePapel"></select>
     </div>
-    <div class="row"><label>Descrição (opcional)</label><input type="text" id="eDescricao" placeholder="ex.: pagamentos acima do teto da diretoria"></div>
+    <div class="row"><label for="eDescricao">Descrição (opcional)</label><input type="text" id="eDescricao" placeholder="ex.: pagamentos acima do teto da diretoria"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="fecharRegra()">Cancelar</button>
       <button class="btn btn-primary" onclick="salvarRegra()">Salvar</button>
@@ -86,6 +86,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('config-alcadas');</script>

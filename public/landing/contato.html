@@ -42,7 +42,7 @@
       <form id="formContato" class="glass" style="padding:32px;">
 
         <div class="form-group">
-          <label>Eu quero *</label>
+          <label for="motivo">Eu quero *</label>
           <select name="observacoes" id="motivo">
             <option value="demo">Agendar uma demonstração ao vivo</option>
             <option value="comercial">Conversar com o comercial sobre plano Enterprise</option>
@@ -54,33 +54,33 @@
 
         <div class="form-row">
           <div class="form-group">
-            <label>Nome *</label>
-            <input type="text" name="nome" required maxlength="120" autocomplete="name">
+            <label for="ct-nome">Nome *</label>
+            <input type="text" name="nome" id="ct-nome" required maxlength="120" autocomplete="name">
           </div>
           <div class="form-group">
-            <label>Telefone</label>
-            <input type="tel" name="telefone" maxlength="20" autocomplete="tel">
+            <label for="ct-telefone">Telefone</label>
+            <input type="tel" name="telefone" id="ct-telefone" maxlength="20" autocomplete="tel">
           </div>
         </div>
 
         <div class="form-group">
-          <label>Email *</label>
-          <input type="email" name="email" required autocomplete="email">
+          <label for="ct-email">Email *</label>
+          <input type="email" name="email" id="ct-email" required autocomplete="email">
         </div>
 
         <div class="form-row">
           <div class="form-group">
-            <label>Empresa *</label>
-            <input type="text" name="empresa" required maxlength="120">
+            <label for="ct-empresa">Empresa *</label>
+            <input type="text" name="empresa" id="ct-empresa" required maxlength="120">
           </div>
           <div class="form-group">
-            <label>CNPJ</label>
-            <input type="text" name="cnpj" maxlength="18" placeholder="00.000.000/0000-00">
+            <label for="ct-cnpj">CNPJ</label>
+            <input type="text" name="cnpj" id="ct-cnpj" maxlength="18" placeholder="00.000.000/0000-00">
           </div>
         </div>
 
         <div class="form-group">
-          <label>Plano de interesse</label>
+          <label for="planoSel">Plano de interesse</label>
           <select name="plano" id="planoSel">
             <option value="">Ainda avaliando</option>
             <option value="starter">Starter</option>
@@ -91,8 +91,8 @@
         </div>
 
         <div class="form-group">
-          <label>Como podemos ajudar?</label>
-          <textarea name="mensagem" rows="4" placeholder="Conte seu desafio, tamanho da empresa, módulos de interesse…"></textarea>
+          <label for="ct-mensagem">Como podemos ajudar?</label>
+          <textarea name="mensagem" id="ct-mensagem" rows="4" placeholder="Conte seu desafio, tamanho da empresa, módulos de interesse…"></textarea>
         </div>
 
         <button type="submit" class="btn btn-primary form-submit">Enviar mensagem</button>

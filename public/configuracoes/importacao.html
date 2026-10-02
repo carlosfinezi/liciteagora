@@ -50,7 +50,7 @@
     <h3>1. Escolha o tipo de importação</h3>
     <div class="imp-toolbar">
       <div class="field">
-        <label>Tipo</label>
+        <label for="selTipo">Tipo</label>
         <select id="selTipo" onchange="onTipoChange()">
           <option value="">— selecione —</option>
           <option value="pessoas">Pessoas (clientes/fornecedores)</option>
@@ -72,7 +72,7 @@
     <h3>2. Faça upload do CSV</h3>
     <div class="imp-toolbar">
       <div class="field">
-        <label>Arquivo CSV</label>
+        <label for="arqCsv">Arquivo CSV</label>
         <input type="file" id="arqCsv" accept=".csv" onchange="onFileChange()">
         <small class="muted">O separador pode ser ponto e vírgula ou vírgula.</small>
       </div>

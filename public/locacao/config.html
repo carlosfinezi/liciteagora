@@ -22,12 +22,12 @@
     <h3>Documento</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Prefixo do número</label>
+        <label for="cPrefixo">Prefixo do número</label>
         <input type="text" id="cPrefixo" maxlength="10" style="text-transform:uppercase;">
         <small class="muted">Vira LOC-2026-0001. Só letras, números e hífen.</small>
       </div>
       <div class="form-group">
-        <label>Dia de vencimento padrão</label>
+        <label for="cDiaVenc">Dia de vencimento padrão</label>
         <input type="number" id="cDiaVenc" min="1" max="28">
         <small class="muted">Usado no contrato aberto. Máximo 28, para existir em fevereiro.</small>
       </div>
@@ -38,12 +38,12 @@
     <h3>Devolução em atraso</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Carência (horas)</label>
+        <label for="cCarencia">Carência (horas)</label>
         <input type="number" id="cCarencia" min="0" max="72" step="0.5">
         <small class="muted">Atraso menor que isso não gera multa.</small>
       </div>
       <div class="form-group">
-        <label>Multa por dia de atraso</label><small class="muted">Em percentual da diária</small>
+        <label for="cMulta">Multa por dia de atraso</label><small class="muted">Em percentual da diária</small>
         <input type="number" id="cMulta" min="0" max="1000" step="1">
         <small class="muted">100% = cada dia atrasado custa uma diária.</small>
       </div>
@@ -54,14 +54,14 @@
     <h3>Travas operacionais</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Caução obrigatória</label>
+        <label for="cExigirCaucao">Caução obrigatória</label>
         <select id="cExigirCaucao">
           <option value="1">Sim — não deixa sair sem</option>
           <option value="0">Não</option>
         </select>
       </div>
       <div class="form-group">
-        <label>Exigir vistoria</label><small class="muted">Abre uma OS na entrega e na devolução</small>
+        <label for="cExigirVistoria">Exigir vistoria</label><small class="muted">Abre uma OS na entrega e na devolução</small>
         <select id="cExigirVistoria">
           <option value="1">Sim</option>
           <option value="0">Não</option>
@@ -69,7 +69,7 @@
         <small class="muted">A OS é o que guarda foto, checklist e assinatura. Desligar tira a prova em caso de avaria.</small>
       </div>
       <div class="form-group">
-        <label>Reserva acima do disponível</label>
+        <label for="cOverbooking">Reserva acima do disponível</label>
         <select id="cOverbooking">
           <option value="0">Não — recusa o conflito</option>
           <option value="1">Sim — apenas avisa</option>
@@ -82,7 +82,7 @@
     <h3>Regras do contrato impresso</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Horário de corte da diária</label>
+        <label for="cHoraCorte">Horário de corte da diária</label>
         <input type="text" id="cHoraCorte" placeholder="17:30 — vazio = 24h corridas" maxlength="5">
         <small class="muted">
           Com 17:30, quem retira 9h e devolve 18h paga <strong>2 diárias</strong>:
@@ -90,12 +90,12 @@
         </small>
       </div>
       <div class="form-group">
-        <label>Taxa de limpeza</label>
+        <label for="cLimpezaPct">Taxa de limpeza</label>
         <input type="number" id="cLimpezaPct" step="0.01" min="0" max="1000" placeholder="ex.: 40">
         <small class="muted">Percentual sobre o valor da locação. Cobrado quando a devolução for marcada como "precisa de limpeza".</small>
       </div>
       <div class="form-group">
-        <label>Valor mínimo de locação (R$)</label>
+        <label for="cValorMinimo">Valor mínimo de locação (R$)</label>
         <input type="text" id="cValorMinimo" placeholder="ex.: 80" data-formato="dinheiro">
         <small class="muted">
           Piso <strong>do contrato inteiro</strong>, não de cada item: 12 andaimes
@@ -110,7 +110,7 @@
     <h3>Nota promissória</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Base da promissória</label>
+        <label for="cPromBase">Base da promissória</label>
         <select id="cPromBase">
           <option value="reposicao">o valor de reposição dos equipamentos (garante a frota)</option>
           <option value="locacao">o valor do aluguel</option>
@@ -122,7 +122,7 @@
         </small>
       </div>
       <div class="form-group">
-        <label>Vencimento da promissória</label>
+        <label for="cPromDias">Vencimento da promissória</label>
         <input type="number" id="cPromDias" min="0" max="3650" step="1">
         <small class="muted">Em dias, contados do retorno previsto.</small>
       </div>
@@ -155,7 +155,7 @@
     </p>
     <div class="form-row" style="align-items:flex-end;">
       <div class="form-group" style="flex:2;">
-        <label>Item</label>
+        <label for="qItemExcecao">Item</label>
         <div id="exItemEscolhido" style="display:none;">
           <div style="display:flex;align-items:center;gap:8px;">
             <strong id="exItemNome"></strong>
@@ -168,11 +168,11 @@
         </div>
       </div>
       <div class="form-group">
-        <label>Cobrança</label>
+        <label for="exTipo">Cobrança</label>
         <select id="exTipo"></select>
       </div>
       <div class="form-group">
-        <label>Valor (R$)</label>
+        <label for="exValor">Valor (R$)</label>
         <input type="text" id="exValor" data-formato="dinheiro">
       </div>
       <div class="form-group">
@@ -212,6 +212,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('locacao-config');</script>
 <script>

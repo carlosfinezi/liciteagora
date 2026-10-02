@@ -24,25 +24,25 @@
   <div class="panel">
     <div class="form-row">
       <div class="form-group" style="position:relative;">
-        <label>Produto *</label>
+        <label for="movProdBusca">Produto *</label>
         <input type="text" id="movProdBusca" placeholder="Digite código ou descrição..." oninput="autocompleteProd()" autocomplete="off">
         <input type="hidden" id="movProdId">
         <div id="movProdList" class="ac-list"></div>
         <small id="movProdInfo" class="muted"></small>
       </div>
       <div class="form-group">
-        <label>Tipo *</label>
+        <label for="movTipo">Tipo *</label>
         <select id="movTipo" onchange="atualizarUI()">
           <option value="entrada">Entrada</option>
           <option value="saida">Saída</option>
           <option value="ajuste">Ajuste</option>
         </select>
       </div>
-      <div class="form-group"><label id="lblQtd">Quantidade *</label><input type="number" id="movQtd" step="0.01" oninput="aoMudarQuantidade()"></div>
-      <div class="form-group"><label>Custo Unitário (opcional)</label><input type="text" id="movCusto" data-formato="dinheiro"></div>
-      <div class="form-group"><label>Data</label><input type="date" id="movData"></div>
+      <div class="form-group"><label for="movQtd" id="lblQtd">Quantidade *</label><input type="number" id="movQtd" step="0.01" oninput="aoMudarQuantidade()"></div>
+      <div class="form-group"><label for="movCusto">Custo Unitário (opcional)</label><input type="text" id="movCusto" data-formato="dinheiro"></div>
+      <div class="form-group"><label for="movData">Data</label><input type="date" id="movData"></div>
       <div class="form-group" id="grpDeposito" style="display:none;">
-        <label>Depósito</label>
+        <label for="movDeposito">Depósito</label>
         <select id="movDeposito" onchange="carregarSaldo()"></select>
       </div>
     </div>
@@ -55,7 +55,7 @@
 
     <div class="form-row" id="rowLote" style="display:none;">
       <div class="form-group full-width">
-        <label>Lote <span id="loteObrigatorio" class="muted">(opcional)</span></label>
+        <label for="movLoteId">Lote <span id="loteObrigatorio" class="muted">(opcional)</span></label>
         <div style="display:flex;gap:8px;align-items:center;">
           <select id="movLoteId" style="flex:1;">
             <option value="">— selecionar lote —</option>
@@ -85,7 +85,7 @@
     </div>
 
     <div class="form-row">
-      <div class="form-group full-width"><label>Observação</label><textarea id="movObs" rows="2"></textarea></div>
+      <div class="form-group full-width"><label for="movObs">Observação</label><textarea id="movObs" rows="2"></textarea></div>
     </div>
 
     <div class="actions-bar">
@@ -99,6 +99,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script>initSidebar('estoque');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }

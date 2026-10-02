@@ -50,6 +50,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/producao-vocab.js"></script>
 <script>initSidebar('producao-expedicao');</script>
@@ -136,18 +137,18 @@ async function abrirNovo() {
   document.getElementById('modalTitulo').textContent = 'Novo romaneio';
   document.getElementById('modalBody').innerHTML = `
     <div class="form-row">
-      <div class="form-group" style="flex:2;"><label>Obra</label>
+      <div class="form-group" style="flex:2;"><label for="rObra">Obra</label>
         <select id="rObra"><option value="">Sem obra (venda de catálogo)</option>
           ${OBRAS.map(o => `<option value="${o.id}">${esc(o.numero)} — ${esc(o.nome)}</option>`).join('')}
         </select></div>
-      <div class="form-group"><label>Data</label>
+      <div class="form-group"><label for="rData">Data</label>
         <input type="date" id="rData" value="${new Date().toISOString().slice(0, 10)}"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Placa</label><input type="text" id="rPlaca" data-formato="placa"></div>
-      <div class="form-group"><label>Tipo de veículo</label><input type="text" id="rTipo" placeholder="Prancha 3 eixos"></div>
-      <div class="form-group"><label>Motorista</label><input type="text" id="rMot"></div>
-      <div class="form-group"><label>Capacidade (kg)</label><input type="number" id="rCap" min="0" step="1"></div>
+      <div class="form-group"><label for="rPlaca">Placa</label><input type="text" id="rPlaca" data-formato="placa"></div>
+      <div class="form-group"><label for="rTipo">Tipo de veículo</label><input type="text" id="rTipo" placeholder="Prancha 3 eixos"></div>
+      <div class="form-group"><label for="rMot">Motorista</label><input type="text" id="rMot"></div>
+      <div class="form-group"><label for="rCap">Capacidade (kg)</label><input type="number" id="rCap" min="0" step="1"></div>
     </div>
     <div style="text-align:right;">
       <button class="btn" onclick="fechar()">Cancelar</button>
@@ -218,18 +219,18 @@ async function abrir(id) {
     ${x.status === 'montagem' ? `
       <h4 style="margin-top:16px;">Adicionar à carga</h4>
       <div class="form-row" style="align-items:flex-end;">
-        <div class="form-group" style="flex:2;"><label>Peça identificada (no pátio)</label>
+        <div class="form-group" style="flex:2;"><label for="aPeca">Peça identificada (no pátio)</label>
           <select id="aPeca"><option value="">Selecione…</option>
             ${disponiveis.map(p => `<option value="${p.id}">${esc(p.identificacao)} — ${esc(p.produtoDescricao)} (${n(p.pesoKg, 0)} kg)</option>`).join('')}
           </select></div>
         <div class="form-group"><button class="btn btn-primary" onclick="adicionarPeca(${id})">Adicionar</button></div>
       </div>
       <div class="form-row" style="align-items:flex-end;">
-        <div class="form-group" style="flex:2;"><label>Ou peça de catálogo (por quantidade)</label>
+        <div class="form-group" style="flex:2;"><label for="aProduto">Ou peça de catálogo (por quantidade)</label>
           <select id="aProduto"><option value="">Selecione…</option>
             ${catalogo.map(c => `<option value="${c.produtoId}">${esc(c.descricao)} (saldo ${n(c.saldo, 0)})</option>`).join('')}
           </select></div>
-        <div class="form-group"><label>Quantidade</label><input type="number" id="aQtd" min="1" step="1"></div>
+        <div class="form-group"><label for="aQtd">Quantidade</label><input type="number" id="aQtd" min="1" step="1"></div>
         <div class="form-group"><button class="btn btn-primary" onclick="adicionarQuantidade(${id})">Adicionar</button></div>
       </div>` : ''}`;
   document.getElementById('modal').style.display = 'flex';

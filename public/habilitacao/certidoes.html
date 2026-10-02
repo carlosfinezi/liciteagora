@@ -74,7 +74,7 @@
     <input type="hidden" id="fId">
     <div class="form-row">
       <div class="form-group">
-        <label>Categoria *</label>
+        <label for="fCat">Categoria *</label>
         <select id="fCat" onchange="onCategoria()">
           <option value="juridica">Jurídica</option>
           <option value="fiscal">Fiscal / Social / Trabalhista</option>
@@ -83,7 +83,7 @@
         </select>
       </div>
       <div class="form-group">
-        <label>Esfera</label>
+        <label for="fEsfera">Esfera</label>
         <select id="fEsfera" onchange="atualizarHintEstab()">
           <option value="">—</option>
           <option value="federal">Federal</option>
@@ -94,7 +94,7 @@
     </div>
     <div class="form-row" id="rowEstab" style="display:none;">
       <div class="form-group full-width">
-        <label>Estabelecimento</label>
+        <label for="fEstab">Estabelecimento</label>
         <select id="fEstab" onchange="atualizarHintEstab()"></select>
         <small class="muted" id="fEstabHint" style="display:block;margin-top:4px;"></small>
       </div>
@@ -108,27 +108,27 @@
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Órgão emissor</label>
+        <label for="fOrgao">Órgão emissor</label>
         <input type="text" id="fOrgao" placeholder="Ex.: Receita Federal / PGFN">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Número / controle</label>
+        <label for="fNumero">Número / controle</label>
         <input type="text" id="fNumero" placeholder="Nº da certidão">
       </div>
       <div class="form-group">
-        <label>Emissão</label>
+        <label for="fEmissao">Emissão</label>
         <input type="date" id="fEmissao">
       </div>
       <div class="form-group">
-        <label>Validade</label>
+        <label for="fValidade">Validade</label>
         <input type="date" id="fValidade">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Observações</label>
+        <label for="fObs">Observações</label>
         <textarea id="fObs" rows="2" placeholder="Notas internas"></textarea>
       </div>
     </div>

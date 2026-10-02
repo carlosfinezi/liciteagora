@@ -52,25 +52,25 @@
     <input type="hidden" id="fId">
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Username * <small class="muted">(login, sem espaços)</small></label>
+        <label for="fUsername">Username * <small class="muted">(login, sem espaços)</small></label>
         <input type="text" id="fUsername" autocomplete="off">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Nome de exibição</label>
+        <label for="fNome">Nome de exibição</label>
         <input type="text" id="fNome">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>E-mail</label>
+        <label for="fEmail">E-mail</label>
         <input type="email" id="fEmail">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Perfil *</label>
+        <label for="fRole">Perfil *</label>
         <!-- Preenchido por preencherPerfis() com os nativos + os cadastrados em
              Perfis de Acesso. As opções abaixo são o fallback se a lista falhar. -->
         <select id="fRole">
@@ -85,14 +85,14 @@
     </div>
     <div class="form-row" id="rowEstabUser" style="display:none;">
       <div class="form-group full-width">
-        <label>Acesso a estabelecimento</label>
+        <label for="fEstabUser">Acesso a estabelecimento</label>
         <select id="fEstabUser"><option value="">Todos (acesso total)</option></select>
         <small class="muted" style="display:block;margin-top:4px;">Restringe o usuário a operar só nesta loja — fiscal, certidões, financeiro e estoque ficam no CNPJ dela. Vazio = acesso a todos.</small>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label id="lblSenha">Senha *</label>
+        <label for="fSenha" id="lblSenha">Senha *</label>
         <input type="password" id="fSenha" autocomplete="new-password">
         <small class="muted" id="hintSenha">Mínimo 6 caracteres. Deixe em branco ao editar para manter.</small>
       </div>
@@ -115,7 +115,7 @@
     <div id="blocoVendedor" style="display:none;border:1px solid var(--border);border-radius:var(--r-md);padding:12px;background:var(--bg-1);">
       <div class="form-row">
         <div class="form-group">
-          <label>Tipo</label>
+          <label for="fVendedorTipo">Tipo</label>
           <select id="fVendedorTipo">
             <option value="interno">Interno (CLT)</option>
             <option value="externo">Externo (autônomo)</option>
@@ -123,21 +123,21 @@
           </select>
         </div>
         <div class="form-group">
-          <label>CPF / CNPJ</label>
+          <label for="fCpfCnpj">CPF / CNPJ</label>
           <input type="text" id="fCpfCnpj" placeholder="Para representante PJ ou autônomo" data-formato="cnpj">
         </div>
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Telefone</label>
+          <label for="fTelefoneVendedor">Telefone</label>
           <input type="text" id="fTelefoneVendedor" placeholder="(00) 00000-0000" data-formato="telefone">
         </div>
         <div class="form-group">
-          <label>Comissão padrão (%)</label>
+          <label for="fComissaoPercentual">Comissão padrão (%)</label>
           <input type="number" id="fComissaoPercentual" step="0.01" min="0" max="100" placeholder="ex: 5">
         </div>
         <div class="form-group">
-          <label>Meta mensal (R$)</label>
+          <label for="fMetaMensal">Meta mensal (R$)</label>
           <input type="number" id="fMetaMensal" step="0.01" min="0" placeholder="ex: 50000">
         </div>
       </div>
@@ -151,6 +151,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('usuarios');</script>

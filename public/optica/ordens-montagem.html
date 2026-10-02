@@ -76,14 +76,14 @@
     <input type="hidden" id="fId">
     <div class="form-row">
       <div class="form-group" style="flex:2;position:relative;">
-        <label>Pedido (opcional) <small class="muted" id="fPedidoCliente"></small></label>
+        <label for="fPedidoBusca">Pedido (opcional) <small class="muted" id="fPedidoCliente"></small></label>
         <input type="text" id="fPedidoBusca" placeholder="Digite número, cliente ou compraId…" oninput="acPedido()" autocomplete="off">
         <input type="hidden" id="fPedidoId">
         <div id="acPedidoList" class="ac-list"></div>
         <button type="button" class="btn btn-ghost btn-sm" onclick="limparPedido()" id="btnLimparPedido" style="display:none;position:absolute;right:6px;top:28px;padding:2px 8px;font-size:var(--text-xs);" title="Desvincular pedido">× limpar</button>
       </div>
       <div class="form-group">
-        <label>Status</label>
+        <label for="fStatusM">Status</label>
         <select id="fStatusM">
           <option value="aguardando">Aguardando envio</option>
           <option value="laboratorio">No laboratório</option>
@@ -95,25 +95,25 @@
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Laboratório</label>
+        <label for="fLab">Laboratório</label>
         <input type="text" id="fLab" placeholder="Nome do laboratório">
       </div>
       <div class="form-group">
-        <label>Envio ao lab</label>
+        <label for="fEnvio">Envio ao lab</label>
         <input type="date" id="fEnvio">
       </div>
       <div class="form-group">
-        <label>Previsão de entrega</label>
+        <label for="fPrev">Previsão de entrega</label>
         <input type="date" id="fPrev">
       </div>
       <div class="form-group">
-        <label>Entrega ao cliente</label>
+        <label for="fEntrega">Entrega ao cliente</label>
         <input type="date" id="fEntrega">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Observações</label>
+        <label for="fObs">Observações</label>
         <textarea id="fObs" rows="3" placeholder="Instruções especiais, número de pedido do laboratório, etc."></textarea>
       </div>
     </div>

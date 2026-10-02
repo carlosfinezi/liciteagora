@@ -92,24 +92,24 @@
                 <h3>Execução automática</h3>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Horário diário (BRT)</label>
+                        <label for="horaExecucao">Horário diário (BRT)</label>
                         <input type="number" id="horaExecucao" min="0" max="23" value="9">
                     </div>
                     <div class="form-group">
-                        <label>Só em dias úteis</label>
+                        <label for="executarDiasUteis">Só em dias úteis</label>
                         <select id="executarDiasUteis">
                             <option value="true">Sim (só dias úteis)</option>
                             <option value="false">Não (todos os dias)</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Máx. disparos por conta/dia</label>
+                        <label for="limitePorDia">Máx. disparos por conta/dia</label>
                         <input type="number" id="limitePorDia" min="0" max="10" value="1">
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Cópia interna</label>
+                        <label for="ccInterno">Cópia interna</label>
                         <!-- "exemplo:" na frente para o endereço cinza não ser
                              lido como valor já configurado. -->
                         <input type="email" id="ccInterno" placeholder="exemplo: financeiro@suaempresa.com.br">
@@ -125,22 +125,22 @@
                 </small>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Juros ao mês (%)</label>
+                        <label for="jurosMesPct">Juros ao mês (%)</label>
                         <input type="number" id="jurosMesPct" step="0.01" min="0" max="100" value="1" placeholder="ex: 1">
                         <small style="color:var(--text-3);">Calculado pro rata: valor × % / 30 × dias de atraso</small>
                     </div>
                     <div class="form-group">
-                        <label>Multa por atraso (%)</label>
+                        <label for="multaAtrasoPct">Multa por atraso (%)</label>
                         <input type="number" id="multaAtrasoPct" step="0.01" min="0" max="100" value="2" placeholder="ex: 2">
                         <small style="color:var(--text-3);">Valor fixo sobre o saldo em atraso</small>
                     </div>
                     <div class="form-group">
-                        <label>Carência (dias)</label>
+                        <label for="carenciaDias">Carência (dias)</label>
                         <input type="number" id="carenciaDias" min="0" max="60" value="0" placeholder="ex: 0">
                         <small style="color:var(--text-3);">Dias após vencimento sem cobrar juros</small>
                     </div>
                     <div class="form-group">
-                        <label>Modo de juros</label>
+                        <label for="jurosModo">Modo de juros</label>
                         <select id="jurosModo">
                             <option value="simples">Simples (padrão)</option>
                             <option value="composto">Composto</option>
@@ -257,7 +257,7 @@
                     </h4>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Nome desta etapa</label>
+                            <label for="nome_${idx}">Nome desta etapa</label>
                             <input type="text" id="nome_${idx}" value="${escAttr(e.nome || '')}" placeholder="Ex.: Aviso de negativação"
                                 title="É este nome que aparece na lista de inadimplentes, na coluna Última etapa.">
                         </div>
@@ -269,19 +269,19 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Assunto do e‑mail</label>
+                            <label for="assunto_${idx}">Assunto do e‑mail</label>
                             <input type="text" id="assunto_${idx}" value="${escAttr(e.assunto || '')}">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Corpo do e‑mail</label>
+                            <label for="emailTexto_${idx}">Corpo do e‑mail</label>
                             <textarea id="emailTexto_${idx}">${escHtml(e.emailTexto || '')}</textarea>
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Texto do WhatsApp</label>
+                            <label for="whatsappTexto_${idx}">Texto do WhatsApp</label>
                             <textarea id="whatsappTexto_${idx}" style="min-height:60px;">${escHtml(e.whatsappTexto || '')}</textarea>
                         </div>
                     </div>

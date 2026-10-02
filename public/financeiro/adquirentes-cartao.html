@@ -45,18 +45,18 @@
       </div>
       <button class="btn btn-ghost btn-sm" onclick="fechar()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
-    <div class="row"><label>Nome *</label><input type="text" id="mNome" placeholder="Ex.: Cielo"></div>
-    <div class="row"><label>CNPJ</label><input type="text" id="mCnpj" placeholder="00.000.000/0000-00" data-formato="cnpj"></div>
+    <div class="row"><label for="mNome">Nome *</label><input type="text" id="mNome" placeholder="Ex.: Cielo"></div>
+    <div class="row"><label for="mCnpj">CNPJ</label><input type="text" id="mCnpj" placeholder="00.000.000/0000-00" data-formato="cnpj"></div>
     <div class="row-2">
-      <div class="row"><label>Taxa (%)</label><input type="number" step="0.01" id="mTaxa" placeholder="3.50"></div>
-      <div class="row"><label>Prazo liquidação (dias)</label><input type="number" id="mPrazo" placeholder="30"></div>
+      <div class="row"><label for="mTaxa">Taxa (%)</label><input type="number" step="0.01" id="mTaxa" placeholder="3.50"></div>
+      <div class="row"><label for="mPrazo">Prazo liquidação (dias)</label><input type="number" id="mPrazo" placeholder="30"></div>
     </div>
     <div class="row">
-      <label>Conta financeira padrão (liquidação)</label>
+      <label for="mContaFin">Conta financeira padrão (liquidação)</label>
       <select id="mContaFin"><option value="">— nenhuma —</option></select>
       <small style="color:var(--text-2);">Conta bancária que recebe os depósitos da adquirente</small>
     </div>
-    <div class="row"><label>Observações</label><textarea id="mObs" rows="2"></textarea></div>
+    <div class="row"><label for="mObs">Observações</label><textarea id="mObs" rows="2"></textarea></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fechar()">Cancelar</button>
       <button class="btn btn-primary" onclick="salvar()">Salvar</button>
@@ -66,6 +66,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script>initSidebar('adquirentes-cartao');</script>
 <script>
 let LISTA = [], EDITANDO = null;

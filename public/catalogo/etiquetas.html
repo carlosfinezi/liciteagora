@@ -56,9 +56,9 @@
       <div class="form-group full-width" id="camposBox" style="display:flex;gap:16px;flex-wrap:wrap;"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Código</label><select id="tipoCodigo" onchange="previa()"></select>
+      <div class="form-group"><label for="tipoCodigo">Código</label><select id="tipoCodigo" onchange="previa()"></select>
         <small class="muted" id="hintQr"></small></div>
-      <div class="form-group full-width"><label>Texto fixo (opcional)</label>
+      <div class="form-group full-width"><label for="textoFixo">Texto fixo (opcional)</label>
         <input type="text" id="textoFixo" placeholder="Ex.: nome da loja, validade, lote" oninput="previa()" maxlength="40"></div>
     </div>
   </div>
@@ -66,20 +66,20 @@
   <div class="panel" style="margin-top:16px;">
     <h3 style="margin-top:0;">Folha A4</h3>
     <div class="form-row">
-      <div class="form-group" style="flex:2;"><label>Formato</label><select id="modeloA4" onchange="aplicarModeloA4()"></select></div>
-      <div class="form-group"><label>Largura (mm)</label><input type="number" id="a4Larg" step="0.1" min="15" onchange="previa()"></div>
-      <div class="form-group"><label>Altura (mm)</label><input type="number" id="a4Alt" step="0.1" min="10" onchange="previa()"></div>
+      <div class="form-group" style="flex:2;"><label for="modeloA4">Formato</label><select id="modeloA4" onchange="aplicarModeloA4()"></select></div>
+      <div class="form-group"><label for="a4Larg">Largura (mm)</label><input type="number" id="a4Larg" step="0.1" min="15" onchange="previa()"></div>
+      <div class="form-group"><label for="a4Alt">Altura (mm)</label><input type="number" id="a4Alt" step="0.1" min="10" onchange="previa()"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Colunas</label><input type="number" id="a4Cols" min="1" max="8" onchange="previa()"></div>
-      <div class="form-group"><label>Linhas</label><input type="number" id="a4Rows" min="1" max="20" onchange="previa()"></div>
-      <div class="form-group"><label>Espaço horiz. (mm)</label><input type="number" id="a4GapX" step="0.5" min="0" onchange="previa()"></div>
-      <div class="form-group"><label>Espaço vert. (mm)</label><input type="number" id="a4GapY" step="0.5" min="0" onchange="previa()"></div>
+      <div class="form-group"><label for="a4Cols">Colunas</label><input type="number" id="a4Cols" min="1" max="8" onchange="previa()"></div>
+      <div class="form-group"><label for="a4Rows">Linhas</label><input type="number" id="a4Rows" min="1" max="20" onchange="previa()"></div>
+      <div class="form-group"><label for="a4GapX">Espaço horiz. (mm)</label><input type="number" id="a4GapX" step="0.5" min="0" onchange="previa()"></div>
+      <div class="form-group"><label for="a4GapY">Espaço vert. (mm)</label><input type="number" id="a4GapY" step="0.5" min="0" onchange="previa()"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Ajuste fino → (mm)</label><input type="number" id="offX" step="0.5" value="0" onchange="previa()">
+      <div class="form-group"><label for="offX">Ajuste fino → (mm)</label><input type="number" id="offX" step="0.5" value="0" onchange="previa()">
         <small class="muted">Corrige desvio da impressora</small></div>
-      <div class="form-group"><label>Ajuste fino ↓ (mm)</label><input type="number" id="offY" step="0.5" value="0" onchange="previa()"></div>
+      <div class="form-group"><label for="offY">Ajuste fino ↓ (mm)</label><input type="number" id="offY" step="0.5" value="0" onchange="previa()"></div>
       <div class="form-group full-width"><label>&nbsp;</label>
         <div id="infoGrade" class="muted" style="font-size:var(--text-xs);"></div></div>
     </div>
@@ -92,10 +92,10 @@
   <div class="panel" style="margin-top:16px;">
     <h3 style="margin-top:0;">Rolo térmico (Zebra / ZPL)</h3>
     <div class="form-row">
-      <div class="form-group" style="flex:2;"><label>Modelo</label><select id="modeloZpl" onchange="aplicarModeloZpl()"></select></div>
-      <div class="form-group"><label>Largura (mm)</label><input type="number" id="zplLarg" step="0.5" min="15" max="200"></div>
-      <div class="form-group"><label>Altura (mm)</label><input type="number" id="zplAlt" step="0.5" min="10" max="200"></div>
-      <div class="form-group"><label>Colunas</label><input type="number" id="zplCols" min="1" max="4"></div>
+      <div class="form-group" style="flex:2;"><label for="modeloZpl">Modelo</label><select id="modeloZpl" onchange="aplicarModeloZpl()"></select></div>
+      <div class="form-group"><label for="zplLarg">Largura (mm)</label><input type="number" id="zplLarg" step="0.5" min="15" max="200"></div>
+      <div class="form-group"><label for="zplAlt">Altura (mm)</label><input type="number" id="zplAlt" step="0.5" min="10" max="200"></div>
+      <div class="form-group"><label for="zplCols">Colunas</label><input type="number" id="zplCols" min="1" max="4"></div>
     </div>
     <div class="modal-actions" style="justify-content:flex-start;">
       <button class="btn btn-secondary" onclick="baixarZpl()">⬇️ Baixar ZPL</button>

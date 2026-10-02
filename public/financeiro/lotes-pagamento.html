@@ -53,14 +53,14 @@
 
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Linhas digitáveis — uma por linha</label>
+        <label for="bTexto">Linhas digitáveis — uma por linha</label>
         <textarea id="bTexto" rows="4" placeholder="23793.38128 60007.827136 95000.063305 4 12345678901234&#10;846700000017 435002092024 12345678901 234567890123"></textarea>
         <small class="muted">Aceita boleto bancário (47 dígitos) e conta de concessionária (48). O código é conferido antes de entrar.</small>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Origem</label>
+        <label for="bOrigem">Origem</label>
         <select id="bOrigem">
           <option value="manual">Digitado / recebido por e-mail</option>
           <option value="dda">Importado do DDA do banco</option>
@@ -96,8 +96,8 @@
       <button class="btn btn-ghost btn-sm" onclick="fechar()" style="font-size:1.2em;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Conta financeira (origem)</label><select id="nConta"></select></div>
-      <div class="form-group"><label>Provedor</label>
+      <div class="form-group"><label for="nConta">Conta financeira (origem)</label><select id="nConta"></select></div>
+      <div class="form-group"><label for="nProvedor">Provedor</label>
         <select id="nProvedor">
           <option value="manual">Manual (pago no internet banking)</option>
           <option value="asaas">Asaas (PIX automático)</option>

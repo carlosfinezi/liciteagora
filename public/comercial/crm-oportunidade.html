@@ -41,23 +41,23 @@
       <h3 style="margin-top:18px;">Atividades</h3>
       <div class="form-row">
         <div class="form-group">
-          <label>Tipo</label>
+          <label for="aTipo">Tipo</label>
           <select id="aTipo"></select>
         </div>
         <div class="form-group">
-          <label>Data/hora *</label>
+          <label for="aData">Data/hora *</label>
           <input type="datetime-local" id="aData">
         </div>
       </div>
       <div class="form-row">
         <div class="form-group full-width">
-          <label>Título *</label>
+          <label for="aTit">Título *</label>
           <input type="text" id="aTit">
         </div>
       </div>
       <div class="form-row">
         <div class="form-group full-width">
-          <label>Descrição</label>
+          <label for="aDesc">Descrição</label>
           <textarea id="aDesc" rows="2"></textarea>
         </div>
       </div>
@@ -83,47 +83,47 @@
       <button class="btn btn-ghost btn-sm" onclick="fecharEditar()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
     <div class="form-row"><div class="form-group full-width">
-      <label>Título *</label>
+      <label for="edTit">Título *</label>
       <input type="text" id="edTit">
     </div></div>
     <div class="form-row"><div class="form-group full-width" style="position:relative;">
-      <label>Cliente</label>
+      <label for="edClienteBusca">Cliente</label>
       <input type="text" id="edClienteBusca" placeholder="Razão social, CPF/CNPJ…" oninput="acClienteEd()" autocomplete="off">
       <input type="hidden" id="edClienteId">
       <div id="acClienteListEd" class="ac-list"></div>
     </div></div>
     <div class="form-row" id="edClienteTelRow" style="display:none;"><div class="form-group full-width">
-      <label>Telefone / número do cliente</label>
+      <label for="edClienteTelefone">Telefone / número do cliente</label>
       <input type="tel" id="edClienteTelefone" placeholder="(00) 00000-0000" data-formato="telefone">
       <small class="muted">Salvo no cadastro do cliente. Para CPF/CNPJ e demais dados, use o botão “👤 Cliente”.</small>
     </div></div>
     <div class="form-row">
       <div class="form-group">
-        <label>Valor (R$)</label>
+        <label for="edValor">Valor (R$)</label>
         <input type="text" id="edValor" data-formato="dinheiro">
       </div>
       <div class="form-group">
-        <label>Probabilidade (%)</label>
+        <label for="edProb">Probabilidade (%)</label>
         <input type="number" id="edProb" min="0" max="100">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Etapa</label>
+        <label for="edEtapa">Etapa</label>
         <select id="edEtapa"></select>
       </div>
       <div class="form-group">
-        <label>Fonte</label>
+        <label for="edFonte">Fonte</label>
         <select id="edFonte"></select>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Vendedor</label>
+        <label for="edVendedor">Vendedor</label>
         <select id="edVendedor"></select>
       </div>
       <div class="form-group">
-        <label>Previsão de fechamento</label>
+        <label for="edPrev">Previsão de fechamento</label>
         <input type="date" id="edPrev">
       </div>
     </div>
@@ -144,7 +144,7 @@
       </div>
     </div>
     <div class="form-row"><div class="form-group full-width">
-      <label>Descrição</label>
+      <label for="edDesc">Descrição</label>
       <textarea id="edDesc" rows="3"></textarea>
     </div></div>
     <div class="modal-actions">
@@ -156,6 +156,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script>initSidebar('crm-funil');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -222,7 +223,7 @@ function renderResumo(){
     </table>
     <div style="margin-top:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-        <label class="muted" style="margin:0;font-size:var(--text-xs);">Descrição</label>
+        <label for="descInline" class="muted" style="margin:0;font-size:var(--text-xs);">Descrição</label>
         <small id="descStatus" class="muted" style="font-size:var(--text-xs);"></small>
       </div>
       <textarea id="descInline" rows="3" placeholder="Anotações sobre a oportunidade… (salva sozinho)"

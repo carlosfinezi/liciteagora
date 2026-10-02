@@ -70,56 +70,56 @@
 
     <div class="form-row">
       <div class="form-group" style="flex:2;position:relative;">
-        <label>Cliente *</label>
+        <label for="fCliBusca">Cliente *</label>
         <input type="text" id="fCliBusca" placeholder="Razão social, CPF/CNPJ…" oninput="acCli()" autocomplete="off">
         <input type="hidden" id="fPessoaId">
         <div id="acCliList" class="ac-list"></div>
       </div>
       <div class="form-group">
-        <label>Data da receita *</label>
+        <label for="fData">Data da receita *</label>
         <input type="date" id="fData">
       </div>
       <div class="form-group">
-        <label>Validade</label>
+        <label for="fValidade">Validade</label>
         <input type="date" id="fValidade">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Médico</label>
+        <label for="fMedico">Médico</label>
         <input type="text" id="fMedico" placeholder="Nome do oftalmologista">
       </div>
       <div class="form-group">
-        <label>CRM</label>
+        <label for="fCrm">CRM</label>
         <input type="text" id="fCrm" placeholder="CRM/UF 12345">
       </div>
     </div>
 
     <h4 style="margin:16px 0 8px 0;">Olho Direito (OD)</h4>
     <div class="form-row">
-      <div class="form-group"><label>Esférico</label><input type="number" id="fOdEsf" step="0.25" placeholder="-2.50"></div>
-      <div class="form-group"><label>Cilíndrico</label><input type="number" id="fOdCil" step="0.25" placeholder="-1.00"></div>
-      <div class="form-group"><label>Eixo (°)</label><input type="number" id="fOdEixo" min="0" max="180" placeholder="180"></div>
-      <div class="form-group"><label>Adição</label><input type="number" id="fOdAdd" step="0.25" placeholder="+2.00"></div>
-      <div class="form-group"><label>DNP OD (mm)</label><input type="number" id="fDnpOd" step="0.5" placeholder="32"></div>
+      <div class="form-group"><label for="fOdEsf">Esférico</label><input type="number" id="fOdEsf" step="0.25" placeholder="-2.50"></div>
+      <div class="form-group"><label for="fOdCil">Cilíndrico</label><input type="number" id="fOdCil" step="0.25" placeholder="-1.00"></div>
+      <div class="form-group"><label for="fOdEixo">Eixo (°)</label><input type="number" id="fOdEixo" min="0" max="180" placeholder="180"></div>
+      <div class="form-group"><label for="fOdAdd">Adição</label><input type="number" id="fOdAdd" step="0.25" placeholder="+2.00"></div>
+      <div class="form-group"><label for="fDnpOd">DNP OD (mm)</label><input type="number" id="fDnpOd" step="0.5" placeholder="32"></div>
     </div>
 
     <h4 style="margin:16px 0 8px 0;">Olho Esquerdo (OE)</h4>
     <div class="form-row">
-      <div class="form-group"><label>Esférico</label><input type="number" id="fOeEsf" step="0.25" placeholder="-2.25"></div>
-      <div class="form-group"><label>Cilíndrico</label><input type="number" id="fOeCil" step="0.25" placeholder="-0.75"></div>
-      <div class="form-group"><label>Eixo (°)</label><input type="number" id="fOeEixo" min="0" max="180" placeholder="170"></div>
-      <div class="form-group"><label>Adição</label><input type="number" id="fOeAdd" step="0.25" placeholder="+2.00"></div>
-      <div class="form-group"><label>DNP OE (mm)</label><input type="number" id="fDnpOe" step="0.5" placeholder="32"></div>
+      <div class="form-group"><label for="fOeEsf">Esférico</label><input type="number" id="fOeEsf" step="0.25" placeholder="-2.25"></div>
+      <div class="form-group"><label for="fOeCil">Cilíndrico</label><input type="number" id="fOeCil" step="0.25" placeholder="-0.75"></div>
+      <div class="form-group"><label for="fOeEixo">Eixo (°)</label><input type="number" id="fOeEixo" min="0" max="180" placeholder="170"></div>
+      <div class="form-group"><label for="fOeAdd">Adição</label><input type="number" id="fOeAdd" step="0.25" placeholder="+2.00"></div>
+      <div class="form-group"><label for="fDnpOe">DNP OE (mm)</label><input type="number" id="fDnpOe" step="0.5" placeholder="32"></div>
     </div>
 
     <div class="form-row">
       <div class="form-group">
-        <label>Altura óptica (mm) <small class="muted">(progressivas/multifocais)</small></label>
+        <label for="fAltura">Altura óptica (mm) <small class="muted">(progressivas/multifocais)</small></label>
         <input type="number" id="fAltura" step="0.5" placeholder="18">
       </div>
       <div class="form-group full-width">
-        <label>Observações</label>
+        <label for="fObs">Observações</label>
         <input type="text" id="fObs" placeholder="Ex.: prismas, prescrição de visão de perto, etc.">
       </div>
     </div>

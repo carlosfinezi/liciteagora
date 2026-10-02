@@ -63,14 +63,14 @@
                     <h3>Capa</h3>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Operação *</label>
+                            <label for="tipoOperacaoId">Operação *</label>
                             <select id="tipoOperacaoId" onchange="aoTrocarOperacao()">
                                 <option value="">Selecione…</option>
                             </select>
                             <small id="hintOperacao" class="muted"></small>
                         </div>
                         <div class="form-group autocomplete-wrapper" style="position: relative;">
-                            <label>Destinatário *</label>
+                            <label for="destBusca">Destinatário *</label>
                             <input type="text" id="destBusca" placeholder="Nome, CPF ou CNPJ"
                                    oninput="buscarDestinatario(this.value)" autocomplete="off">
                             <div id="destLista" class="autocomplete-list"></div>
@@ -79,15 +79,15 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Data de emissão</label>
+                            <label for="dataEmissao">Data de emissão</label>
                             <input type="date" id="dataEmissao">
                         </div>
                         <div class="form-group">
-                            <label>Vencimento</label>
+                            <label for="dataVencimento">Vencimento</label>
                             <input type="date" id="dataVencimento">
                         </div>
                         <div class="form-group">
-                            <label>Meio de pagamento</label>
+                            <label for="meioPagamento">Meio de pagamento</label>
                             <select id="meioPagamento">
                                 <option value="">—</option>
                                 <option value="01">01 — Dinheiro</option>
@@ -101,7 +101,7 @@
                         </div>
                     </div>
                     <div class="form-group">
-                        <label>Observação</label><small class="muted">Vai para os dados adicionais da NF-e</small>
+                        <label for="observacao">Observação</label><small class="muted">Vai para os dados adicionais da NF-e</small>
                         <textarea id="observacao" rows="2"></textarea>
                     </div>
                 </div>
@@ -111,7 +111,7 @@
                     <h3>Itens</h3>
                     <div class="form-row" style="align-items: flex-end;">
                         <div class="form-group autocomplete-wrapper" style="position: relative; flex: 2;">
-                            <label>Adicionar produto</label>
+                            <label for="prodBusca">Adicionar produto</label>
                             <input type="text" id="prodBusca" placeholder="Código ou descrição — ou digite e use “Item livre”"
                                    oninput="buscarProduto(this.value)" autocomplete="off">
                             <div id="prodLista" class="autocomplete-list"></div>
@@ -148,11 +148,11 @@
                     <h3>Totais</h3>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Frete</label>
+                            <label for="valorFrete">Frete</label>
                             <input type="text" id="valorFrete" value="0" oninput="recalcular()" data-formato="dinheiro">
                         </div>
                         <div class="form-group">
-                            <label>Desconto</label>
+                            <label for="valorDesconto">Desconto</label>
                             <input type="text" id="valorDesconto" value="0" oninput="recalcular()" data-formato="dinheiro">
                         </div>
                     </div>
@@ -200,28 +200,28 @@
 
           <h4>ICMS</h4>
           <div class="form-row">
-            <div class="form-group"><label>CST (regime normal)</label><input type="text" id="mCstIcms" maxlength="2" placeholder="00, 20, 10…"></div>
-            <div class="form-group"><label>CSOSN (Simples)</label><input type="text" id="mCsosnIcms" maxlength="3" placeholder="102, 400, 900…"></div>
-            <div class="form-group"><label>Alíquota %</label><input type="number" id="mPIcms" step="0.01" min="0"></div>
-            <div class="form-group"><label>Redução base %</label><input type="number" id="mPRedBC" step="0.0001" min="0"></div>
+            <div class="form-group"><label for="mCstIcms">CST (regime normal)</label><input type="text" id="mCstIcms" maxlength="2" placeholder="00, 20, 10…"></div>
+            <div class="form-group"><label for="mCsosnIcms">CSOSN (Simples)</label><input type="text" id="mCsosnIcms" maxlength="3" placeholder="102, 400, 900…"></div>
+            <div class="form-group"><label for="mPIcms">Alíquota %</label><input type="number" id="mPIcms" step="0.01" min="0"></div>
+            <div class="form-group"><label for="mPRedBC">Redução base %</label><input type="number" id="mPRedBC" step="0.0001" min="0"></div>
           </div>
           <h4>ICMS ST</h4>
           <div class="form-row">
-            <div class="form-group"><label>MVA %</label><input type="number" id="mPMVAST" step="0.01" min="0"></div>
-            <div class="form-group"><label>Redução base ST %</label><input type="number" id="mPRedBCST" step="0.01" min="0"></div>
-            <div class="form-group"><label>Alíquota ST %</label><input type="number" id="mPIcmsST" step="0.01" min="0"></div>
+            <div class="form-group"><label for="mPMVAST">MVA %</label><input type="number" id="mPMVAST" step="0.01" min="0"></div>
+            <div class="form-group"><label for="mPRedBCST">Redução base ST %</label><input type="number" id="mPRedBCST" step="0.01" min="0"></div>
+            <div class="form-group"><label for="mPIcmsST">Alíquota ST %</label><input type="number" id="mPIcmsST" step="0.01" min="0"></div>
           </div>
           <h4>IPI · PIS · COFINS</h4>
           <div class="form-row">
-            <div class="form-group"><label>CST IPI</label><input type="text" id="mCstIpi" maxlength="2" placeholder="00, 49…"></div>
-            <div class="form-group"><label>IPI %</label><input type="number" id="mPIpi" step="0.01" min="0"></div>
-            <div class="form-group"><label>CST PIS</label><input type="text" id="mCstPis" maxlength="2"></div>
-            <div class="form-group"><label>PIS %</label><input type="number" id="mPPis" step="0.01" min="0"></div>
-            <div class="form-group"><label>CST COFINS</label><input type="text" id="mCstCofins" maxlength="2"></div>
-            <div class="form-group"><label>COFINS %</label><input type="number" id="mPCofins" step="0.01" min="0"></div>
+            <div class="form-group"><label for="mCstIpi">CST IPI</label><input type="text" id="mCstIpi" maxlength="2" placeholder="00, 49…"></div>
+            <div class="form-group"><label for="mPIpi">IPI %</label><input type="number" id="mPIpi" step="0.01" min="0"></div>
+            <div class="form-group"><label for="mCstPis">CST PIS</label><input type="text" id="mCstPis" maxlength="2"></div>
+            <div class="form-group"><label for="mPPis">PIS %</label><input type="number" id="mPPis" step="0.01" min="0"></div>
+            <div class="form-group"><label for="mCstCofins">CST COFINS</label><input type="text" id="mCstCofins" maxlength="2"></div>
+            <div class="form-group"><label for="mPCofins">COFINS %</label><input type="number" id="mPCofins" step="0.01" min="0"></div>
           </div>
           <div class="form-group">
-            <label>Informação adicional do item</label><small class="muted">Lote, validade, número ONU</small>
+            <label for="mInfAdProd">Informação adicional do item</label><small class="muted">Lote, validade, número ONU</small>
             <textarea id="mInfAdProd" rows="3"></textarea>
           </div>
         </div>
@@ -666,6 +666,7 @@ init();
 </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/campo-formato.js"></script>
     <script>initSidebar('nova-nota');</script>
 </body>
 </html>

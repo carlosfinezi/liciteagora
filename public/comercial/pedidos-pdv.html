@@ -436,7 +436,7 @@
     </div>
 
     <div class="row">
-      <label>2 · Cliente <span class="muted" style="font-weight:400;">— todo pedido precisa de um cliente</span></label>
+      <label for="buscaCli">2 · Cliente <span class="muted" style="font-weight:400;">— todo pedido precisa de um cliente</span></label>
       <input id="buscaCli" type="search" placeholder="Nome, CPF/CNPJ ou telefone…" autocomplete="off" oninput="debCli()">
       <div id="listaCli" style="max-height:200px;overflow-y:auto;margin-top:8px;display:flex;flex-direction:column;gap:4px;"></div>
     </div>
@@ -459,9 +459,9 @@
 <div class="modal-bg" id="mCli">
   <div class="modal" style="max-width:440px;">
     <h2>Novo cliente</h2>
-    <div class="row"><label>Nome / Razão Social *</label><input id="ncNome" placeholder="Como o cliente é chamado"></div>
-    <div class="row"><label>CPF / CNPJ *</label><input id="ncDoc" placeholder="Somente números" inputmode="numeric"></div>
-    <div class="row"><label>Telefone / WhatsApp</label><input id="ncTel" placeholder="(00) 00000-0000" inputmode="tel"></div>
+    <div class="row"><label for="ncNome">Nome / Razão Social *</label><input id="ncNome" placeholder="Como o cliente é chamado"></div>
+    <div class="row"><label for="ncDoc">CPF / CNPJ *</label><input id="ncDoc" placeholder="Somente números" inputmode="numeric"></div>
+    <div class="row"><label for="ncTel">Telefone / WhatsApp</label><input id="ncTel" placeholder="(00) 00000-0000" inputmode="tel"></div>
     <p class="muted" style="font-size:var(--text-xs);margin:0 0 12px;">
       Cadastro rápido: os demais dados podem ser completados depois em Clientes &amp; Fornecedores.
     </p>
@@ -478,7 +478,7 @@
     <h2>Desconto</h2>
     <div class="linha" style="margin-bottom:12px;"><span>Subtotal dos itens</span><b id="dSub">R$ 0,00</b></div>
     <div class="row">
-      <label>Desconto (R$)</label>
+      <label for="dVal">Desconto (R$)</label>
       <!-- `inputmode="decimal"` abre o teclado numérico do celular com vírgula;
            `type="number"` sozinho abre o teclado de telefone em parte dos
            aparelhos. A fonte de 16px é o que impede o iOS de dar zoom ao focar. -->
@@ -491,7 +491,7 @@
       <span class="muted">Limite disponível</span><b id="dLimite" class="muted">—</b>
     </div>
     <div class="row">
-      <label>Motivo <span class="muted" style="font-weight:400;">— obrigatório acima da sua alçada</span></label>
+      <label for="dMot">Motivo <span class="muted" style="font-weight:400;">— obrigatório acima da sua alçada</span></label>
       <input id="dMot" placeholder="ex.: cliente fecha volume, negociação de fechamento">
     </div>
     <div id="dAviso" style="display:none;margin-bottom:12px;"></div>
@@ -509,16 +509,16 @@
     <p class="muted" style="font-size:var(--text-xs);margin:0 0 12px;">
       Em branco, vale o endereço do cadastro do cliente.
     </p>
-    <div class="row"><label>Endereço</label><input id="eEnd" placeholder="Rua, avenida…"></div>
+    <div class="row"><label for="eEnd">Endereço</label><input id="eEnd" placeholder="Rua, avenida…"></div>
     <div class="row-2">
-      <div class="row"><label>Número</label><input id="eNum"></div>
-      <div class="row"><label>Bairro</label><input id="eBai"></div>
+      <div class="row"><label for="eNum">Número</label><input id="eNum"></div>
+      <div class="row"><label for="eBai">Bairro</label><input id="eBai"></div>
     </div>
     <div class="row-2">
-      <div class="row"><label>Cidade</label><input id="eCid"></div>
-      <div class="row"><label>UF</label><input id="eUf" maxlength="2" style="text-transform:uppercase;"></div>
+      <div class="row"><label for="eCid">Cidade</label><input id="eCid"></div>
+      <div class="row"><label for="eUf">UF</label><input id="eUf" maxlength="2" style="text-transform:uppercase;"></div>
     </div>
-    <div class="row"><label>Frete (R$)</label><input id="eFrete" type="number" min="0" step="0.01" placeholder="0,00"></div>
+    <div class="row"><label for="eFrete">Frete (R$)</label><input id="eFrete" type="number" min="0" step="0.01" placeholder="0,00"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="fechar('mEnt')">Cancelar</button>
       <button class="btn btn-primary" onclick="salvarEntrega()">Salvar</button>

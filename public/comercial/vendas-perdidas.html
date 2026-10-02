@@ -69,35 +69,35 @@
     </div>
     <div class="form-row" id="rowItemPedido" style="display:none;">
       <div class="form-group full-width">
-        <label>Item do pedido *</label>
+        <label for="nPedidoItem">Item do pedido *</label>
         <select id="nPedidoItem" onchange="selecionarItem()"><option value="">— selecione —</option></select>
         <small class="muted" id="hintItem"></small>
       </div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Produto (ou deixe vazio e descreva)</label><select id="nProduto"><option value="">— avulso —</option></select></div>
+      <div class="form-group full-width"><label for="nProduto">Produto (ou deixe vazio e descreva)</label><select id="nProduto"><option value="">— avulso —</option></select></div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Descrição livre (se avulso)</label><input type="text" id="nDescLivre"></div>
+      <div class="form-group full-width"><label for="nDescLivre">Descrição livre (se avulso)</label><input type="text" id="nDescLivre"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Cliente</label><select id="nCliente"><option value="">— não informado —</option></select></div>
-      <div class="form-group"><label>Vendedor</label><select id="nVendedor"><option value="">— não informado —</option></select>
+      <div class="form-group"><label for="nCliente">Cliente</label><select id="nCliente"><option value="">— não informado —</option></select></div>
+      <div class="form-group"><label for="nVendedor">Vendedor</label><select id="nVendedor"><option value="">— não informado —</option></select>
         <small class="muted">Sem vendedor, a perda fica fora da conversão nas metas</small></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Quantidade *</label><input type="number" id="nQtd" min="0.001" step="any"></div>
-      <div class="form-group"><label>Preço alvo (R$)</label><input type="text" id="nPreco" data-formato="dinheiro"></div>
-      <div class="form-group"><label>Motivo</label>
+      <div class="form-group"><label for="nQtd">Quantidade *</label><input type="number" id="nQtd" min="0.001" step="any"></div>
+      <div class="form-group"><label for="nPreco">Preço alvo (R$)</label><input type="text" id="nPreco" data-formato="dinheiro"></div>
+      <div class="form-group"><label for="nMotivo">Motivo</label>
         <select id="nMotivo" onchange="toggleConcorrente()"></select>
       </div>
-      <div class="form-group"><label>Data</label><input type="date" id="nData"></div>
+      <div class="form-group"><label for="nData">Data</label><input type="date" id="nData"></div>
     </div>
     <div class="form-row" id="rowConcorrente" style="display:none;">
-      <div class="form-group full-width"><label>Concorrente que levou</label><input type="text" id="nConcorrente" placeholder="Nome do concorrente"></div>
+      <div class="form-group full-width"><label for="nConcorrente">Concorrente que levou</label><input type="text" id="nConcorrente" placeholder="Nome do concorrente"></div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Observação</label><input type="text" id="nObs"></div>
+      <div class="form-group full-width"><label for="nObs">Observação</label><input type="text" id="nObs"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fechar()">Cancelar</button>
@@ -110,6 +110,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('comercial-vendas-perdidas');</script>

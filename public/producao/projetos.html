@@ -144,21 +144,21 @@ async function abrirNova() {
   document.getElementById('modalTitulo').textContent = 'Nova obra';
   document.getElementById('modalBody').innerHTML = `
     <div class="form-row">
-      <div class="form-group" style="flex:2;"><label>Cliente</label>
+      <div class="form-group" style="flex:2;"><label for="oCliente">Cliente</label>
         <select id="oCliente"><option value="">Selecione…</option>
           ${CLIENTES.map(c => `<option value="${c.id}">${esc(c.nomeFantasia || c.razaoSocial)}</option>`).join('')}
         </select></div>
-      <div class="form-group" style="flex:2;"><label>Nome da obra</label><input type="text" id="oNome"></div>
+      <div class="form-group" style="flex:2;"><label for="oNome">Nome da obra</label><input type="text" id="oNome"></div>
     </div>
     <div class="form-row">
-      <div class="form-group" style="flex:2;"><label>Endereço</label><input type="text" id="oEnd"></div>
-      <div class="form-group"><label>Cidade</label><input type="text" id="oCidade"></div>
-      <div class="form-group"><label>UF</label><input type="text" id="oUf" maxlength="2" style="width:60px;"></div>
+      <div class="form-group" style="flex:2;"><label for="oEnd">Endereço</label><input type="text" id="oEnd"></div>
+      <div class="form-group"><label for="oCidade">Cidade</label><input type="text" id="oCidade"></div>
+      <div class="form-group"><label for="oUf">UF</label><input type="text" id="oUf" maxlength="2" style="width:60px;"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Entrega prevista</label><input type="date" id="oPrev"></div>
-      <div class="form-group"><label>Responsável no cliente</label><input type="text" id="oResp"></div>
-      <div class="form-group"><label>Com montagem?</label>
+      <div class="form-group"><label for="oPrev">Entrega prevista</label><input type="date" id="oPrev"></div>
+      <div class="form-group"><label for="oResp">Responsável no cliente</label><input type="text" id="oResp"></div>
+      <div class="form-group"><label for="oMontagem">Com montagem?</label>
         <select id="oMontagem"><option value="0">Não — só fornecimento</option>
           <option value="1">Sim — fornecimento + montagem</option></select>
         <small class="muted">montagem gera NFS-e (LC 116, 7.02)</small></div>
@@ -233,13 +233,13 @@ async function abrir(id) {
     </table></div>
 
     <div class="form-row" style="align-items:flex-end;margin-top:10px;">
-      <div class="form-group" style="flex:2;"><label>Peça</label>
+      <div class="form-group" style="flex:2;"><label for="iProduto">Peça</label>
         <select id="iProduto"><option value="">Selecione…</option>
           ${PECAS.map(p => `<option value="${p.produtoId}">${esc(p.descricao)}</option>`).join('')}
         </select></div>
-      <div class="form-group"><label>Quantidade</label><input type="number" id="iQtd" min="1" step="1"></div>
-      <div class="form-group"><label>Unitário</label><input type="number" id="iVal" min="0" step="0.01"></div>
-      <div class="form-group"><label>Montagem/un</label>
+      <div class="form-group"><label for="iQtd">Quantidade</label><input type="number" id="iQtd" min="1" step="1"></div>
+      <div class="form-group"><label for="iVal">Unitário</label><input type="number" id="iVal" min="0" step="0.01"></div>
+      <div class="form-group"><label for="iMont">Montagem/un</label>
         <input type="number" id="iMont" min="0" step="0.01" value="0" ${o.comMontagem ? '' : 'disabled title="obra sem montagem"'}></div>
       <div class="form-group"><button class="btn btn-primary" onclick="adicionarItem(${id})">Adicionar</button></div>
     </div>
@@ -257,7 +257,7 @@ async function abrir(id) {
             <td style="text-align:right;"><strong>${moeda(pv.valorTotal)}</strong></td></tr></tbody>
       </table></div>
       <div class="form-row" style="align-items:flex-end;">
-        <div class="form-group"><label>Competência (YYYY-MM)</label><input type="text" id="mComp" placeholder="2026-09"></div>
+        <div class="form-group"><label for="mComp">Competência (YYYY-MM)</label><input type="text" id="mComp" placeholder="2026-09"></div>
         <div class="form-group"><button class="btn btn-primary" onclick="medir(${id})">Gerar medição</button></div>
       </div>`
       : '<p class="muted">Nada a medir: não há romaneio entregue e ainda não medido nesta obra.</p>'}

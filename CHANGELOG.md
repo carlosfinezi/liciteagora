@@ -4,6 +4,144 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-02, a peça onde ela é usada, o modal que se anuncia e o rótulo ligado ao campo
+
+Rodada de lógica e acessibilidade, saída da revisão de telas fechada no
+aabcc73. Quatro frentes, todas com suíte nova e todas provadas também pelo
+avesso — a sabotagem que faz a suíte reprovar.
+
+**A peça de campo voltou às telas que a declaram, e isso era regressão em
+produção.** O 72d4fa1 desfez a frente da peça em 234 arquivos de propósito e
+deixou escrito: "fica de fora, SEM DECISÃO, 61 telas com `data-formato` inerte".
+Medido agora, e é o que decide a dúvida: dos 118 campos inertes, **70 são de
+dinheiro e eram `type="number" step="0.01"` antes do 9afb2bb**. Desde 01/10 às
+21:01 eles eram `type="text"` sem máscara, sem `inputmode` e sem limite — o
+valor de conta a pagar, de pedido, de contrato e das três apurações aceitava
+qualquer texto, e o JavaScript lia `Number(el.value)`. **62 telas** ganharam o
+`<script src="/js/campo-formato.js">`.
+
+**Quatro telas chamavam `toast()` e `Aviso.*` sem o arquivo, e isso era
+`ReferenceError` em produção.** O 9afb2bb tirou o `toast()` local do
+`classificacao-fiscal/fiscal-common.js` contando com o `window.toast` da peça, e
+o 72d4fa1 tirou o `<script>` das três telas que carregam esse arquivo. No mesmo
+revert, `operacional/lances.html` perdeu o `<script>` com **15 dos 17 `Aviso.*`
+ainda vivos** — o botão de enviar lance quebrava. O commit do revert já nomeava
+o risco e deixou `pcp-salas.html` e `conciliacao-bancaria.html` com o
+`<script>` "de propósito"; estas quatro escaparam da conferência de olho. A
+suíte 173 é a rede: mede no navegador e lê também os `.js` que a tela carrega,
+porque o uso pode não estar no HTML dela — o `fiscal-common.js` é justamente
+esse caso.
+
+**Todo modal do sistema se anuncia como diálogo, e nenhuma tela foi editada
+para isso.** Eram **100 telas com `.modal-header` e UMA com `role="dialog"`**:
+para quem usa leitor de tela o resto era uma `div`, que não avisa que abriu,
+não diz o próprio nome, não prende o foco, e o Tab seguia navegando pelo
+formulário de trás — que está debaixo de um véu e não se vê. As telas abrem o
+modal de cinco jeitos diferentes, medidos (`classList.add('open')` 199 vezes,
+`style.display='block'` 130, `'flex'` 31, `add('active')` 19, `toggle` 12), e
+não existe função única para interceptar. O que existe em comum é o resultado,
+e é o que a peça `public/js/dialogo.js` observa: uma caixa que estava invisível
+passou a estar visível. Ela entra pelo `sidebar.js`, que 99 das 100 telas
+carregam; a centésima é `auth/admin/index.html`, com a tag direto.
+
+Onde ela é **prudente**, e cada uma dessas linhas é uma decisão: não rouba o
+foco de quem já escolheu (só move quando ele está fora da caixa); não prende o
+foco em caixa sem controle focável, porque sem saída pelo teclado isso seria a
+armadilha do WCAG 2.1.2; não fecha o modal por conta própria — o Escape aciona
+o botão de fechar DA TELA, e sem botão reconhecível não faz nada, porque
+adivinhar qual função chamar em 100 telas poria em risco formulário meio
+preenchido; e **não disputa com o `Aviso.confirmar`**, que monta a caixa dele
+com `aria-modal` no véu e tem armadilha própria. Sem essa última guarda eram
+dois diálogos aninhados anunciados e duas armadilhas de Tab na mesma tecla.
+
+Custo medido, porque um observador em toda a árvore pede conta: 300 linhas de
+tabela inseridas, cinco rodadas, mediana de **76,3ms com a peça contra 89,4ms
+sem** — dentro do ruído. O `requestAnimationFrame` como debounce é quem paga.
+
+**Os dois gráficos de `estoque/analises.html` passaram a desenhar em pixel
+real.** Eles tinham `viewBox="0 0 800 240"` com `preserveAspectRatio="none"`: a
+altura não escalava e a largura sim, então o GLIFO era esticado num eixo só —
+**1,36 de largura no computador e 0,37 a 360px**. O rótulo "jan/26" media 50px
+no computador e **14px no celular, com 14,6px de altura**: letras de ~2,3px,
+ilegíveis e achatadas. Nenhuma medição de `font-size` acusa isso, e é por isso
+que a suíte do piso tipográfico exclui SVG de propósito — a distorção é
+geometria. Em troca do pixel real, três coisas que o viewBox resolvia por
+acidente passaram a ser contas: a largura é medida e muda (daí o
+`ResizeObserver`, porque a aba fechada tem largura ZERO e é nela que o segundo
+gráfico nasce), o recuo da esquerda sai da largura MEDIDA do maior rótulo do
+eixo, e o rótulo de mês só aparece onde cabe.
+
+**1.649 rótulos foram ligados ao campo deles, par por par.** Eram **1.982
+`<label>` sem `for=`** em 206 telas: clicar no rótulo não focava o campo e, o
+que pesa mais, o leitor de tela anunciava "edição, em branco" e a pessoa
+adivinhava. Cada par foi conferido, e os 333 que ficaram de fora ficaram **de
+propósito**, com o motivo em `docs/rotulos-sem-for-2026-10-02.md`: 229 em que o
+rótulo ENVOLVE o campo (a ligação já existe), 46 de LEITURA sobre um valor que
+ninguém edita, 29 que nomeiam um GRUPO de controles (um `for` escolheria um e
+mentiria sobre os outros), 14 `&nbsp;` que são espaçador de layout, 8 que cobrem
+DOIS campos (mínimo e máximo) e 6 em template de JavaScript onde um id fixo
+colidiria na segunda linha. Catorze campos ganharam `id` porque só tinham
+`name`, com prefixo: um `id="name"` num `<input>` convive mal com o
+`window.name` nativo.
+
+Auditoria do diff, byte a byte nos 162 arquivos: `<label for=>` de 29 para
+1.676, e **zero outras mudanças**. A suíte 175 não confia no `for` escrito —
+ele pode apontar id inexistente ou o campo errado —, e mede no DOM:
+`label.control` e `campo.labels` nos dois sentidos, mais nenhum id de alvo
+repetido entre os visíveis ao mesmo tempo (três `#mtValor` em modais
+mutuamente exclusivos, como em `restaurante/caixa.html`, são legítimos).
+
+**Três falhas do verify caíram, e duas eram da MEDIÇÃO, não do código.** A 164
+(`test-campos-todas-telas`) foi de 303/369 para **1464/1508**, e as quatro
+falhas que sobraram na primeira rodada eram do harness: o regex `contas` pegava
+`/api/contas-a-(pagar|receber)`, que respondem ENVELOPE na rota real, e as duas
+telas caíam no `alert('Erro: ')` — que é o comportamento CERTO delas. Provado
+medindo a mesma tela com e sem a peça: alerta idêntico nas duas. A 30
+(`test-ssl-cancelar-ui`) ficou para trás do revert: fazia
+`window.Aviso.confirmar = …` numa tela que voltou ao `confirm()` nativo, e
+morria com TypeError antes de medir; agora arma as duas formas, que é medir a
+garantia em vez de qual delas está no arquivo hoje. E o `beforeunload` saiu da
+conta de "caixa de alerta na ABERTURA" nas duas suítes de campo: quem o dispara
+é a própria prova da máscara, ao emitir `input` numa tela que marca sujo.
+
+**Duas corridas minhas, que a carga da máquina revelou.** Com load 19 a suíte
+174 reprovou duas telas que, isoladas, passavam: a medição esperava 120ms pelo
+`requestAnimationFrame` da peça e o `setTimeout` chegava primeiro. Agora espera
+a CONDIÇÃO, e não um tempo.
+
+Suítes novas: **173** (`test-pecas-carregadas`), **174** (`test-modal-dialogo`),
+**175** (`test-rotulos-campos`) e **176** (`test-grafico-estoque`).
+
+**Três peças ficaram FORA do commit ou entraram pela metade**, porque a árvore
+é compartilhada. `scripts/verify.js` entra parcial, só com as etapas 173 a 176
+(as 171, 172 e duas outras são de frentes que ainda não commitaram, e levá-las
+deixaria o HEAD com etapas apontando suítes inexistentes). `ssl/certificados.html`
+e `auth/admin/index.html` entram pelo `git merge-file` sobre o HEAD, com os 37
+toques meus em cada um. E `comunicacao/conversas.html` **fica na árvore**: a
+frente das Conversas mudou 846 linhas dela e o merge deu cinco conflitos, todos
+em CSS e marcação que não são meus. O que ela tem de meu são três rótulos
+ligados (`#cErrada`, `#cCerta`, `#cTitulo`), já em produção, e vão junto
+daquela frente.
+
+**A peça de diálogo precisou da liberação pré-auth, e isso foi medido, não
+suposto.** `auth/admin/index.html` é a única tela com modal fora do ERP e
+carrega a peça por uma tag própria; contra a produção, sem sessão,
+`GET /js/dialogo.js` responde **302 para /login.html**, e um `<script src>` que
+recebe redirecionamento não avisa nada. Ela entrou na lista de
+`pre-auth-routes.js`, ao lado de `campo-formato.js`, `aviso-sistema.js` e
+`os-rotulos.js` — quatro peças que são comportamento de interface e não contam
+nada sobre o sistema, ao contrário do `menu-config.js` e do `sidebar.js`, que
+ficam atrás do login de propósito. **É só por isso que este fechamento reinicia
+o servidor web**: todo o resto é estático e já estava no ar ao salvar.
+
+De passagem, no mesmo arquivo de prova: a suíte 161 (`test-pecas-pre-auth`) só
+conhecia DUAS das peças liberadas — `os-rotulos.js` entrou em 01/10 pela frente
+de OS e ninguém a atualizou, então aquela liberação não era provada por
+ninguém. Com as quatro na lista, a checagem "traz a peça inteira" reprovou o
+`os-rotulos.js`: o critério era `> 3000 bytes` e ele tem 2.001, completo. Agora
+o critério é ser IGUAL ao arquivo do disco, que vale para peça de qualquer
+tamanho.
+
 ## 2026-10-02, a tela de Conversas: o composer que flutua e a data que gruda
 
 Seis pedidos sobre a mesma tela, e dois deles eram defeito de corte, não de

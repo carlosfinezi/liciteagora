@@ -29,23 +29,23 @@
     <h3>Dados da conta</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Username</label>
+        <label for="fUsername">Username</label>
         <input type="text" id="fUsername" disabled>
         <small class="muted" style="font-size:var(--text-xs);">Definido na criação e não pode ser alterado.</small>
       </div>
       <div class="form-group">
-        <label>Perfil de acesso</label>
+        <label for="fRole">Perfil de acesso</label>
         <input type="text" id="fRole" disabled>
         <small class="muted" style="font-size:var(--text-xs);">Só um administrador altera em Usuários.</small>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Nome de exibição</label>
+        <label for="fNome">Nome de exibição</label>
         <input type="text" id="fNome" placeholder="Como seu nome aparece no sistema">
       </div>
       <div class="form-group">
-        <label>E-mail</label>
+        <label for="fEmail">E-mail</label>
         <input type="email" id="fEmail" placeholder="voce@empresa.com.br">
       </div>
     </div>
@@ -58,7 +58,7 @@
     <h3>Menu lateral</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Como desenhar o menu</label>
+        <label for="fMenuModo">Como desenhar o menu</label>
         <select id="fMenuModo" onchange="salvarMenuModo()">
           <option value="herdar">Usar o padrão da empresa</option>
           <option value="unico">Único — todas as seções numa lista</option>
@@ -73,11 +73,11 @@
     <h3>Alterar senha</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Senha atual</label>
+        <label for="fSenhaAtual">Senha atual</label>
         <input type="password" id="fSenhaAtual" autocomplete="current-password">
       </div>
       <div class="form-group">
-        <label>Nova senha</label>
+        <label for="fSenhaNova">Nova senha</label>
         <input type="password" id="fSenhaNova" autocomplete="new-password" oninput="avaliarSenha()">
         <small class="muted" id="forcaSenha" style="font-size:var(--text-xs);">Mínimo 6 caracteres.</small>
       </div>

@@ -52,11 +52,11 @@
             <div class="panel">
               <div class="form-row" style="align-items:end;">
                 <div class="form-group">
-                  <label>Buscar</label>
+                  <label for="fBusca">Buscar</label>
                   <input type="text" id="fBusca" placeholder="descrição, NCM ou CFOP" oninput="carregarDebounce()">
                 </div>
                 <div class="form-group">
-                  <label>Regime</label>
+                  <label for="fRegime">Regime</label>
                   <select id="fRegime" onchange="carregar()">
                     <option value="">Todos</option>
                     <option value="1">1 — Simples Nacional</option>
@@ -66,7 +66,7 @@
                   </select>
                 </div>
                 <div class="form-group">
-                  <label>Situação</label>
+                  <label for="fAtivo">Situação</label>
                   <select id="fAtivo" onchange="carregar()">
                     <option value="">Todas</option>
                     <option value="1" selected>Ativas</option>
@@ -116,33 +116,33 @@
         <div class="modal-body">
           <div class="form-row">
             <div class="form-group" style="flex:3;">
-              <label>Descrição *</label>
+              <label for="rDescricao">Descrição *</label>
               <input type="text" id="rDescricao" placeholder="Ex.: Fertilizante NCM 3105 — ICMS c/ redução de base">
             </div>
             <div class="form-group" style="flex:1;">
-              <label>Prioridade</label>
+              <label for="rPrioridade">Prioridade</label>
               <input type="number" id="rPrioridade" value="10">
               <small class="hint">Desempata regras de mesma especificidade.</small>
             </div>
             <div class="form-group" style="flex:1;">
-              <label>Ativa</label>
+              <label for="rAtivo">Ativa</label>
               <select id="rAtivo"><option value="1">Sim</option><option value="0">Não</option></select>
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Vigência — início</label>
+              <label for="rVigenciaInicio">Vigência — início</label>
               <input type="date" id="rVigenciaInicio">
               <small class="hint">Vazio = vale desde sempre.</small>
             </div>
             <div class="form-group">
-              <label>Vigência — fim</label>
+              <label for="rVigenciaFim">Vigência — fim</label>
               <input type="date" id="rVigenciaFim">
               <small class="hint">Vazio = sem prazo. Serve para agendar a virada de alíquota
                 e aposentar a regra. A emissão é sempre na data de hoje.</small>
             </div>
             <div class="form-group">
-              <label>Código de benefício fiscal</label>
+              <label for="rCodBenef">Código de benefício fiscal</label>
               <input type="text" id="rCodBenef" maxlength="10" placeholder="TO800001">
               <small class="hint">Obrigatório em várias UFs quando há redução ou isenção.</small>
             </div>
@@ -152,7 +152,7 @@
             <h4>Quando se aplica <span class="hint">— deixe vazio o que não importar</span></h4>
             <div class="form-row">
               <div class="form-group">
-                <label>Regime do emitente</label>
+                <label for="rRegimeEmitente">Regime do emitente</label>
                 <select id="rRegimeEmitente">
                   <option value="">Qualquer</option>
                   <option value="1">1 — Simples Nacional</option>
@@ -162,22 +162,22 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>Operação</label>
+                <label for="rTipoOperacaoId">Operação</label>
                 <select id="rTipoOperacaoId"><option value="">Qualquer</option></select>
               </div>
               <div class="form-group">
-                <label>CFOP</label>
+                <label for="rCfop">CFOP</label>
                 <input type="text" id="rCfop" maxlength="4" placeholder="5102">
               </div>
               <div class="form-group">
-                <label>Prefixo de NCM</label>
+                <label for="rNcmPrefixo">Prefixo de NCM</label>
                 <input type="text" id="rNcmPrefixo" maxlength="8" placeholder="3105">
                 <small class="hint">“3105” pega 31051000.</small>
               </div>
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label>Âmbito</label>
+                <label for="rAmbito">Âmbito</label>
                 <select id="rAmbito">
                   <option value="">Qualquer</option>
                   <option value="interna">Interna (mesma UF)</option>
@@ -185,10 +185,10 @@
                   <option value="exterior">Exterior</option>
                 </select>
               </div>
-              <div class="form-group"><label>UF origem</label><input type="text" id="rUfOrigem" maxlength="2" placeholder="TO"></div>
-              <div class="form-group"><label>UF destino</label><input type="text" id="rUfDestino" maxlength="2" placeholder="GO"></div>
+              <div class="form-group"><label for="rUfOrigem">UF origem</label><input type="text" id="rUfOrigem" maxlength="2" placeholder="TO"></div>
+              <div class="form-group"><label for="rUfDestino">UF destino</label><input type="text" id="rUfDestino" maxlength="2" placeholder="GO"></div>
               <div class="form-group">
-                <label>Destinatário</label>
+                <label for="rTipoContribuinte">Destinatário</label>
                 <select id="rTipoContribuinte">
                   <option value="">Qualquer</option>
                   <option value="contribuinte">Contribuinte de ICMS</option>
@@ -197,14 +197,14 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>Consumidor final</label>
+                <label for="rConsumidorFinal">Consumidor final</label>
                 <select id="rConsumidorFinal">
                   <option value="">Qualquer</option><option value="1">Sim</option><option value="0">Não</option>
                 </select>
               </div>
             </div>
             <div class="form-group">
-              <label>Produto específico (id)</label>
+              <label for="rProdutoId">Produto específico (id)</label>
               <input type="number" id="rProdutoId" placeholder="deixe vazio para valer para todos">
             </div>
           </div>
@@ -213,15 +213,15 @@
             <h4>ICMS</h4>
             <div class="form-row">
               <div class="form-group">
-                <label>CST <span class="hint">(regime normal)</span></label>
+                <label for="rCstIcms">CST <span class="hint">(regime normal)</span></label>
                 <select id="rCstIcms"><option value="">—</option></select>
               </div>
               <div class="form-group">
-                <label>CSOSN <span class="hint">(Simples)</span></label>
+                <label for="rCsosnIcms">CSOSN <span class="hint">(Simples)</span></label>
                 <select id="rCsosnIcms"><option value="">—</option></select>
               </div>
               <div class="form-group">
-                <label>Modalidade da base</label>
+                <label for="rModBC">Modalidade da base</label>
                 <select id="rModBC">
                   <option value="">—</option>
                   <option value="0">0 — Margem valor agregado</option>
@@ -230,14 +230,14 @@
                   <option value="3">3 — Valor da operação</option>
                 </select>
               </div>
-              <div class="form-group"><label>Alíquota %</label><input type="number" id="rPIcms" step="0.01" min="0" max="100"></div>
-              <div class="form-group"><label>Redução de base %</label><input type="number" id="rPRedBC" step="0.0001" min="0" max="100"></div>
+              <div class="form-group"><label for="rPIcms">Alíquota %</label><input type="number" id="rPIcms" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label for="rPRedBC">Redução de base %</label><input type="number" id="rPRedBC" step="0.0001" min="0" max="100"></div>
             </div>
             <div class="form-row">
-              <div class="form-group"><label>FCP %</label><input type="number" id="rPFCP" step="0.01" min="0" max="100"></div>
-              <div class="form-group"><label>Diferimento %</label><input type="number" id="rPDif" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label for="rPFCP">FCP %</label><input type="number" id="rPFCP" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label for="rPDif">Diferimento %</label><input type="number" id="rPDif" step="0.01" min="0" max="100"></div>
               <div class="form-group">
-                <label>Motivo da desoneração</label>
+                <label for="rMotDesIcms">Motivo da desoneração</label>
                 <input type="number" id="rMotDesIcms" placeholder="CST 40/41/50">
               </div>
             </div>
@@ -247,7 +247,7 @@
             <h4>ICMS ST <span class="hint">— só para CST 10, 30, 70 ou 90</span></h4>
             <div class="form-row">
               <div class="form-group">
-                <label>Modalidade base ST</label>
+                <label for="rModBCST">Modalidade base ST</label>
                 <select id="rModBCST">
                   <option value="">—</option>
                   <option value="0">0 — Preço tabelado</option>
@@ -258,10 +258,10 @@
                   <option value="5">5 — Pauta</option>
                 </select>
               </div>
-              <div class="form-group"><label>MVA %</label><input type="number" id="rPMVAST" step="0.01" min="0" max="100"></div>
-              <div class="form-group"><label>Redução base ST %</label><input type="number" id="rPRedBCST" step="0.01" min="0" max="100"></div>
-              <div class="form-group"><label>Alíquota ST %</label><input type="number" id="rPIcmsST" step="0.01" min="0" max="100"></div>
-              <div class="form-group"><label>FCP ST %</label><input type="number" id="rPFCPST" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label for="rPMVAST">MVA %</label><input type="number" id="rPMVAST" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label for="rPRedBCST">Redução base ST %</label><input type="number" id="rPRedBCST" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label for="rPIcmsST">Alíquota ST %</label><input type="number" id="rPIcmsST" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label for="rPFCPST">FCP ST %</label><input type="number" id="rPFCPST" step="0.01" min="0" max="100"></div>
             </div>
           </div>
 
@@ -269,7 +269,7 @@
             <h4>DIFAL <span class="hint">— venda interestadual a não contribuinte (EC 87/2015)</span></h4>
             <div class="form-row">
               <div class="form-group">
-                <label>FCP da UF de destino %</label>
+                <label for="rPFcpUFDest">FCP da UF de destino %</label>
                 <input type="number" id="rPFcpUFDest" step="0.01" min="0" max="100">
                 <small class="hint">Vazio usa o FCP cadastrado em Alíquotas por UF.</small>
               </div>
@@ -282,18 +282,18 @@
           <div class="modal-secao">
             <h4>IPI · PIS · COFINS</h4>
             <div class="form-row">
-              <div class="form-group"><label>CST IPI</label><select id="rCstIpi"><option value="">—</option></select></div>
-              <div class="form-group"><label>IPI %</label><input type="number" id="rPIpi" step="0.01" min="0" max="100"></div>
-              <div class="form-group"><label>CST PIS</label><input type="text" id="rCstPis" maxlength="2" placeholder="01"></div>
-              <div class="form-group"><label>PIS %</label><input type="number" id="rPPis" step="0.01" min="0" max="100"></div>
-              <div class="form-group"><label>CST COFINS</label><input type="text" id="rCstCofins" maxlength="2" placeholder="01"></div>
-              <div class="form-group"><label>COFINS %</label><input type="number" id="rPCofins" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label for="rCstIpi">CST IPI</label><select id="rCstIpi"><option value="">—</option></select></div>
+              <div class="form-group"><label for="rPIpi">IPI %</label><input type="number" id="rPIpi" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label for="rCstPis">CST PIS</label><input type="text" id="rCstPis" maxlength="2" placeholder="01"></div>
+              <div class="form-group"><label for="rPPis">PIS %</label><input type="number" id="rPPis" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label for="rCstCofins">CST COFINS</label><input type="text" id="rCstCofins" maxlength="2" placeholder="01"></div>
+              <div class="form-group"><label for="rPCofins">COFINS %</label><input type="number" id="rPCofins" step="0.01" min="0" max="100"></div>
             </div>
           </div>
 
           <div class="modal-secao">
             <div class="form-group">
-              <label>Observação fiscal <span class="hint">— vai para os dados adicionais do item (ex.: base legal)</span></label>
+              <label for="rObservacaoFiscal">Observação fiscal <span class="hint">— vai para os dados adicionais do item (ex.: base legal)</span></label>
               <textarea id="rObservacaoFiscal" rows="2" placeholder="ICMS com redução de base — Conv. ICMS 100/97"></textarea>
             </div>
           </div>
@@ -319,22 +319,22 @@
           </p>
           <div class="form-row">
             <div class="form-group">
-              <label>Regime do emitente</label>
+              <label for="sCrt">Regime do emitente</label>
               <select id="sCrt">
                 <option value="">Do cadastro</option>
                 <option value="1">1 — Simples Nacional</option>
                 <option value="3">3 — Regime Normal</option>
               </select>
             </div>
-            <div class="form-group"><label>Operação</label><select id="sTipoOperacaoId"><option value="">—</option></select></div>
-            <div class="form-group"><label>CFOP</label><input type="text" id="sCfop" maxlength="4" placeholder="5102"></div>
-            <div class="form-group"><label>NCM</label><input type="text" id="sNcm" maxlength="8" placeholder="31051000"></div>
+            <div class="form-group"><label for="sTipoOperacaoId">Operação</label><select id="sTipoOperacaoId"><option value="">—</option></select></div>
+            <div class="form-group"><label for="sCfop">CFOP</label><input type="text" id="sCfop" maxlength="4" placeholder="5102"></div>
+            <div class="form-group"><label for="sNcm">NCM</label><input type="text" id="sNcm" maxlength="8" placeholder="31051000"></div>
           </div>
           <div class="form-row">
-            <div class="form-group"><label>UF origem</label><input type="text" id="sUfOrigem" maxlength="2" placeholder="do cadastro"></div>
-            <div class="form-group"><label>UF destino</label><input type="text" id="sUfDestino" maxlength="2" placeholder="TO"></div>
+            <div class="form-group"><label for="sUfOrigem">UF origem</label><input type="text" id="sUfOrigem" maxlength="2" placeholder="do cadastro"></div>
+            <div class="form-group"><label for="sUfDestino">UF destino</label><input type="text" id="sUfDestino" maxlength="2" placeholder="TO"></div>
             <div class="form-group">
-              <label>Destinatário</label>
+              <label for="sTipoContribuinte">Destinatário</label>
               <select id="sTipoContribuinte">
                 <option value="">Qualquer</option>
                 <option value="contribuinte">Contribuinte</option>
@@ -342,9 +342,9 @@
                 <option value="nao_contribuinte">Não contribuinte</option>
               </select>
             </div>
-            <div class="form-group"><label>Data do documento</label><input type="date" id="sData"></div>
-            <div class="form-group"><label>Valor do produto</label><input type="number" id="sVProd" step="0.01" value="100"></div>
-            <div class="form-group"><label>Frete</label><input type="number" id="sVFrete" step="0.01" value="0"></div>
+            <div class="form-group"><label for="sData">Data do documento</label><input type="date" id="sData"></div>
+            <div class="form-group"><label for="sVProd">Valor do produto</label><input type="number" id="sVProd" step="0.01" value="100"></div>
+            <div class="form-group"><label for="sVFrete">Frete</label><input type="number" id="sVFrete" step="0.01" value="0"></div>
           </div>
           <div style="display:flex;justify-content:flex-end;">
             <button class="btn btn-primary" onclick="simular()">Simular</button>

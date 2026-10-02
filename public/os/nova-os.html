@@ -52,15 +52,15 @@
           <a href="/os/cadastro-os-tipos.html" target="_blank" style="font-size:var(--text-xs);font-weight:normal;">⚙ gerenciar</a></h3>
         <div class="form-row">
           <div class="form-group" style="flex:2;">
-            <label>Tipo *</label>
+            <label for="fTipo">Tipo *</label>
             <select id="fTipo" onchange="aoTrocarTipo()"><option value="">— carregando —</option></select>
           </div>
           <div class="form-group">
-            <label>Prazo SLA (dias)</label>
+            <label for="fSLA">Prazo SLA (dias)</label>
             <input type="number" id="fSLA" min="0" placeholder="padrão do tipo" oninput="calcPromessa()">
           </div>
           <div class="form-group">
-            <label>Entrega prevista</label>
+            <label for="fPromessa">Entrega prevista</label>
             <input type="text" id="fPromessa" readonly style="background:var(--bg-1);color:var(--text-2);">
           </div>
         </div>
@@ -71,13 +71,13 @@
         <h3><span class="etapa-num">2</span> Cliente</h3>
         <div class="form-row">
           <div class="form-group" style="flex:2;position:relative;">
-            <label>Cliente *</label>
+            <label for="fCliBusca">Cliente *</label>
             <input type="text" id="fCliBusca" placeholder="Razão social, CPF/CNPJ…" oninput="acCli()" autocomplete="off">
             <input type="hidden" id="fClienteId">
             <div id="acCliList" class="ac-list"></div>
           </div>
           <div class="form-group">
-            <label>Técnico responsável</label>
+            <label for="fTecnico">Técnico responsável</label>
             <select id="fTecnico"><option value="">— atribuir depois —</option></select>
           </div>
         </div>
@@ -90,7 +90,7 @@
           <a id="linkFichaEquip" href="#" target="_blank" style="font-size:var(--text-xs);font-weight:normal;display:none;">🔎 abrir ficha</a></h3>
         <div class="form-row">
           <div class="form-group full-width">
-            <label>Base instalada do cliente <small class="muted">+ máquinas da empresa</small></label>
+            <label for="fEquipId">Base instalada do cliente <small class="muted">+ máquinas da empresa</small></label>
             <select id="fEquipId" onchange="aplicarEquipamento()">
               <option value="">— novo equipamento / preencher abaixo —</option>
             </select>
@@ -98,14 +98,14 @@
           </div>
         </div>
         <div class="form-row">
-          <div class="form-group" style="flex:2;"><label>Descrição</label><input type="text" id="fEq" placeholder="Ex.: Notebook"></div>
-          <div class="form-group"><label>Marca</label><input type="text" id="fMarca" onblur="verificarGarantia()"></div>
-          <div class="form-group"><label>Modelo</label><input type="text" id="fModelo" onblur="verificarGarantia()"></div>
+          <div class="form-group" style="flex:2;"><label for="fEq">Descrição</label><input type="text" id="fEq" placeholder="Ex.: Notebook"></div>
+          <div class="form-group"><label for="fMarca">Marca</label><input type="text" id="fMarca" onblur="verificarGarantia()"></div>
+          <div class="form-group"><label for="fModelo">Modelo</label><input type="text" id="fModelo" onblur="verificarGarantia()"></div>
         </div>
         <div class="form-row">
-          <div class="form-group" style="flex:2;"><label>Nº de série</label><input type="text" id="fSerieEq" oninput="verificarGarantia()"></div>
-          <div class="form-group"><label>Depósito</label><select id="fDeposito"></select></div>
-          <div class="form-group"><label>Garantia (dias)</label><input type="number" id="fGarantia" min="0" value="0"></div>
+          <div class="form-group" style="flex:2;"><label for="fSerieEq">Nº de série</label><input type="text" id="fSerieEq" oninput="verificarGarantia()"></div>
+          <div class="form-group"><label for="fDeposito">Depósito</label><select id="fDeposito"></select></div>
+          <div class="form-group"><label for="fGarantia">Garantia (dias)</label><input type="number" id="fGarantia" min="0" value="0"></div>
         </div>
         <input type="hidden" id="fOsPaiId">
         <input type="hidden" id="fEmGarantia">
@@ -116,19 +116,19 @@
         <h3><span class="etapa-num">4</span> Serviço</h3>
         <div class="form-row">
           <div class="form-group full-width">
-            <label>Título *</label>
+            <label for="fTit">Título *</label>
             <input type="text" id="fTit" placeholder="Ex.: Troca de fonte do notebook" oninput="marcarEtapas()">
           </div>
         </div>
         <div class="form-row">
           <div class="form-group full-width">
-            <label>Defeito relatado <small class="muted">(pelo cliente)</small></label>
+            <label for="fDefeito">Defeito relatado <small class="muted">(pelo cliente)</small></label>
             <textarea id="fDefeito" rows="2"></textarea>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group full-width">
-            <label>Observações internas</label>
+            <label for="fObs">Observações internas</label>
             <textarea id="fObs" rows="2"></textarea>
           </div>
         </div>
@@ -140,29 +140,29 @@
         <div id="enderecoExecRow" style="display:none;">
           <div class="form-row">
             <div class="form-group full-width">
-              <label>Onde será executado</label>
+              <label for="fLocalEnd">Onde será executado</label>
               <select id="fLocalEnd" onchange="trocarLocalEnd()"><option value="outro">Outro endereço (digitar)</option></select>
               <small class="muted" id="fLocalEndHint">Escolha o cliente para herdar o endereço do cadastro.</small>
             </div>
           </div>
           <div class="form-row">
             <div class="form-group" style="flex:3;">
-              <label>Logradouro *</label>
+              <label for="fEndExec">Logradouro *</label>
               <input type="text" id="fEndExec" placeholder="Rua, avenida…" oninput="aoEditarEndereco()">
             </div>
-            <div class="form-group"><label>Número</label><input type="text" id="fNumExec" oninput="aoEditarEndereco()"></div>
-            <div class="form-group"><label>Complemento</label><input type="text" id="fCompExec" oninput="aoEditarEndereco()"></div>
+            <div class="form-group"><label for="fNumExec">Número</label><input type="text" id="fNumExec" oninput="aoEditarEndereco()"></div>
+            <div class="form-group"><label for="fCompExec">Complemento</label><input type="text" id="fCompExec" oninput="aoEditarEndereco()"></div>
           </div>
           <div class="form-row">
-            <div class="form-group" style="flex:2;"><label>Bairro</label><input type="text" id="fBairroExec" oninput="aoEditarEndereco()"></div>
-            <div class="form-group" style="flex:2;"><label>Cidade</label><input type="text" id="fMunExec" oninput="aoEditarEndereco()"></div>
-            <div class="form-group"><label>UF</label><input type="text" id="fUfExec" maxlength="2" oninput="aoEditarEndereco()"></div>
-            <div class="form-group"><label>CEP</label><input type="text" id="fCepExec" oninput="aoEditarEndereco()"></div>
+            <div class="form-group" style="flex:2;"><label for="fBairroExec">Bairro</label><input type="text" id="fBairroExec" oninput="aoEditarEndereco()"></div>
+            <div class="form-group" style="flex:2;"><label for="fMunExec">Cidade</label><input type="text" id="fMunExec" oninput="aoEditarEndereco()"></div>
+            <div class="form-group"><label for="fUfExec">UF</label><input type="text" id="fUfExec" maxlength="2" oninput="aoEditarEndereco()"></div>
+            <div class="form-group"><label for="fCepExec">CEP</label><input type="text" id="fCepExec" oninput="aoEditarEndereco()"></div>
           </div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Km percorrido</label><input type="number" id="fKm" step="0.1" min="0" placeholder="0"></div>
-          <div class="form-group"><label>Valor do deslocamento (R$)</label><input type="text" id="fVlrDesloc" placeholder="0,00" data-formato="dinheiro"></div>
+          <div class="form-group"><label for="fKm">Km percorrido</label><input type="number" id="fKm" step="0.1" min="0" placeholder="0"></div>
+          <div class="form-group"><label for="fVlrDesloc">Valor do deslocamento (R$)</label><input type="text" id="fVlrDesloc" placeholder="0,00" data-formato="dinheiro"></div>
         </div>
         <small class="muted">Registro do trajeto — não entra no total. Para cobrar, lance o deslocamento como serviço na OS.</small>
       </div>
@@ -201,6 +201,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('ordens-servico');</script>
 <script>

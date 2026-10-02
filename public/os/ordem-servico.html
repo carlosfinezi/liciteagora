@@ -74,17 +74,17 @@
           <div class="bloco-titulo">Local de execução</div>
           <div class="form-row">
             <div class="form-group" style="flex:3;">
-              <label>Logradouro <span id="lblEndObrig" style="display:none;">*</span></label>
+              <label for="fEndExec">Logradouro <span id="lblEndObrig" style="display:none;">*</span></label>
               <input type="text" id="fEndExec" placeholder="Rua, avenida…">
             </div>
-            <div class="form-group"><label>Número</label><input type="text" id="fNumExec"></div>
-            <div class="form-group"><label>Complemento</label><input type="text" id="fCompExec"></div>
+            <div class="form-group"><label for="fNumExec">Número</label><input type="text" id="fNumExec"></div>
+            <div class="form-group"><label for="fCompExec">Complemento</label><input type="text" id="fCompExec"></div>
           </div>
           <div class="form-row">
-            <div class="form-group" style="flex:2;"><label>Bairro</label><input type="text" id="fBairroExec"></div>
-            <div class="form-group" style="flex:2;"><label>Cidade</label><input type="text" id="fMunExec"></div>
-            <div class="form-group"><label>UF</label><input type="text" id="fUfExec" maxlength="2"></div>
-            <div class="form-group"><label>CEP</label><input type="text" id="fCepExec"></div>
+            <div class="form-group" style="flex:2;"><label for="fBairroExec">Bairro</label><input type="text" id="fBairroExec"></div>
+            <div class="form-group" style="flex:2;"><label for="fMunExec">Cidade</label><input type="text" id="fMunExec"></div>
+            <div class="form-group"><label for="fUfExec">UF</label><input type="text" id="fUfExec" maxlength="2"></div>
+            <div class="form-group"><label for="fCepExec">CEP</label><input type="text" id="fCepExec"></div>
             <div class="form-group" style="display:flex;align-items:flex-end;">
               <button class="btn btn-primary btn-sm" onclick="salvarLocalExec()">Salvar local</button>
             </div>
@@ -95,11 +95,11 @@
         <div class="bloco-titulo">Deslocamento</div>
         <div class="form-row">
           <div class="form-group">
-            <label>Km percorrido</label>
+            <label for="fKm">Km percorrido</label>
             <input type="number" id="fKm" step="0.1" min="0">
           </div>
           <div class="form-group">
-            <label>Valor do deslocamento (R$)</label>
+            <label for="fVlrDesloc">Valor do deslocamento (R$)</label>
             <input type="text" id="fVlrDesloc" data-formato="dinheiro">
           </div>
           <div class="form-group" style="display:flex;align-items:flex-end;">
@@ -113,7 +113,7 @@
           <div class="bloco-titulo">Quem paga esta OS</div>
           <div class="form-row">
             <div class="form-group" style="flex:2;">
-              <label>Pagador</label>
+              <label for="fPagador">Pagador</label>
               <select id="fPagador"></select>
             </div>
             <div class="form-group" style="display:flex;align-items:flex-end;">
@@ -136,7 +136,7 @@
         <div class="sec-pane active" id="sec-pecas-propria">
           <div class="form-row">
             <div class="form-group" style="flex:2;position:relative;">
-              <label>Produto *</label>
+              <label for="pProdBusca">Produto *</label>
               <input type="text" id="pProdBusca" placeholder="Código ou descrição…" oninput="acProd()" autocomplete="off">
               <input type="hidden" id="pProdId">
               <input type="hidden" id="pRastreiaLote">
@@ -144,19 +144,19 @@
               <div id="acProdList" class="ac-list"></div>
             </div>
             <div class="form-group">
-              <label>Qtd *</label>
+              <label for="pQtd">Qtd *</label>
               <input type="number" id="pQtd" step="any" min="0.001" value="1">
             </div>
             <div class="form-group">
-              <label>Valor unit. *</label>
+              <label for="pValor">Valor unit. *</label>
               <input type="text" id="pValor" value="0" data-formato="dinheiro">
             </div>
             <div class="form-group">
-              <label>Desconto (R$)</label>
+              <label for="pDesconto">Desconto (R$)</label>
               <input type="number" id="pDesconto" step="0.01" min="0" value="0" title="Desconto desta linha. O total do item já sai líquido.">
             </div>
             <div class="form-group">
-              <label>Situação</label>
+              <label for="pSituacao">Situação</label>
               <select id="pSituacao" title="Orçado é proposta: não conta no total, não baixa estoque, não vai para a nota.">
                 <option value="confirmado">Confirmado</option>
                 <option value="orcado">Orçado</option>
@@ -165,7 +165,7 @@
           </div>
           <div class="form-row" id="pRowLote" style="display:none;">
             <div class="form-group full-width">
-              <label>Lote</label>
+              <label for="pLote">Lote</label>
               <select id="pLote"><option value="">— escolha —</option></select>
             </div>
           </div>
@@ -183,21 +183,21 @@
           <small class="muted" style="display:block;margin-bottom:10px;">Peça comprada de terceiro especificamente para esta OS. Gera contas a pagar ao fornecedor; CR do cliente fica intacta. Vincular a um produto do catálogo é opcional. Vinculando, a OS gera entrada e saída de estoque, com saldo zero e histórico real.</small>
           <div class="form-row">
             <div class="form-group" style="flex:2;">
-              <label>Descrição *</label>
+              <label for="ptDesc">Descrição *</label>
               <input type="text" id="ptDesc" placeholder="Ex.: Filtro de óleo XPTO">
             </div>
             <div class="form-group">
-              <label>Qtd *</label>
+              <label for="ptQtd">Qtd *</label>
               <input type="number" id="ptQtd" step="any" min="0.001" value="1">
             </div>
             <div class="form-group">
-              <label>Valor cobrado R$ *</label>
+              <label for="ptValor">Valor cobrado R$ *</label>
               <input type="text" id="ptValor" value="0" data-formato="dinheiro">
             </div>
           </div>
           <div class="form-row">
             <div class="form-group" style="flex:2;position:relative;">
-              <label>Produto do catálogo <small class="muted">(opcional — gera mov. de estoque)</small></label>
+              <label for="ptProdBusca">Produto do catálogo <small class="muted">(opcional — gera mov. de estoque)</small></label>
               <input type="text" id="ptProdBusca" placeholder="Código ou descrição…" oninput="acProdT()" autocomplete="off">
               <input type="hidden" id="ptProdId">
               <div id="acProdListT" class="ac-list"></div>
@@ -208,34 +208,34 @@
           </div>
           <div class="form-row">
             <div class="form-group" style="flex:2;position:relative;">
-              <label>Fornecedor *</label>
+              <label for="ptForBusca">Fornecedor *</label>
               <input type="text" id="ptForBusca" placeholder="CNPJ ou razão social…" oninput="acFor('pt')" autocomplete="off">
               <input type="hidden" id="ptForId">
               <div id="acForListPT" class="ac-list"></div>
             </div>
             <div class="form-group">
-              <label>Custo real R$ *</label>
+              <label for="ptCustoT">Custo real R$ *</label>
               <input type="number" id="ptCustoT" step="0.01" min="0">
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Nota fiscal/Cupom</label>
+              <label for="ptNFT">Nota fiscal/Cupom</label>
               <input type="text" id="ptNFT" placeholder="Nº da nota">
             </div>
             <div class="form-group">
-              <label>Data da compra</label>
+              <label for="ptDataC">Data da compra</label>
               <input type="date" id="ptDataC">
             </div>
             <div class="form-group">
-              <label>Forma pgto</label>
+              <label for="ptFormaT">Forma pgto</label>
               <select id="ptFormaT">
                 <option value="">—</option><option value="dinheiro">Dinheiro</option><option value="pix">PIX</option>
                 <option value="boleto">Boleto</option><option value="cartao">Cartão</option><option value="prazo">A prazo</option>
               </select>
             </div>
             <div class="form-group">
-              <label>Vencimento</label>
+              <label for="ptVencT">Vencimento</label>
               <input type="date" id="ptVencT">
             </div>
           </div>
@@ -263,11 +263,11 @@
           <small class="muted">Peça retirada do equipamento. Registro técnico — <strong>não soma no total
             da OS nem entra em nota</strong>; serve para acionar garantia do fabricante e justificar a troca.</small>
           <div class="form-row" style="margin-top:10px;">
-            <div class="form-group" style="flex:2;"><label>Descrição *</label><input type="text" id="pdDesc" placeholder="Ex.: Fonte ATX 500W"></div>
-            <div class="form-group"><label>Qtd</label><input type="number" id="pdQtd" step="any" min="0.001" value="1"></div>
-            <div class="form-group"><label>Nº de série</label><input type="text" id="pdSerie"></div>
+            <div class="form-group" style="flex:2;"><label for="pdDesc">Descrição *</label><input type="text" id="pdDesc" placeholder="Ex.: Fonte ATX 500W"></div>
+            <div class="form-group"><label for="pdQtd">Qtd</label><input type="number" id="pdQtd" step="any" min="0.001" value="1"></div>
+            <div class="form-group"><label for="pdSerie">Nº de série</label><input type="text" id="pdSerie"></div>
             <div class="form-group">
-              <label>Destino</label>
+              <label for="pdDestino">Destino</label>
               <select id="pdDestino">
                 <option value="">—</option>
                 <option value="garantia-fabricante">Garantia do fabricante</option>
@@ -278,7 +278,7 @@
             </div>
           </div>
           <div class="form-row">
-            <div class="form-group full-width"><label>Laudo / motivo</label><input type="text" id="pdLaudo" placeholder="O que foi constatado"></div>
+            <div class="form-group full-width"><label for="pdLaudo">Laudo / motivo</label><input type="text" id="pdLaudo" placeholder="O que foi constatado"></div>
           </div>
           <div class="actions-bar">
             <button class="btn btn-primary btn-sm" onclick="addPecaDefeito()">+ Registrar peça com defeito</button>
@@ -300,7 +300,7 @@
         <div class="sec-pane active" id="sec-servicos-propria">
           <div class="form-row">
             <div class="form-group" style="flex:2;">
-              <label>Serviço do catálogo <small class="muted">(opcional — preenche descrição e valor)</small></label>
+              <label for="sServicoSel">Serviço do catálogo <small class="muted">(opcional — preenche descrição e valor)</small></label>
               <select id="sServicoSel" onchange="aplicarServicoCatalogo()">
                 <option value="">— preencher manualmente —</option>
               </select>
@@ -308,28 +308,28 @@
           </div>
           <div class="form-row">
             <div class="form-group" style="flex:3;">
-              <label>Descrição *</label>
+              <label for="sDesc">Descrição *</label>
               <input type="text" id="sDesc" placeholder="Ex.: Diagnóstico técnico">
             </div>
             <div class="form-group">
-              <label>Horas</label>
+              <label for="sHoras">Horas</label>
               <input type="number" id="sHoras" step="0.5" min="0">
             </div>
             <div class="form-group">
-              <label>R$/hora</label>
+              <label for="sValor">R$/hora</label>
               <input type="text" id="sValor" data-formato="dinheiro">
             </div>
             <div class="form-group">
-              <label>Valor fechado (R$)</label>
+              <label for="sTotal">Valor fechado (R$)</label>
               <input type="number" id="sTotal" step="0.01" min="0"
                 title="Use quando o serviço é cobrado por um valor fechado, e não por hora. Preenchido aqui, este valor substitui horas × R$/hora.">
             </div>
             <div class="form-group">
-              <label>Desconto (R$)</label>
+              <label for="sDesconto">Desconto (R$)</label>
               <input type="number" id="sDesconto" step="0.01" min="0" value="0" title="Desconto desta linha. O total do item já sai líquido.">
             </div>
             <div class="form-group">
-              <label>Situação</label>
+              <label for="sSituacao">Situação</label>
               <select id="sSituacao" title="Orçado é proposta: não conta no total nem vai para a nota.">
                 <option value="confirmado">Confirmado</option>
                 <option value="orcado">Orçado</option>
@@ -351,44 +351,44 @@
           <small class="muted" style="display:block;margin-bottom:10px;">Serviço terceirizado (ex.: usinagem, retífica, mão-de-obra contratada). Gera contas a pagar ao prestador; CR do cliente fica intacta.</small>
           <div class="form-row">
             <div class="form-group" style="flex:3;">
-              <label>Descrição *</label>
+              <label for="stDesc">Descrição *</label>
               <input type="text" id="stDesc" placeholder="Ex.: Retífica do cabeçote">
             </div>
             <div class="form-group">
-              <label>Valor cobrado R$ *</label>
+              <label for="stValor">Valor cobrado R$ *</label>
               <input type="text" id="stValor" value="0" data-formato="dinheiro">
             </div>
           </div>
           <div class="form-row">
             <div class="form-group" style="flex:2;position:relative;">
-              <label>Fornecedor *</label>
+              <label for="stForBusca">Fornecedor *</label>
               <input type="text" id="stForBusca" placeholder="CNPJ ou razão social…" oninput="acFor('st')" autocomplete="off">
               <input type="hidden" id="stForId">
               <div id="acForListST" class="ac-list"></div>
             </div>
             <div class="form-group">
-              <label>Custo real R$ *</label>
+              <label for="stCustoT">Custo real R$ *</label>
               <input type="number" id="stCustoT" step="0.01" min="0">
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Nota fiscal/Cupom</label>
+              <label for="stNFT">Nota fiscal/Cupom</label>
               <input type="text" id="stNFT" placeholder="Nº da nota">
             </div>
             <div class="form-group">
-              <label>Data da compra</label>
+              <label for="stDataC">Data da compra</label>
               <input type="date" id="stDataC">
             </div>
             <div class="form-group">
-              <label>Forma pgto</label>
+              <label for="stFormaT">Forma pgto</label>
               <select id="stFormaT">
                 <option value="">—</option><option value="dinheiro">Dinheiro</option><option value="pix">PIX</option>
                 <option value="boleto">Boleto</option><option value="cartao">Cartão</option><option value="prazo">A prazo</option>
               </select>
             </div>
             <div class="form-group">
-              <label>Vencimento</label>
+              <label for="stVencT">Vencimento</label>
               <input type="date" id="stVencT">
             </div>
           </div>
@@ -405,21 +405,21 @@
       <div class="tab-pane" id="tab-apont">
         <div class="form-row">
           <div class="form-group">
-            <label>Início *</label>
+            <label for="aIni">Início *</label>
             <input type="datetime-local" id="aIni">
           </div>
           <div class="form-group">
-            <label>Fim</label>
+            <label for="aFim">Fim</label>
             <input type="datetime-local" id="aFim">
           </div>
           <div class="form-group">
-            <label>Horas (opcional)</label>
+            <label for="aHoras">Horas (opcional)</label>
             <input type="number" id="aHoras" step="0.1" min="0">
           </div>
         </div>
         <div class="form-row">
           <div class="form-group full-width">
-            <label>Descrição</label>
+            <label for="aDesc">Descrição</label>
             <input type="text" id="aDesc">
           </div>
         </div>
@@ -439,7 +439,7 @@
         <small class="muted">Itens obrigatórios (marcados com *) devem ser concluídos antes de fechar a OS.</small>
         <div class="form-row" style="margin-top:12px;">
           <div class="form-group" style="flex:3;">
-            <label>Novo item</label>
+            <label for="ckDesc">Novo item</label>
             <input type="text" id="ckDesc" placeholder="Ex.: Testar inicialização do sistema">
           </div>
           <div class="form-group">
@@ -460,7 +460,7 @@
         <small class="muted">Fotos antes/depois, laudo técnico em PDF, termo de aceite. Máx 15 MB por arquivo.</small>
         <div class="form-row" style="margin-top:12px;">
           <div class="form-group">
-            <label>Categoria</label>
+            <label for="anCat">Categoria</label>
             <select id="anCat">
               <option value="antes">Antes</option>
               <option value="depois">Depois</option>
@@ -471,7 +471,7 @@
             </select>
           </div>
           <div class="form-group" style="flex:2;">
-            <label>Arquivo</label>
+            <label for="anFile">Arquivo</label>
             <input type="file" id="anFile" accept="image/*,application/pdf,video/*">
           </div>
           <div class="form-group">
@@ -518,20 +518,20 @@
         <div id="osPolitica" style="margin-top:10px;display:none;"></div>
         <div class="form-row" style="margin-top:10px;">
           <div class="form-group" style="flex:2;">
-            <label>Condição de pagamento <a href="/financeiro/politicas-prazo.html" target="_blank" style="font-size:var(--text-xs);font-weight:normal;margin-left:6px;">⚙ gerenciar</a></label>
+            <label for="fPolitica">Condição de pagamento <a href="/financeiro/politicas-prazo.html" target="_blank" style="font-size:var(--text-xs);font-weight:normal;margin-left:6px;">⚙ gerenciar</a></label>
             <select id="fPolitica" onchange="aoTrocarPolitica()"></select>
             <small id="fPoliticaInfo" class="muted" style="font-size:var(--text-xs);display:block;margin-top:4px;"></small>
           </div>
           <div class="form-group">
-            <label>Meio de recebimento</label>
+            <label for="fFormaPag">Meio de recebimento</label>
             <select id="fFormaPag"></select>
           </div>
           <div class="form-group">
-            <label>Data de vencimento (1ª parcela)</label>
+            <label for="fDataVenc">Data de vencimento (1ª parcela)</label>
             <input type="date" id="fDataVenc">
           </div>
           <div class="form-group">
-            <label>Número de parcelas</label>
+            <label for="fParcelas">Número de parcelas</label>
             <input type="number" id="fParcelas" min="1" max="60" value="1">
           </div>
         </div>
@@ -571,20 +571,20 @@
     <div id="ftPolitica" style="margin-bottom:12px;display:none;"></div>
     <div class="form-row">
       <div class="form-group" style="flex:2;">
-        <label>Condição de pagamento</label>
+        <label for="ftPoliticaSel">Condição de pagamento</label>
         <select id="ftPoliticaSel" onchange="aoTrocarPolitica('ft')"></select>
         <small id="ftPoliticaInfo" class="muted" style="font-size:var(--text-xs);display:block;margin-top:4px;"></small>
       </div>
       <div class="form-group">
-        <label>Meio de recebimento</label>
+        <label for="ftFormaPag">Meio de recebimento</label>
         <select id="ftFormaPag"></select>
       </div>
       <div class="form-group">
-        <label>Vencimento (1ª parcela)</label>
+        <label for="ftDataVenc">Vencimento (1ª parcela)</label>
         <input type="date" id="ftDataVenc">
       </div>
       <div class="form-group">
-        <label>Parcelas</label>
+        <label for="ftParcelas">Parcelas</label>
         <input type="number" id="ftParcelas" min="1" max="60" value="1">
       </div>
     </div>
@@ -1293,7 +1293,7 @@ function renderResumo(){
     ${editavel ? `
       <div class="form-row" style="margin-top:12px;align-items:flex-end;">
         <div class="form-group" style="flex:1;">
-          <label style="font-size:var(--text-xs);">Desconto na OS (R$)</label>
+          <label for="fDescontoCapa" style="font-size:var(--text-xs);">Desconto na OS (R$)</label>
           <input type="number" id="fDescontoCapa" step="0.01" min="0" value="${desc || ''}" placeholder="0,00">
         </div>
         <div class="form-group" style="flex:0;">
@@ -2037,7 +2037,7 @@ carregarCatalogoServicos();
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Canal</label>
+        <label for="envOrcCanal">Canal</label>
         <select id="envOrcCanal" onchange="toggleCanalFields()">
           <option value="email">E-mail</option>
           <option value="whatsapp">WhatsApp</option>
@@ -2047,19 +2047,19 @@ carregarCatalogoServicos();
     </div>
     <div class="form-row" id="rowEmail">
       <div class="form-group full-width">
-        <label>E-mail</label>
+        <label for="envOrcEmail">E-mail</label>
         <input type="email" id="envOrcEmail" placeholder="cliente@exemplo.com">
       </div>
     </div>
     <div class="form-row" id="rowWhats">
       <div class="form-group full-width">
-        <label>WhatsApp</label>
+        <label for="envOrcWhats">WhatsApp</label>
         <input type="text" id="envOrcWhats" placeholder="(11) 99999-9999">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Mensagem adicional (opcional)</label>
+        <label for="envOrcExtra">Mensagem adicional (opcional)</label>
         <textarea id="envOrcExtra" rows="2" placeholder="Ex.: Fica à disposição para dúvidas."></textarea>
       </div>
     </div>

@@ -55,11 +55,11 @@
   <div class="modal">
     <h2>Registrar recebimento</h2>
     <div class="resumo-pag" id="resumoPag"></div>
-    <div class="row"><label>Conta financeira (entrada) *</label><select id="pContaFin"></select></div>
+    <div class="row"><label for="pContaFin">Conta financeira (entrada) *</label><select id="pContaFin"></select></div>
     <div class="row-2">
-      <div class="row"><label>Data recebimento</label><input type="date" id="pData" onchange="atualizarSugestaoJuros()"></div>
+      <div class="row"><label for="pData">Data recebimento</label><input type="date" id="pData" onchange="atualizarSugestaoJuros()"></div>
       <div class="row">
-        <label>Forma</label>
+        <label for="pForma">Forma</label>
         <select id="pForma">
           <option value="">—</option>
           <option value="pix">PIX</option><option value="boleto">Boleto</option>
@@ -69,7 +69,7 @@
       </div>
     </div>
     <div class="row-2">
-      <div class="row"><label>Valor base</label><input type="number" step="0.01" id="pBase" oninput="recalc()"></div>
+      <div class="row"><label for="pBase">Valor base</label><input type="number" step="0.01" id="pBase" oninput="recalc()"></div>
       <div class="row">
         <label style="display:flex;align-items:center;gap:6px;font-size:var(--text-xs);">
           <input type="checkbox" id="pParcial" onchange="recalc()"> Recebimento parcial
@@ -77,8 +77,8 @@
       </div>
     </div>
     <div class="row-2">
-      <div class="row"><label>+ Juros</label><input type="number" step="0.01" id="pJuros" value="0" oninput="recalc()"></div>
-      <div class="row"><label>+ Multa</label><input type="number" step="0.01" id="pMulta" value="0" oninput="recalc()"></div>
+      <div class="row"><label for="pJuros">+ Juros</label><input type="number" step="0.01" id="pJuros" value="0" oninput="recalc()"></div>
+      <div class="row"><label for="pMulta">+ Multa</label><input type="number" step="0.01" id="pMulta" value="0" oninput="recalc()"></div>
     </div>
     <div class="row">
       <label style="display:flex;align-items:center;gap:6px;font-size:var(--text-xs);">
@@ -86,12 +86,12 @@
       </label>
     </div>
     <div class="row-2">
-      <div class="row"><label>− Desconto</label><input type="number" step="0.01" id="pDesc" value="0" oninput="recalc()"></div>
+      <div class="row"><label for="pDesc">− Desconto</label><input type="number" step="0.01" id="pDesc" value="0" oninput="recalc()"></div>
       <div class="row"><label>&nbsp;</label>
         <div class="resumo-pag" style="margin:0;"><div class="linha total">Total: <span id="pTotal">R$ 0,00</span></div></div>
       </div>
     </div>
-    <div class="row"><label>Observações</label><textarea id="pObs" rows="2"></textarea></div>
+    <div class="row"><label for="pObs">Observações</label><textarea id="pObs" rows="2"></textarea></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="fecharReceber()">Cancelar</button>
       <button class="btn btn-success" onclick="confirmarReceber()">Confirmar recebimento</button>
@@ -104,11 +104,11 @@
   <div class="modal">
     <h2>Editar recebimento</h2>
     <div class="resumo-pag" id="retifResumo"></div>
-    <div class="row"><label>Conta financeira (entrada) *</label><select id="rContaFin"></select></div>
+    <div class="row"><label for="rContaFin">Conta financeira (entrada) *</label><select id="rContaFin"></select></div>
     <div class="row-2">
-      <div class="row"><label>Data recebimento</label><input type="date" id="rData"></div>
+      <div class="row"><label for="rData">Data recebimento</label><input type="date" id="rData"></div>
       <div class="row">
-        <label>Forma (opcional)</label>
+        <label for="rForma">Forma (opcional)</label>
         <select id="rForma">
           <option value="">—</option>
           <option value="pix">PIX</option><option value="boleto">Boleto</option>
@@ -118,18 +118,18 @@
       </div>
     </div>
     <div class="row-2">
-      <div class="row"><label>Valor base</label><input type="number" step="0.01" id="rBase" oninput="recalcRetif()"></div>
+      <div class="row"><label for="rBase">Valor base</label><input type="number" step="0.01" id="rBase" oninput="recalcRetif()"></div>
       <div class="row"><label>&nbsp;</label>
         <div class="resumo-pag" style="margin:0;"><div class="linha total">Total: <span id="rTotal">R$ 0,00</span></div></div>
       </div>
     </div>
     <div class="row-2">
-      <div class="row"><label>+ Juros</label><input type="number" step="0.01" id="rJuros" value="0" oninput="recalcRetif()"></div>
-      <div class="row"><label>+ Multa</label><input type="number" step="0.01" id="rMulta" value="0" oninput="recalcRetif()"></div>
+      <div class="row"><label for="rJuros">+ Juros</label><input type="number" step="0.01" id="rJuros" value="0" oninput="recalcRetif()"></div>
+      <div class="row"><label for="rMulta">+ Multa</label><input type="number" step="0.01" id="rMulta" value="0" oninput="recalcRetif()"></div>
     </div>
-    <div class="row"><label>− Desconto</label><input type="number" step="0.01" id="rDesc" value="0" oninput="recalcRetif()"></div>
-    <div class="row"><label>Observações</label><textarea id="rObs" rows="2"></textarea></div>
-    <div class="row"><label>Motivo da correção * (fica no histórico)</label><input type="text" id="rMotivo" placeholder="ex.: valor digitado errado, data do extrato diferente"></div>
+    <div class="row"><label for="rDesc">− Desconto</label><input type="number" step="0.01" id="rDesc" value="0" oninput="recalcRetif()"></div>
+    <div class="row"><label for="rObs">Observações</label><textarea id="rObs" rows="2"></textarea></div>
+    <div class="row"><label for="rMotivo">Motivo da correção * (fica no histórico)</label><input type="text" id="rMotivo" placeholder="ex.: valor digitado errado, data do extrato diferente"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="fecharRetificar()">Cancelar</button>
       <button class="btn btn-primary" onclick="confirmarRetificar()">Salvar correção</button>
@@ -141,15 +141,15 @@
 <div class="modal-bg" id="modalEditar">
   <div class="modal">
     <h2>Editar conta</h2>
-    <div class="row"><label>Descrição</label><input type="text" id="eDesc"></div>
+    <div class="row"><label for="eDesc">Descrição</label><input type="text" id="eDesc"></div>
     <div class="row-2">
-      <div class="row"><label>Valor</label><input type="text" id="eValor" data-formato="dinheiro"></div>
-      <div class="row"><label>Vencimento</label><input type="date" id="eVenc"></div>
+      <div class="row"><label for="eValor">Valor</label><input type="text" id="eValor" data-formato="dinheiro"></div>
+      <div class="row"><label for="eVenc">Vencimento</label><input type="date" id="eVenc"></div>
     </div>
     <div class="row-2">
-      <div class="row"><label>Categoria</label><select id="eCategoria"></select></div>
+      <div class="row"><label for="eCategoria">Categoria</label><select id="eCategoria"></select></div>
       <div class="row">
-        <label>Forma de pagamento</label>
+        <label for="eForma">Forma de pagamento</label>
         <select id="eForma">
           <option value="">—</option>
           <option value="pix">PIX</option><option value="boleto">Boleto</option>
@@ -159,10 +159,10 @@
       </div>
     </div>
     <div class="row-2">
-      <div class="row"><label>Plano de contas</label><select id="ePlanoConta"></select></div>
-      <div class="row"><label>Centro de custo</label><select id="eCentroCusto"></select></div>
+      <div class="row"><label for="ePlanoConta">Plano de contas</label><select id="ePlanoConta"></select></div>
+      <div class="row"><label for="eCentroCusto">Centro de custo</label><select id="eCentroCusto"></select></div>
     </div>
-    <div class="row"><label>Observações</label><textarea id="eObs" rows="2"></textarea></div>
+    <div class="row"><label for="eObs">Observações</label><textarea id="eObs" rows="2"></textarea></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="fecharEditar()">Cancelar</button>
       <button class="btn btn-primary" onclick="salvarEdicao()">Salvar</button>
@@ -183,7 +183,7 @@
       </div>
     </div>
     <div class="row">
-      <label>Etapa da régua</label>
+      <label for="cobrarEtapa">Etapa da régua</label>
       <select id="cobrarEtapa"></select>
     </div>
     <div id="cobrarPreview" style="background:rgba(255,255,255,0.04);border-radius:6px;padding:10px;margin-top:10px;font-size:0.88em;color:var(--text-2);white-space:pre-wrap;max-height:200px;overflow-y:auto;"></div>
@@ -198,6 +198,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/politica-prazo.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('contas-a-receber');</script>

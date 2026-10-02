@@ -65,7 +65,7 @@
     </div>
     <div class="form-row">
       <div class="form-group full-width" style="position:relative;">
-        <label>Produto * <small class="muted">(somente produtos com rastreamento por serial)</small></label>
+        <label for="msProdBusca">Produto * <small class="muted">(somente produtos com rastreamento por serial)</small></label>
         <input type="text" id="msProdBusca" placeholder="Código ou descrição…" oninput="acProd()" autocomplete="off">
         <input type="hidden" id="msProdId">
         <div id="msProdList" class="ac-list"></div>
@@ -73,20 +73,20 @@
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Lote (opcional)</label>
+        <label for="msLoteId">Lote (opcional)</label>
         <select id="msLoteId"><option value="">— sem lote —</option></select>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Números de série (um por linha) *</label>
+        <label for="msNumeros">Números de série (um por linha) *</label>
         <textarea id="msNumeros" rows="6" placeholder="Cole ou digite um por linha, ex:\nSN-001234\nSN-001235\nSN-001236" style="font-family: monospace;"></textarea>
         <small class="muted" id="msContador">0 seriais</small>
         <small class="muted">Cada número identifica uma unidade física. Números de série são globalmente únicos — não podem se repetir entre produtos.</small>
       </div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Observações</label><textarea id="msObs" rows="2"></textarea></div>
+      <div class="form-group full-width"><label for="msObs">Observações</label><textarea id="msObs" rows="2"></textarea></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>

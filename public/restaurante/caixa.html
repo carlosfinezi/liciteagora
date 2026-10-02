@@ -98,6 +98,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('restaurante-caixa');</script>
 <script>
@@ -168,7 +169,7 @@ async function carregarTurno() {
 function abrirTurnoModal() {
   document.getElementById('mtTitulo').textContent = 'Abrir turno';
   document.getElementById('mtCorpo').innerHTML =
-    `<div class="form-group full-width"><label>Fundo de troco (R$)</label>
+    `<div class="form-group full-width"><label for="mtValor">Fundo de troco (R$)</label>
       <input type="text" id="mtValor" value="0" data-formato="dinheiro"></div>`;
   document.getElementById('mtBtn').onclick = async () => {
     try {
@@ -185,8 +186,8 @@ function abrirTurnoModal() {
 function movimentoModal(tipo) {
   document.getElementById('mtTitulo').textContent = tipo === 'sangria' ? 'Sangria (retirada)' : 'Suprimento (entrada)';
   document.getElementById('mtCorpo').innerHTML =
-    `<div class="form-group"><label>Valor (R$)</label><input type="number" id="mtValor" step="0.01"></div>
-     <div class="form-group full-width"><label>Motivo${tipo === 'sangria' ? ' *' : ''}</label>
+    `<div class="form-group"><label for="mtValor">Valor (R$)</label><input type="number" id="mtValor" step="0.01"></div>
+     <div class="form-group full-width"><label for="mtMotivo">Motivo${tipo === 'sangria' ? ' *' : ''}</label>
        <input type="text" id="mtMotivo" placeholder="${tipo === 'sangria' ? 'depósito no cofre' : 'reforço de troco'}"></div>`;
   document.getElementById('mtBtn').onclick = async () => {
     try {
@@ -207,11 +208,11 @@ function fecharTurnoModal() {
   document.getElementById('mtTitulo').textContent = 'Fechar turno';
   document.getElementById('mtCorpo').innerHTML =
     `<div class="form-group full-width">
-       <label>Dinheiro contado na gaveta (R$)</label>
+       <label for="mtValor">Dinheiro contado na gaveta (R$)</label>
        <input type="number" id="mtValor" step="0.01" placeholder="${fmt(turnoAtual.esperadoEmDinheiro)}">
        <small class="muted">Esperado: R$ ${fmt(turnoAtual.esperadoEmDinheiro)} — só dinheiro; cartão e Pix não se contam à mão.</small>
      </div>
-     <div class="form-group full-width"><label>Observação</label><input type="text" id="mtObs"></div>`;
+     <div class="form-group full-width"><label for="mtObs">Observação</label><input type="text" id="mtObs"></div>`;
   document.getElementById('mtBtn').onclick = async () => {
     try {
       const d = await api(`/api/restaurante/turnos/${turnoAtual.id}/fechar`, {

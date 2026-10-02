@@ -33,13 +33,13 @@
 
   <div class="tab-pane" id="tab-ponto">
     <div class="form-row">
-      <div class="form-group"><label>Mês</label><input type="month" id="pMes"></div>
-      <div class="form-group"><label>Data</label><input type="date" id="pData"></div>
-      <div class="form-group"><label>Entrada</label><input type="time" id="pE"></div>
-      <div class="form-group"><label>Saída almoço</label><input type="time" id="pSA"></div>
-      <div class="form-group"><label>Volta almoço</label><input type="time" id="pVA"></div>
-      <div class="form-group"><label>Saída</label><input type="time" id="pS"></div>
-      <div class="form-group"><label>Tipo</label><select id="pTipo"><option value="normal">Normal</option><option value="falta">Falta</option><option value="folga">Folga</option><option value="feriado">Feriado</option></select></div>
+      <div class="form-group"><label for="pMes">Mês</label><input type="month" id="pMes"></div>
+      <div class="form-group"><label for="pData">Data</label><input type="date" id="pData"></div>
+      <div class="form-group"><label for="pE">Entrada</label><input type="time" id="pE"></div>
+      <div class="form-group"><label for="pSA">Saída almoço</label><input type="time" id="pSA"></div>
+      <div class="form-group"><label for="pVA">Volta almoço</label><input type="time" id="pVA"></div>
+      <div class="form-group"><label for="pS">Saída</label><input type="time" id="pS"></div>
+      <div class="form-group"><label for="pTipo">Tipo</label><select id="pTipo"><option value="normal">Normal</option><option value="falta">Falta</option><option value="folga">Folga</option><option value="feriado">Feriado</option></select></div>
       <div class="form-group"><button class="btn btn-primary btn-sm" style="margin-top:18px;" onclick="addPonto()">Salvar dia</button></div>
     </div>
     <div id="pontoTotal" class="muted" style="margin:8px 0;"></div>
@@ -51,11 +51,11 @@
 
   <div class="tab-pane" id="tab-ferias">
     <div class="form-row">
-      <div class="form-group"><label>Período aquisitivo de</label><input type="date" id="fAqIni"></div>
-      <div class="form-group"><label>até</label><input type="date" id="fAqFim"></div>
-      <div class="form-group"><label>Início gozo</label><input type="date" id="fGoIni"></div>
-      <div class="form-group"><label>Fim gozo</label><input type="date" id="fGoFim"></div>
-      <div class="form-group"><label>Dias de abono</label><input type="number" id="fAbono" min="0" max="10" value="0"></div>
+      <div class="form-group"><label for="fAqIni">Período aquisitivo de</label><input type="date" id="fAqIni"></div>
+      <div class="form-group"><label for="fAqFim">até</label><input type="date" id="fAqFim"></div>
+      <div class="form-group"><label for="fGoIni">Início gozo</label><input type="date" id="fGoIni"></div>
+      <div class="form-group"><label for="fGoFim">Fim gozo</label><input type="date" id="fGoFim"></div>
+      <div class="form-group"><label for="fAbono">Dias de abono</label><input type="number" id="fAbono" min="0" max="10" value="0"></div>
       <div class="form-group"><button class="btn btn-primary btn-sm" style="margin-top:18px;" onclick="addFerias()">Adicionar</button></div>
     </div>
     <table><thead><tr><th>Aquisitivo</th><th>Gozo</th><th>Dias</th><th>Abono</th><th>Status</th><th></th></tr></thead><tbody id="tbFerias"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody></table>
@@ -63,12 +63,12 @@
 
   <div class="tab-pane" id="tab-atestados">
     <div class="form-row">
-      <div class="form-group"><label>Início</label><input type="date" id="aIni"></div>
-      <div class="form-group"><label>Fim</label><input type="date" id="aFim"></div>
-      <div class="form-group"><label>CID</label><input type="text" id="aCid"></div>
-      <div class="form-group"><label>Profissional</label><input type="text" id="aProf"></div>
-      <div class="form-group"><label>CRM</label><input type="text" id="aCrm"></div>
-      <div class="form-group"><label>Motivo</label><input type="text" id="aMotivo"></div>
+      <div class="form-group"><label for="aIni">Início</label><input type="date" id="aIni"></div>
+      <div class="form-group"><label for="aFim">Fim</label><input type="date" id="aFim"></div>
+      <div class="form-group"><label for="aCid">CID</label><input type="text" id="aCid"></div>
+      <div class="form-group"><label for="aProf">Profissional</label><input type="text" id="aProf"></div>
+      <div class="form-group"><label for="aCrm">CRM</label><input type="text" id="aCrm"></div>
+      <div class="form-group"><label for="aMotivo">Motivo</label><input type="text" id="aMotivo"></div>
       <div class="form-group"><button class="btn btn-primary btn-sm" style="margin-top:18px;" onclick="addAtestado()">Adicionar</button></div>
     </div>
     <table><thead><tr><th>Início</th><th>Fim</th><th>Dias</th><th>CID</th><th>Profissional</th><th>Motivo</th><th></th></tr></thead><tbody id="tbAt"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody></table>

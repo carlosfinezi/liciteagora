@@ -189,13 +189,20 @@ const server = app.listen(PORTA);
   async function armarDialogos(frame, { confirmar = true, motivo = 'motivo de teste' } = {}) {
     await frame.evaluate((confirmar, motivo) => {
       window.__perguntas = [];
-      /* A confirmação é a caixa do sistema desde 01/10/2026 (`Aviso.confirmar`,
-         uma promessa). O `prompt` do motivo continua sendo o do navegador. */
-      window.Aviso.confirmar = (o) => {
-        const texto = typeof o === 'string' ? o : ((o && o.texto) || '');
-        window.__perguntas.push({ tipo: 'confirm', texto });
-        return Promise.resolve(confirmar);
-      };
+      /* A tela pergunta pelo `confirm()` do navegador OU pela caixa do sistema
+         (`Aviso.confirmar`, uma promessa), e as duas formas já valeram aqui: o
+         9afb2bb trocou para a caixa e o 72d4fa1 desfez. Armar as duas é o que
+         faz esta suíte medir a GARANTIA — "cancelar pede confirmação" — em vez
+         de qual das duas está no arquivo hoje. `window.Aviso` só é substituído
+         quando existe: sem a peça carregada, mexer nele é TypeError e a suíte
+         morre antes de medir nada. */
+      if (window.Aviso) {
+        window.Aviso.confirmar = (o) => {
+          const texto = typeof o === 'string' ? o : ((o && o.texto) || '');
+          window.__perguntas.push({ tipo: 'confirm', texto });
+          return Promise.resolve(confirmar);
+        };
+      }
       window.confirm = (m) => { window.__perguntas.push({ tipo: 'confirm', texto: m }); return confirmar; };
       window.prompt = (m) => { window.__perguntas.push({ tipo: 'prompt', texto: m }); return motivo; };
     }, confirmar, motivo);

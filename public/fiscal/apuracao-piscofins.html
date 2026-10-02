@@ -94,22 +94,22 @@
           <p class="hint" style="margin-top:0;">Valor sempre <strong>positivo</strong> — o sinal vem do tipo.</p>
           <div class="form-row">
             <div class="form-group">
-              <label>Tributo *</label>
+              <label for="ajTributo">Tributo *</label>
               <select id="ajTributo">
                 <option value="pis">Só PIS</option>
                 <option value="cofins">Só COFINS</option>
                 <option value="ambos">Ambos</option>
               </select>
             </div>
-            <div class="form-group"><label>Tipo *</label><select id="ajTipo"></select></div>
-            <div class="form-group"><label>Valor *</label><input type="text" id="ajValor" data-formato="dinheiro"></div>
+            <div class="form-group"><label for="ajTipo">Tipo *</label><select id="ajTipo"></select></div>
+            <div class="form-group"><label for="ajValor">Valor *</label><input type="text" id="ajValor" data-formato="dinheiro"></div>
             <div class="form-group">
-              <label>Código</label>
+              <label for="ajCodigo">Código</label>
               <input type="text" id="ajCodigo" placeholder="opcional">
             </div>
           </div>
           <div class="form-group">
-            <label>Descrição *</label>
+            <label for="ajDescricao">Descrição *</label>
             <input type="text" id="ajDescricao" placeholder="Crédito extemporâneo de maio/2026">
           </div>
         </div>
@@ -388,6 +388,7 @@ document.addEventListener('click', (ev) => {
 </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/campo-formato.js"></script>
     <script>initSidebar('apuracao-piscofins');</script>
 </body>
 </html>

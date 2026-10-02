@@ -139,20 +139,20 @@ function abrirNovoLote() {
   document.getElementById('modalTitulo').textContent = vocab('lote', 'Novo lote de processo');
   document.getElementById('modalBody').innerHTML = `
     <div class="form-row">
-      <div class="form-group"><label>Código <small class="muted">(em branco = gerado)</small></label>
+      <div class="form-group"><label for="lCodigo">Código <small class="muted">(em branco = gerado)</small></label>
         <input type="text" id="lCodigo"></div>
-      <div class="form-group"><label>Data</label>
+      <div class="form-group"><label for="lData">Data</label>
         <input type="date" id="lData" value="${new Date().toISOString().slice(0, 10)}"></div>
-      <div class="form-group"><label>Volume (m³)</label>
+      <div class="form-group"><label for="lVol">Volume (m³)</label>
         <input type="number" id="lVol" step="0.01" min="0" value="0"></div>
     </div>
-    <div class="form-group"><label>Descrição do lote</label>
+    <div class="form-group"><label for="lTraco">Descrição do lote</label>
       <input type="text" id="lTraco" placeholder="traço, receita, corrida, batelada…"></div>
     <div class="form-row">
-      <div class="form-group"><label>Limite de conformidade</label><input type="number" id="lFck" step="0.1" min="0"></div>
-      <div class="form-group"><label>Slump (mm)</label><input type="number" id="lSlump" step="1" min="0"></div>
-      <div class="form-group"><label>Temperatura (°C)</label><input type="number" id="lTemp" step="0.1"></div>
-      <div class="form-group"><label>Insumo principal</label><input type="text" id="lCimento" placeholder="CP-V ARI"></div>
+      <div class="form-group"><label for="lFck">Limite de conformidade</label><input type="number" id="lFck" step="0.1" min="0"></div>
+      <div class="form-group"><label for="lSlump">Slump (mm)</label><input type="number" id="lSlump" step="1" min="0"></div>
+      <div class="form-group"><label for="lTemp">Temperatura (°C)</label><input type="number" id="lTemp" step="0.1"></div>
+      <div class="form-group"><label for="lCimento">Insumo principal</label><input type="text" id="lCimento" placeholder="CP-V ARI"></div>
     </div>
     <div style="text-align:right;">
       <button class="btn" onclick="fechar()">Cancelar</button>
@@ -219,15 +219,15 @@ async function abrir(id) {
     </table></div>
 
     <div class="form-row" style="align-items:flex-end;margin-top:12px;">
-      <div class="form-group"><label>Identificação</label><input type="text" id="cpId" placeholder="CP-01"></div>
-      <div class="form-group"><label>Finalidade</label>
+      <div class="form-group"><label for="cpId">Identificação</label><input type="text" id="cpId" placeholder="CP-01"></div>
+      <div class="form-group"><label for="cpFin">Finalidade</label>
         <select id="cpFin">
           <option value="transferencia">transferência (libera a protensão)</option>
           <option value="controle">controle (7 dias)</option>
           <option value="projeto" selected>projeto (28 dias)</option>
         </select></div>
-      <div class="form-group"><label>Moldagem</label><input type="date" id="cpData" value="${esc(l.data)}"></div>
-      <div class="form-group"><label>Idade (dias)</label><input type="number" id="cpIdade" min="0" placeholder="padrão da finalidade"></div>
+      <div class="form-group"><label for="cpData">Moldagem</label><input type="date" id="cpData" value="${esc(l.data)}"></div>
+      <div class="form-group"><label for="cpIdade">Idade (dias)</label><input type="number" id="cpIdade" min="0" placeholder="padrão da finalidade"></div>
       <div class="form-group"><button class="btn btn-primary" onclick="moldar(${id})">Moldar</button></div>
     </div>`;
   document.getElementById('modal').style.display = 'flex';

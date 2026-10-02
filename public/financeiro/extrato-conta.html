@@ -75,13 +75,13 @@
   <div class="ex-toolbar">
     <!-- Empresa/filial: só aparece em tenant multi-loja, como o seletor do sidebar -->
     <div class="field" id="campoEstab" style="display:none;">
-      <label>Empresa / filial</label>
+      <label for="fEstab">Empresa / filial</label>
       <select id="fEstab" onchange="trocarEstabelecimento()">
         <option value="">Todas</option>
       </select>
     </div>
     <div class="field">
-      <label>Período</label>
+      <label for="fPeriodo">Período</label>
       <select id="fPeriodo" onchange="aplicarPeriodo()">
         <option value="mes-atual">Mês atual</option>
         <option value="mes-anterior">Mês anterior</option>
@@ -97,10 +97,10 @@
         <option value="manual">Manual</option>
       </select>
     </div>
-    <div class="field"><label>De</label><input type="date" id="fDataInicio" onchange="marcarManual()"></div>
-    <div class="field"><label>Até</label><input type="date" id="fDataFim" onchange="marcarManual()"></div>
+    <div class="field"><label for="fDataInicio">De</label><input type="date" id="fDataInicio" onchange="marcarManual()"></div>
+    <div class="field"><label for="fDataFim">Até</label><input type="date" id="fDataFim" onchange="marcarManual()"></div>
     <div class="field">
-      <label>Movimento</label>
+      <label for="fDc">Movimento</label>
       <select id="fDc" onchange="carregar(1)">
         <option value="todos">Entradas e saídas</option>
         <option value="entrada">Só entradas</option>
@@ -108,21 +108,21 @@
       </select>
     </div>
     <div class="field">
-      <label>Origem</label>
+      <label for="fOrigem">Origem</label>
       <select id="fOrigem" onchange="carregar(1)"><option value="">Todas</option></select>
     </div>
     <div class="field">
-      <label>Categoria</label>
+      <label for="fCategoria">Categoria</label>
       <select id="fCategoria" onchange="carregar(1)"><option value="">Todas</option></select>
     </div>
     <div class="field">
-      <label>Buscar</label>
+      <label for="fBusca">Buscar</label>
       <input type="search" id="fBusca" placeholder="descrição, origem..." style="min-width:200px;" onchange="carregar(1)">
     </div>
-    <div class="field"><label>Valor de</label><input type="text" id="fValorMin" style="width:110px;" onchange="carregar(1)" data-formato="dinheiro"></div>
-    <div class="field"><label>Valor até</label><input type="text" id="fValorMax" style="width:110px;" onchange="carregar(1)" data-formato="dinheiro"></div>
+    <div class="field"><label for="fValorMin">Valor de</label><input type="text" id="fValorMin" style="width:110px;" onchange="carregar(1)" data-formato="dinheiro"></div>
+    <div class="field"><label for="fValorMax">Valor até</label><input type="text" id="fValorMax" style="width:110px;" onchange="carregar(1)" data-formato="dinheiro"></div>
     <div class="field">
-      <label>Totalizar</label>
+      <label for="fAgrupar">Totalizar</label>
       <select id="fAgrupar" onchange="carregar(1)">
         <option value="">Sem subtotais</option>
         <option value="dia">Por dia</option>
@@ -130,14 +130,14 @@
       </select>
     </div>
     <div class="field">
-      <label>Ordem</label>
+      <label for="fOrdem">Ordem</label>
       <select id="fOrdem" onchange="carregar(1)">
         <option value="asc">Mais antigos primeiro</option>
         <option value="desc">Mais recentes primeiro</option>
       </select>
     </div>
     <div class="field">
-      <label>Por página</label>
+      <label for="fPorPagina">Por página</label>
       <select id="fPorPagina" onchange="carregar(1)">
         <option value="50">50</option>
         <option value="200" selected>200</option>
@@ -184,20 +184,20 @@
       <button class="btn btn-ghost btn-sm" onclick="fecharLancamento()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Conta *</label><select id="lancConta"></select></div>
-      <div class="form-group"><label>Tipo *</label>
+      <div class="form-group"><label for="lancConta">Conta *</label><select id="lancConta"></select></div>
+      <div class="form-group"><label for="lancTipo">Tipo *</label>
         <select id="lancTipo"><option value="entrada">Entrada</option><option value="saida">Saída</option></select>
       </div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Valor (R$) *</label><input type="text" id="lancValor" data-formato="dinheiro"></div>
-      <div class="form-group"><label>Data</label><input type="date" id="lancData"></div>
+      <div class="form-group"><label for="lancValor">Valor (R$) *</label><input type="text" id="lancValor" data-formato="dinheiro"></div>
+      <div class="form-group"><label for="lancData">Data</label><input type="date" id="lancData"></div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Descrição *</label><input type="text" id="lancDesc" placeholder="Ex: Pagamento de conta de luz"></div>
+      <div class="form-group full-width"><label for="lancDesc">Descrição *</label><input type="text" id="lancDesc" placeholder="Ex: Pagamento de conta de luz"></div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Categoria</label><input type="text" id="lancCat" placeholder="vendas, despesas, taxas..."></div>
+      <div class="form-group full-width"><label for="lancCat">Categoria</label><input type="text" id="lancCat" placeholder="vendas, despesas, taxas..."></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharLancamento()">Cancelar</button>
@@ -208,6 +208,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script>initSidebar('contas-financeiras');</script>
 <script>
 let contasCache = [];

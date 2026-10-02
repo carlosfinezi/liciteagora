@@ -100,21 +100,21 @@
           </p>
           <div class="form-row">
             <div class="form-group">
-              <label>Tipo *</label>
+              <label for="ajTipo">Tipo *</label>
               <select id="ajTipo"></select>
             </div>
             <div class="form-group">
-              <label>Valor *</label>
+              <label for="ajValor">Valor *</label>
               <input type="text" id="ajValor" data-formato="dinheiro">
             </div>
             <div class="form-group">
-              <label>Código do ajuste</label>
+              <label for="ajCodigo">Código do ajuste</label>
               <input type="text" id="ajCodigo" placeholder="TO020001">
               <small class="hint">Tabela do SPED, opcional.</small>
             </div>
           </div>
           <div class="form-group">
-            <label>Descrição *</label>
+            <label for="ajDescricao">Descrição *</label>
             <input type="text" id="ajDescricao" placeholder="Crédito extemporâneo referente a maio/2026">
           </div>
         </div>
@@ -420,6 +420,7 @@ document.addEventListener('click', (ev) => {
 </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/campo-formato.js"></script>
     <script>initSidebar('apuracao-icms');</script>
 </body>
 </html>

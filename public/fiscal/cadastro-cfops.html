@@ -65,15 +65,15 @@
   <div class="tab-content active" id="panel-catalogo">
     <div class="card">
       <div class="cfop-toolbar">
-        <div class="field"><label>Buscar</label><input type="text" id="fBusca" placeholder="código ou descrição" oninput="debounce(carregarCfops)"></div>
-        <div class="field"><label>Tipo</label>
+        <div class="field"><label for="fBusca">Buscar</label><input type="text" id="fBusca" placeholder="código ou descrição" oninput="debounce(carregarCfops)"></div>
+        <div class="field"><label for="fTipo">Tipo</label>
           <select id="fTipo" onchange="carregarCfops()">
             <option value="">Todos</option>
             <option value="saida">Saída</option>
             <option value="entrada">Entrada</option>
           </select>
         </div>
-        <div class="field"><label>Destino</label>
+        <div class="field"><label for="fDestino">Destino</label>
           <select id="fDestino" onchange="carregarCfops()">
             <option value="">Todos</option>
             <option value="interno">Interno</option>
@@ -133,19 +133,19 @@
       <p style="color:var(--text-2);font-size:0.9em;">Informe os parâmetros e veja qual CFOP o motor sugere para esse contexto.</p>
       <div class="form-grid">
         <div>
-          <label>Tipo de operação</label>
+          <label for="tTipoOp">Tipo de operação</label>
           <select id="tTipoOp"><option value="">— carregando —</option></select>
         </div>
         <div>
-          <label>Cliente ID (opcional)</label>
+          <label for="tClienteId">Cliente ID (opcional)</label>
           <input type="number" id="tClienteId" placeholder="deixe vazio para usar UF direta">
         </div>
         <div>
-          <label>Produto ID (opcional)</label>
+          <label for="tProdutoId">Produto ID (opcional)</label>
           <input type="number" id="tProdutoId">
         </div>
         <div>
-          <label>UF de entrega</label><small class="muted">Quando não houver cliente</small>
+          <label for="tUf">UF de entrega</label><small class="muted">Quando não houver cliente</small>
           <input type="text" id="tUf" maxlength="2" placeholder="PA">
         </div>
       </div>
@@ -169,19 +169,19 @@
     </div>
     <input type="hidden" id="mcCodigoOrig">
     <div class="form-grid">
-      <div><label>Código *</label><input type="text" id="mcCodigo" maxlength="4"></div>
-      <div><label>Tipo *</label>
+      <div><label for="mcCodigo">Código *</label><input type="text" id="mcCodigo" maxlength="4"></div>
+      <div><label for="mcTipo">Tipo *</label>
         <select id="mcTipo"><option value="saida">Saída</option><option value="entrada">Entrada</option></select>
       </div>
-      <div class="full"><label>Descrição *</label><input type="text" id="mcDesc"></div>
-      <div><label>Destino *</label>
+      <div class="full"><label for="mcDesc">Descrição *</label><input type="text" id="mcDesc"></div>
+      <div><label for="mcDestino">Destino *</label>
         <select id="mcDestino">
           <option value="interno">Interno (mesma UF)</option>
           <option value="interestadual">Interestadual</option>
           <option value="exterior">Exterior</option>
         </select>
       </div>
-      <div><label>Categoria da operação</label>
+      <div><label for="mcCategoria">Categoria da operação</label>
         <select id="mcCategoria">
           <option value="">—</option>
           <option value="venda">Venda</option>
@@ -198,11 +198,11 @@
           <option value="outros">Outros</option>
         </select>
       </div>
-      <div><label>Natureza (texto livre)</label><input type="text" id="mcNatureza" placeholder="venda_revenda, compra_industrializacao..."></div>
-      <div><label>CFOP contrapartida (devolução)</label>
+      <div><label for="mcNatureza">Natureza (texto livre)</label><input type="text" id="mcNatureza" placeholder="venda_revenda, compra_industrializacao..."></div>
+      <div><label for="mcContrap">CFOP contrapartida (devolução)</label>
         <select id="mcContrap"><option value="">— nenhum —</option></select>
       </div>
-      <div><label>Finalidade NF-e</label>
+      <div><label for="mcFinalidade">Finalidade NF-e</label>
         <select id="mcFinalidade">
           <option value="1">1 · Normal</option>
           <option value="2">2 · Complementar</option>
@@ -210,24 +210,24 @@
           <option value="4">4 · Devolução</option>
         </select>
       </div>
-      <div><label>Movimenta estoque?</label>
+      <div><label for="mcMovEst">Movimenta estoque?</label>
         <select id="mcMovEst"><option value="1">Sim</option><option value="0">Não</option></select>
       </div>
-      <div><label>Gera financeiro (duplicata)?</label>
+      <div><label for="mcGerFin">Gera financeiro (duplicata)?</label>
         <select id="mcGerFin"><option value="1">Sim</option><option value="0">Não</option></select>
       </div>
-      <div><label>Gera crédito ICMS?</label>
+      <div><label for="mcGerCred">Gera crédito ICMS?</label>
         <select id="mcGerCred"><option value="0">Não</option><option value="1">Sim</option></select>
       </div>
-      <div><label>Exige cliente contribuinte?</label>
+      <div><label for="mcExige">Exige cliente contribuinte?</label>
         <select id="mcExige"><option value="0">Não</option><option value="1">Sim</option></select>
       </div>
-      <div><label>CST padrão (Lucro)</label><input type="text" id="mcCst" maxlength="3" placeholder="ex: 00, 41, 60"></div>
-      <div><label>CSOSN padrão (SN)</label><input type="text" id="mcCsosn" maxlength="3" placeholder="ex: 102, 400, 500"></div>
-      <div><label>Alíquota ICMS sugerida (%)</label><input type="number" id="mcIcms" step="0.01"></div>
-      <div><label>Alíquota PIS sugerida (%)</label><input type="number" id="mcPis" step="0.01" placeholder="ex: 1.65"></div>
-      <div><label>Alíquota COFINS sugerida (%)</label><input type="number" id="mcCofins" step="0.01" placeholder="ex: 7.6"></div>
-      <div class="full"><label>Observações</label><textarea id="mcObs" rows="2"></textarea></div>
+      <div><label for="mcCst">CST padrão (Lucro)</label><input type="text" id="mcCst" maxlength="3" placeholder="ex: 00, 41, 60"></div>
+      <div><label for="mcCsosn">CSOSN padrão (SN)</label><input type="text" id="mcCsosn" maxlength="3" placeholder="ex: 102, 400, 500"></div>
+      <div><label for="mcIcms">Alíquota ICMS sugerida (%)</label><input type="number" id="mcIcms" step="0.01"></div>
+      <div><label for="mcPis">Alíquota PIS sugerida (%)</label><input type="number" id="mcPis" step="0.01" placeholder="ex: 1.65"></div>
+      <div><label for="mcCofins">Alíquota COFINS sugerida (%)</label><input type="number" id="mcCofins" step="0.01" placeholder="ex: 7.6"></div>
+      <div class="full"><label for="mcObs">Observações</label><textarea id="mcObs" rows="2"></textarea></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharModal('modalCfop')">Cancelar</button>
@@ -250,15 +250,15 @@
     <input type="hidden" id="mmId">
     <div class="form-grid">
       <div>
-        <label>CFOP do fornecedor (saída) *</label>
+        <label for="mmFornecedor">CFOP do fornecedor (saída) *</label>
         <input type="text" list="cfops-datalist-saida" id="mmFornecedor" maxlength="4" placeholder="5102" style="font-family:monospace;">
       </div>
       <div>
-        <label>CFOP nosso (entrada) *</label>
+        <label for="mmNosso">CFOP nosso (entrada) *</label>
         <input type="text" list="cfops-datalist-entrada" id="mmNosso" maxlength="4" placeholder="1102" style="font-family:monospace;">
       </div>
       <div class="full">
-        <label>Descrição (opcional)</label>
+        <label for="mmDesc">Descrição (opcional)</label>
         <input type="text" id="mmDesc" placeholder="Ex: Compra para revenda (interno)">
       </div>
     </div>

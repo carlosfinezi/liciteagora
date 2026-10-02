@@ -124,19 +124,19 @@
     <div class="panel" style="padding:16px;">
         <div class="filters-row" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
             <div class="filter-group" style="flex:1;">
-                <label>Buscar</label>
+                <label for="filtBusca">Buscar</label>
                 <input type="text" id="filtBusca" placeholder="Objeto, resumo ou órgão…" onkeydown="if(event.key==='Enter')carregarAnalises()">
             </div>
             <div class="filter-group">
-                <label>Grupo de palavras</label>
+                <label for="filtGrupo">Grupo de palavras</label>
                 <select id="filtGrupo"><option value="">Todos</option></select>
             </div>
             <div class="filter-group">
-                <label>UF</label>
+                <label for="filtUf">UF</label>
                 <select id="filtUf" onchange="carregarAnalises()"><option value="">Todas</option></select>
             </div>
             <div class="filter-group">
-                <label>Complexidade</label>
+                <label for="filtComplexidade">Complexidade</label>
                 <select id="filtComplexidade">
                     <option value="">Todas</option>
                     <option value="baixa">Baixa</option>
@@ -153,19 +153,19 @@
                 </div>
             </div>
             <div class="filter-group">
-                <label>Analisada de</label>
+                <label for="filtDataInicial">Analisada de</label>
                 <input type="date" id="filtDataInicial" onchange="carregarAnalises()">
             </div>
             <div class="filter-group">
-                <label>até</label>
+                <label for="filtDataFinal">até</label>
                 <input type="date" id="filtDataFinal" onchange="carregarAnalises()">
             </div>
             <div class="filter-group">
-                <label>Encerramento de</label>
+                <label for="filtEncerramentoInicial">Encerramento de</label>
                 <input type="date" id="filtEncerramentoInicial" onchange="carregarAnalises()">
             </div>
             <div class="filter-group">
-                <label>até</label>
+                <label for="filtEncerramentoFinal">até</label>
                 <input type="date" id="filtEncerramentoFinal" onchange="carregarAnalises()">
             </div>
             <div class="filter-group" style="align-self:center;">
@@ -175,7 +175,7 @@
                 </label>
             </div>
             <div class="filter-group">
-                <label>Ordenar por</label>
+                <label for="filtOrdem">Ordenar por</label>
                 <select id="filtOrdem">
                     <option value="score_desc">Maior score</option>
                     <option value="score_asc">Menor score</option>

@@ -48,15 +48,15 @@
       <button class="btn btn-ghost btn-sm" onclick="fechar()" style="font-size:1.2em;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>UF destino *</label><input type="text" id="nUf" maxlength="2" style="text-transform:uppercase;width:70px;"></div>
-      <div class="form-group"><label>Fatura/NF-e (id, opcional)</label><input type="number" id="nFatura"></div>
-      <div class="form-group"><label>Vencimento</label><input type="date" id="nVenc"></div>
+      <div class="form-group"><label for="nUf">UF destino *</label><input type="text" id="nUf" maxlength="2" style="text-transform:uppercase;width:70px;"></div>
+      <div class="form-group"><label for="nFatura">Fatura/NF-e (id, opcional)</label><input type="number" id="nFatura"></div>
+      <div class="form-group"><label for="nVenc">Vencimento</label><input type="date" id="nVenc"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Base de cálculo (R$) *</label><input type="number" id="nBase" step="0.01" oninput="calc()"></div>
-      <div class="form-group"><label>Alíq. interna destino (%) *</label><input type="number" id="nAliInt" step="0.01" value="18" oninput="calc()"></div>
-      <div class="form-group"><label>Alíq. interestadual (%) *</label><input type="number" id="nAliInter" step="0.01" value="12" oninput="calc()"></div>
-      <div class="form-group"><label>FCP (%)</label><input type="number" id="nFcp" step="0.01" value="0" oninput="calc()"></div>
+      <div class="form-group"><label for="nBase">Base de cálculo (R$) *</label><input type="number" id="nBase" step="0.01" oninput="calc()"></div>
+      <div class="form-group"><label for="nAliInt">Alíq. interna destino (%) *</label><input type="number" id="nAliInt" step="0.01" value="18" oninput="calc()"></div>
+      <div class="form-group"><label for="nAliInter">Alíq. interestadual (%) *</label><input type="number" id="nAliInter" step="0.01" value="12" oninput="calc()"></div>
+      <div class="form-group"><label for="nFcp">FCP (%)</label><input type="number" id="nFcp" step="0.01" value="0" oninput="calc()"></div>
     </div>
     <div id="calcResumo" class="card card-info" style="font-size:0.92em;margin-bottom:10px;">Preencha a base e as alíquotas</div>
     <div class="form-row">

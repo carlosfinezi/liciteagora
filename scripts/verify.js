@@ -838,6 +838,33 @@ const suites = [
   // escritos em lugar nenhum.
   ['170. piso tipografico de 12px (test-piso-tipografico)', 'test-piso-tipografico.js'],
   ['172. cartao presencial chega a agenda (test-cartao-presencial-fase2)', 'test-cartao-presencial-fase2.js'],
+  // A tela que USA uma peca comum CARREGA o arquivo dela (02/10). Em 01/10 isso
+  // falhou nos dois sentidos: o 9afb2bb tirou o toast() local do
+  // fiscal-common.js contando com a peca, e o 72d4fa1 tirou o <script> das tres
+  // telas que o carregam — toast() virou ReferenceError nas tres, em producao.
+  // No mesmo revert, lances.html perdeu o <script> com 15 Aviso.* ainda vivos.
+  // Mede no navegador, e olha tambem os .js que a tela carrega: o uso pode nao
+  // estar no HTML dela.
+  ['173. peca comum carregada onde e usada (test-pecas-carregadas)', 'test-pecas-carregadas.js'],
+  // Todo modal se anuncia como dialogo (02/10). Eram 100 telas com
+  // .modal-header e UMA com role="dialog": para leitor de tela o resto era div,
+  // nao avisava que abriu, nao dizia o nome e nao prendia o foco. A peca
+  // public/js/dialogo.js resolve as 100 sem tocar nenhuma tela; esta suite abre
+  // cada modal pelos cinco jeitos que o sistema usa e mede o que a pessoa de
+  // teclado sente.
+  ['174. modal se anuncia como dialogo (test-modal-dialogo)', 'test-modal-dialogo.js'],
+  // O rotulo esta ligado ao campo (02/10): eram 1.982 <label> sem for=, e 1.649
+  // foram ligados par por par. `for=` escrito nao prova nada — pode apontar id
+  // inexistente ou o campo errado —, entao a medicao e do DOM: label.control e
+  // campo.labels nos dois sentidos. O que ficou de fora de proposito esta em
+  // docs/rotulos-sem-for-2026-10-02.md.
+  ['175. rotulo ligado ao campo (test-rotulos-campos)', 'test-rotulos-campos.js'],
+  // Os dois graficos de estoque/analises (02/10). Eles tinham viewBox esticado
+  // com preserveAspectRatio="none": a largura escalava e a altura nao, e o
+  // GLIFO saia deformado num eixo so — 0,37 de largura a 360px, com "jan/26" em
+  // 14px e letras de 2,3px. Nenhuma medicao de font-size pega isso; o que
+  // denuncia e a matriz do elemento (getScreenCTM).
+  ['176. grafico de estoque legivel a 360px (test-grafico-estoque)', 'test-grafico-estoque.js'],
 ];
 // ==================== modo rápido: quais suítes ====================
 /**

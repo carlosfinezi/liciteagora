@@ -74,25 +74,25 @@
     <input type="hidden" id="rId">
 
     <div class="form-row">
-      <div class="form-group full-width"><label>Cliente *</label>
+      <div class="form-group full-width"><label for="rPessoa">Cliente *</label>
         <select id="rPessoa"></select></div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Descrição do serviço *</label>
+      <div class="form-group full-width"><label for="rDescricao">Descrição do serviço *</label>
         <textarea id="rDescricao" rows="2" placeholder="Ex.: Mensalidade de suporte técnico"></textarea></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Valor do serviço (R$) *</label>
+      <div class="form-group"><label for="rValor">Valor do serviço (R$) *</label>
         <input type="text" id="rValor" data-formato="dinheiro"></div>
-      <div class="form-group"><label>Código de tributação nacional *</label>
+      <div class="form-group"><label for="rCodTrib">Código de tributação nacional *</label>
         <input type="text" id="rCodTrib" placeholder="Ex.: 010101"></div>
-      <div class="form-group"><label>Item da lista de serviço</label>
+      <div class="form-group"><label for="rCodLista">Item da lista de serviço</label>
         <input type="text" id="rCodLista" placeholder="Ex.: 01.01"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Alíquota (%)</label><input type="number" id="rAliquota" step="0.01" min="0"></div>
-      <div class="form-group"><label>Deduções (R$)</label><input type="number" id="rDeducoes" step="0.01" min="0"></div>
-      <div class="form-group"><label>Dia de vencimento</label>
+      <div class="form-group"><label for="rAliquota">Alíquota (%)</label><input type="number" id="rAliquota" step="0.01" min="0"></div>
+      <div class="form-group"><label for="rDeducoes">Deduções (R$)</label><input type="number" id="rDeducoes" step="0.01" min="0"></div>
+      <div class="form-group"><label for="rDiaVenc">Dia de vencimento</label>
         <input type="number" id="rDiaVenc" min="1" max="31" value="10"></div>
     </div>
     <div class="form-row">
@@ -110,7 +110,7 @@
       </div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Observações</label>
+      <div class="form-group full-width"><label for="rObs">Observações</label>
         <textarea id="rObs" rows="2"></textarea></div>
     </div>
     <div class="modal-actions">
@@ -122,6 +122,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script>initSidebar('recorrencias');</script>
 
 <script>

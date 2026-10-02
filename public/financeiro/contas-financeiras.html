@@ -38,18 +38,18 @@
     </div>
     <input type="hidden" id="mcId">
     <div class="form-row">
-      <div class="form-group"><label>Nome *</label><input type="text" id="mcNome" placeholder="Ex: Caixa Geral, Itaú CC, MercadoPago"></div>
-      <div class="form-group"><label>Tipo *</label>
+      <div class="form-group"><label for="mcNome">Nome *</label><input type="text" id="mcNome" placeholder="Ex: Caixa Geral, Itaú CC, MercadoPago"></div>
+      <div class="form-group"><label for="mcTipo">Tipo *</label>
         <select id="mcTipo"><option value="caixa">Caixa (dinheiro físico)</option><option value="banco">Banco (conta corrente/digital)</option></select>
       </div>
     </div>
     <div class="form-row" id="mcBancoRow">
-      <div class="form-group"><label>Banco</label><input type="text" id="mcBanco" placeholder="Itaú, Bradesco..."></div>
-      <div class="form-group"><label>Agência</label><input type="text" id="mcAgencia"></div>
-      <div class="form-group"><label>Conta</label><input type="text" id="mcConta"></div>
+      <div class="form-group"><label for="mcBanco">Banco</label><input type="text" id="mcBanco" placeholder="Itaú, Bradesco..."></div>
+      <div class="form-group"><label for="mcAgencia">Agência</label><input type="text" id="mcAgencia"></div>
+      <div class="form-group"><label for="mcConta">Conta</label><input type="text" id="mcConta"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Saldo Inicial (R$)</label><input type="number" id="mcSaldoInicial" step="0.01" value="0"></div>
+      <div class="form-group"><label for="mcSaldoInicial">Saldo Inicial (R$)</label><input type="number" id="mcSaldoInicial" step="0.01" value="0"></div>
       <div class="form-group" style="display:flex;flex-direction:row;align-items:center;gap:8px;padding-top:22px;">
         <input type="checkbox" id="mcPadrao" style="width:auto;">
         <label for="mcPadrao" style="color:var(--text-1);text-transform:none;font-size:0.9em;letter-spacing:0;">Conta padrão deste tipo</label>
@@ -57,12 +57,12 @@
     </div>
     <!-- Empresa/filial: só aparece em tenant multi-loja, como o seletor do sidebar -->
     <div class="form-row" id="mcEstabRow" style="display:none;">
-      <div class="form-group full-width"><label>Empresa / filial</label>
+      <div class="form-group full-width"><label for="mcEstab">Empresa / filial</label>
         <select id="mcEstab"><option value="">Sem vínculo (todas)</option></select>
       </div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Observações</label><textarea id="mcObs" rows="2"></textarea></div>
+      <div class="form-group full-width"><label for="mcObs">Observações</label><textarea id="mcObs" rows="2"></textarea></div>
     </div>
 
     <!-- Emissão de boletos — disponível só em modo edição (precisa do id) -->
@@ -79,22 +79,22 @@
       <div id="bpBloco" style="display:none;">
         <div class="form-row">
           <div class="form-group">
-            <label>Provedor *</label>
+            <label for="bpProvedor">Provedor *</label>
             <select id="bpProvedor" onchange="bpRenderCampos()"></select>
           </div>
           <div class="form-group">
-            <label>Ambiente</label>
+            <label for="bpAmbiente">Ambiente</label>
             <select id="bpAmbiente">
               <option value="homologacao">Homologação</option>
               <option value="producao">Produção</option>
             </select>
           </div>
           <div class="form-group">
-            <label>Próximo nosso número</label>
+            <label for="bpProxNN">Próximo nosso número</label>
             <input type="number" id="bpProxNN" min="1" value="1">
           </div>
           <div class="form-group">
-            <label>Tarifa por boleto liquidado (R$)</label>
+            <label for="bpTarifa">Tarifa por boleto liquidado (R$)</label>
             <input type="number" id="bpTarifa" min="0" step="0.01" value="0">
             <small class="muted">Cobrada pelo banco a cada boleto pago. Vira conta a pagar quitada em
               despesa financeira na baixa — a receita continua pelo valor cheio. 0 = não lançar.
@@ -124,12 +124,12 @@
         <div id="bpCamposContainer"></div>
         <div id="bpCertificadoRow" class="form-row" style="display:none;">
           <div class="form-group full-width">
-            <label>Certificado A1 (.pfx)</label>
+            <label for="bpCertFile">Certificado A1 (.pfx)</label>
             <input type="file" id="bpCertFile" accept=".pfx,.p12" onchange="bpCarregarCert()">
             <small class="muted" id="bpCertStatus">Nenhum certificado carregado</small>
           </div>
           <div class="form-group full-width">
-            <label>Senha do certificado</label>
+            <label for="bpCertSenha">Senha do certificado</label>
             <input type="password" id="bpCertSenha" placeholder="Deixe vazio para não alterar" autocomplete="new-password">
           </div>
         </div>
@@ -159,15 +159,15 @@
       <button class="btn btn-ghost btn-sm" onclick="fecharTransferir()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Conta Origem *</label><select id="trfOrigem"></select></div>
-      <div class="form-group"><label>Conta Destino *</label><select id="trfDestino"></select></div>
+      <div class="form-group"><label for="trfOrigem">Conta Origem *</label><select id="trfOrigem"></select></div>
+      <div class="form-group"><label for="trfDestino">Conta Destino *</label><select id="trfDestino"></select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Valor (R$) *</label><input type="text" id="trfValor" data-formato="dinheiro"></div>
-      <div class="form-group"><label>Data</label><input type="date" id="trfData"></div>
+      <div class="form-group"><label for="trfValor">Valor (R$) *</label><input type="text" id="trfValor" data-formato="dinheiro"></div>
+      <div class="form-group"><label for="trfData">Data</label><input type="date" id="trfData"></div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Descrição</label><input type="text" id="trfDesc"></div>
+      <div class="form-group full-width"><label for="trfDesc">Descrição</label><input type="text" id="trfDesc"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharTransferir()">Cancelar</button>
@@ -178,6 +178,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script>initSidebar('contas-financeiras');</script>
 <script>
 let contasCache = [];
@@ -391,10 +392,10 @@ function bpRenderCampos(valores = {}){
     const v = valores[c.name] != null ? String(valores[c.name]) : '';
     const type = c.type === 'password' ? 'password' : c.type === 'select' ? 'select' : 'text';
     if (type === 'select') {
-      return `<div class="form-group"><label>${c.label}${c.required?' *':''}</label>
+      return `<div class="form-group"><label for="bpc_${c.name}">${c.label}${c.required?' *':''}</label>
         <select id="bpc_${c.name}">${(c.options||[]).map(o=>`<option value="${o}" ${o===v?'selected':''}>${o}</option>`).join('')}</select></div>`;
     }
-    return `<div class="form-group"><label>${c.label}${c.required?' *':''}</label>
+    return `<div class="form-group"><label for="bpc_${c.name}">${c.label}${c.required?' *':''}</label>
       <input type="${type}" id="bpc_${c.name}" value="${v.replace(/"/g,'&quot;')}" ${type==='password'?'autocomplete="new-password"':''} ${c.placeholder?`placeholder="${c.placeholder}"`:''}></div>`;
   }).join('') + `</div>`;
 }

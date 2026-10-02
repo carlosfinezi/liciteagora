@@ -77,11 +77,11 @@
          por exemplo). -->
     <div class="form-row">
       <div class="form-group" style="flex:1;">
-        <label>Contrato</label>
+        <label for="fContratoId">Contrato</label>
         <select id="fContratoId" onchange="aoTrocarContrato()"><option value="">— sem contrato —</option></select>
       </div>
       <div class="form-group" style="flex:1;position:relative;">
-        <label>Cliente <small class="muted" style="font-weight:normal;" id="fCliOrigem"></small></label>
+        <label for="fCliBusca">Cliente <small class="muted" style="font-weight:normal;" id="fCliOrigem"></small></label>
         <input type="text" id="fCliBusca" placeholder="Razão social…" oninput="acCli()" autocomplete="off">
         <input type="hidden" id="fClienteId">
         <div id="acCliList" class="ac-list"></div>
@@ -101,11 +101,11 @@
          assinatura já paga. Mesmos eixos do próprio painel da NicSRS. -->
     <div class="form-row">
       <div class="form-group">
-        <label>Marca</label>
+        <label for="fFiltroMarca">Marca</label>
         <select id="fFiltroMarca" onchange="renderProdutos()"><option value="">Todas as marcas</option></select>
       </div>
       <div class="form-group">
-        <label>Validação</label>
+        <label for="fFiltroValidacao">Validação</label>
         <select id="fFiltroValidacao" onchange="renderProdutos()">
           <option value="">Todas</option>
           <option value="dv">DV — só o domínio</option>
@@ -114,7 +114,7 @@
         </select>
       </div>
       <div class="form-group">
-        <label>Tipo de domínio</label>
+        <label for="fFiltroDominio">Tipo de domínio</label>
         <select id="fFiltroDominio" onchange="renderProdutos()">
           <option value="">Todos</option>
           <option value="single">Simples</option>
@@ -126,7 +126,7 @@
 
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Produto NicSRS * <small class="muted" id="fFiltroContagem"></small></label>
+        <label for="fProductCode">Produto NicSRS * <small class="muted" id="fFiltroContagem"></small></label>
         <select id="fProductCode" onchange="aoTrocarProduto()"><option value="">Sincronize o catálogo em "Integração NicSRS"</option></select>
       </div>
     </div>
@@ -134,7 +134,7 @@
     <!-- Antes dos campos de domínio: é o CSR que os preenche. -->
     <div class="form-row">
       <div class="form-group full-width">
-        <label>CSR <small class="muted" style="font-weight:normal;">— opcional</small></label>
+        <label for="fCsr">CSR <small class="muted" style="font-weight:normal;">— opcional</small></label>
         <textarea id="fCsr" rows="4" placeholder="deixe vazio para a NicSRS gerar o par de chaves"
                   oninput="debounceCsr()" onchange="lerCsr()" style="font-family:monospace;font-size:0.85em;"></textarea>
         <!-- Deixou de ser obrigatório na prática em 2026-09-01, mas o rótulo
@@ -152,25 +152,25 @@
 
     <div class="form-row">
       <div class="form-group">
-        <label>Domínio principal (CN) *</label>
+        <label for="fCN">Domínio principal (CN) *</label>
         <input type="text" id="fCN" placeholder="preenchido pelo CSR" onchange="aoMudarDominio()">
       </div>
       <div class="form-group">
-        <label>Anos de assinatura</label>
+        <label for="fAnos">Anos de assinatura</label>
         <input type="number" id="fAnos" min="1" max="6" value="1" onchange="atualizarCusto()">
       </div>
     </div>
 
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Domínios adicionais (SAN)</label>
+        <label for="fSan">Domínios adicionais (SAN)</label>
         <input type="text" id="fSan" placeholder="separados por vírgula — deixe vazio se não houver">
       </div>
     </div>
 
     <div class="form-row">
       <div class="form-group">
-        <label>Validação de domínio (DCV) *</label>
+        <label for="fDcv">Validação de domínio (DCV) *</label>
         <select id="fDcv" onchange="toggleDcvEmail()">
           <option value="CNAME_CSR_HASH">DNS CNAME — recomendado (reemissão automática)</option>
           <option value="HTTP_CSR_HASH">Arquivo HTTP (reemissão automática)</option>
@@ -179,7 +179,7 @@
         </select>
       </div>
       <div class="form-group" id="grpDcvEmail" style="display:none;">
-        <label>E-mail aprovador *</label>
+        <label for="fDcvEmail">E-mail aprovador *</label>
         <select id="fDcvEmail"><option value="">— informe o domínio primeiro —</option></select>
         <small class="muted">Só estes endereços são aceitos pela CA, montados a partir do domínio.</small>
         <!-- O arquivo vale ~200 dias e a assinatura 1 ano+, então TODO certificado
@@ -196,7 +196,7 @@
 
     <div class="form-row">
       <div class="form-group">
-        <label>Servidor</label>
+        <label for="fServidor">Servidor</label>
         <select id="fServidor">
           <option value="nginx">NGINX</option>
           <option value="apache2">Apache</option>
@@ -209,7 +209,7 @@
         </select>
       </div>
       <div class="form-group">
-        <label>Custo NicSRS (US$)</label>
+        <label for="fCustoUsd">Custo NicSRS (US$)</label>
         <input type="text" id="fCustoUsd" placeholder="ex.: 23.30" data-formato="dinheiro">
       </div>
     </div>
@@ -253,7 +253,7 @@
 
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Contrato</label>
+        <label for="vContratoId">Contrato</label>
         <select id="vContratoId"><option value="">— nenhum (apenas desvincular) —</option></select>
         <small class="muted">O cliente vem do próprio contrato.</small>
       </div>
@@ -261,7 +261,7 @@
 
     <div class="form-row">
       <div class="form-group full-width" style="position:relative;">
-        <label>Ou apenas o cliente, sem contrato</label>
+        <label for="vCliBusca">Ou apenas o cliente, sem contrato</label>
         <input type="text" id="vCliBusca" placeholder="Razão social…" oninput="acCliVinc()" autocomplete="off">
         <input type="hidden" id="vClienteId">
         <div id="acCliVincList" class="ac-list"></div>
@@ -277,6 +277,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('ssl-certificados');</script>
@@ -1052,7 +1053,7 @@ function renderOrganizacao(valores){
       <div class="form-row">
         ${CAMPOS_ORG.map(c => `
           <div class="form-group">
-            <label>${c.rotulo}</label>
+            <label for="org_${c.chave}">${c.rotulo}</label>
             <input type="text" id="org_${c.chave}" value="${(v[c.chave]||'').replace(/"/g,'&quot;')}">
             ${c.dica ? `<small class="muted">${c.dica}</small>` : ''}
           </div>`).join('')}
@@ -1118,7 +1119,7 @@ function renderContatos(valores){
       <div class="form-row">
         ${CAMPOS_CONTATO.map(c => `
           <div class="form-group">
-            <label>${c.rotulo}</label>
+            <label for="ct_${p.chave}_${c.chave}">${c.rotulo}</label>
             <input type="text" id="ct_${p.chave}_${c.chave}" value="${(v[c.chave]||'').replace(/"/g,'&quot;')}">
             ${c.dica ? `<small class="muted">${c.dica}</small>` : ''}
           </div>`).join('')}

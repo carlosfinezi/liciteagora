@@ -58,46 +58,46 @@
     </div>
     <input type="hidden" id="fId">
     <div class="form-row">
-      <div class="form-group"><label>Série</label><input type="number" id="fSerie" value="1" min="1"></div>
-      <div class="form-group"><label>Modal</label><select id="fModal"><option value="1">Rodoviário</option><option value="2">Aéreo</option><option value="3">Aquaviário</option><option value="4">Ferroviário</option></select></div>
-      <div class="form-group"><label>Tipo Emitente</label><select id="fTipoEmit"><option value="1">Transportador (PJ)</option><option value="2">Autônomo</option></select></div>
+      <div class="form-group"><label for="fSerie">Série</label><input type="number" id="fSerie" value="1" min="1"></div>
+      <div class="form-group"><label for="fModal">Modal</label><select id="fModal"><option value="1">Rodoviário</option><option value="2">Aéreo</option><option value="3">Aquaviário</option><option value="4">Ferroviário</option></select></div>
+      <div class="form-group"><label for="fTipoEmit">Tipo Emitente</label><select id="fTipoEmit"><option value="1">Transportador (PJ)</option><option value="2">Autônomo</option></select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>UF Carregamento *</label><input type="text" id="fUfIni" maxlength="2" style="text-transform:uppercase"></div>
-      <div class="form-group"><label>UF Descarregamento *</label><input type="text" id="fUfFim" maxlength="2" style="text-transform:uppercase"></div>
-      <div class="form-group"><label>UFs do percurso</label><small class="muted">Separadas por vírgula</small><input type="text" id="fPerc" placeholder="MG, BA"></div>
+      <div class="form-group"><label for="fUfIni">UF Carregamento *</label><input type="text" id="fUfIni" maxlength="2" style="text-transform:uppercase"></div>
+      <div class="form-group"><label for="fUfFim">UF Descarregamento *</label><input type="text" id="fUfFim" maxlength="2" style="text-transform:uppercase"></div>
+      <div class="form-group"><label for="fPerc">UFs do percurso</label><small class="muted">Separadas por vírgula</small><input type="text" id="fPerc" placeholder="MG, BA"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Data emissão *</label><input type="date" id="fDtEmi"></div>
-      <div class="form-group"><label>Início viagem</label><input type="date" id="fDtIni"></div>
-      <div class="form-group"><label>RNTRC</label><input type="text" id="fRntrc"></div>
+      <div class="form-group"><label for="fDtEmi">Data emissão *</label><input type="date" id="fDtEmi"></div>
+      <div class="form-group"><label for="fDtIni">Início viagem</label><input type="date" id="fDtIni"></div>
+      <div class="form-group"><label for="fRntrc">RNTRC</label><input type="text" id="fRntrc"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Placa</label><input type="text" id="fPlaca" style="text-transform:uppercase" data-formato="placa"></div>
-      <div class="form-group"><label>Renavam</label><input type="text" id="fRenavam"></div>
-      <div class="form-group"><label>Tara (kg)</label><input type="number" id="fTara"></div>
-      <div class="form-group"><label>Capacidade (kg)</label><input type="number" id="fCap"></div>
+      <div class="form-group"><label for="fPlaca">Placa</label><input type="text" id="fPlaca" style="text-transform:uppercase" data-formato="placa"></div>
+      <div class="form-group"><label for="fRenavam">Renavam</label><input type="text" id="fRenavam"></div>
+      <div class="form-group"><label for="fTara">Tara (kg)</label><input type="number" id="fTara"></div>
+      <div class="form-group"><label for="fCap">Capacidade (kg)</label><input type="number" id="fCap"></div>
     </div>
     <div class="form-row">
-      <div class="form-group" style="flex:2;"><label>Condutor</label><input type="text" id="fCondNome"></div>
-      <div class="form-group"><label>CPF do condutor</label><input type="text" id="fCondCpf"></div>
+      <div class="form-group" style="flex:2;"><label for="fCondNome">Condutor</label><input type="text" id="fCondNome"></div>
+      <div class="form-group"><label for="fCondCpf">CPF do condutor</label><input type="text" id="fCondCpf"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Peso bruto total (kg)</label><input type="number" id="fPeso" step="0.001"></div>
-      <div class="form-group"><label>Valor total da carga (R$)</label><input type="number" id="fValCarga" step="0.01"></div>
+      <div class="form-group"><label for="fPeso">Peso bruto total (kg)</label><input type="number" id="fPeso" step="0.001"></div>
+      <div class="form-group"><label for="fValCarga">Valor total da carga (R$)</label><input type="number" id="fValCarga" step="0.01"></div>
     </div>
 
     <h4 style="margin-top:14px;">NF-e transportadas</h4>
     <div class="form-row">
-      <div class="form-group" style="flex:1;"><label>Chave de acesso (44 dígitos)</label><input type="text" id="fNfeChave" maxlength="44"></div>
-      <div class="form-group"><label>Número</label><input type="text" id="fNfeNum"></div>
-      <div class="form-group"><label>UF descarga</label><input type="text" id="fNfeUf" maxlength="2" style="text-transform:uppercase"></div>
+      <div class="form-group" style="flex:1;"><label for="fNfeChave">Chave de acesso (44 dígitos)</label><input type="text" id="fNfeChave" maxlength="44"></div>
+      <div class="form-group"><label for="fNfeNum">Número</label><input type="text" id="fNfeNum"></div>
+      <div class="form-group"><label for="fNfeUf">UF descarga</label><input type="text" id="fNfeUf" maxlength="2" style="text-transform:uppercase"></div>
       <div class="form-group"><button class="btn btn-secondary btn-sm" onclick="addNfe()" style="margin-top:18px;">Adicionar</button></div>
     </div>
     <table id="tbNfe" style="margin-top:8px;font-size:13px;"><thead><tr><th>Chave</th><th>Nº</th><th>UF</th><th></th></tr></thead><tbody></tbody></table>
 
     <div class="form-row" style="margin-top:14px;">
-      <div class="form-group full-width"><label>Observações</label><textarea id="fObs" rows="2"></textarea></div>
+      <div class="form-group full-width"><label for="fObs">Observações</label><textarea id="fObs" rows="2"></textarea></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
@@ -117,8 +117,8 @@
       <button class="btn btn-ghost btn-sm" onclick="document.getElementById('modalTransmitido').classList.remove('open')" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
     <input type="hidden" id="trId">
-    <div class="form-row"><div class="form-group full-width"><label>Chave de acesso (44 dígitos) *</label><input type="text" id="trChave" maxlength="44"></div></div>
-    <div class="form-row"><div class="form-group full-width"><label>Protocolo (opcional)</label><input type="text" id="trProt"></div></div>
+    <div class="form-row"><div class="form-group full-width"><label for="trChave">Chave de acesso (44 dígitos) *</label><input type="text" id="trChave" maxlength="44"></div></div>
+    <div class="form-row"><div class="form-group full-width"><label for="trProt">Protocolo (opcional)</label><input type="text" id="trProt"></div></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="document.getElementById('modalTransmitido').classList.remove('open')">Cancelar</button>
       <button class="btn btn-primary" onclick="confirmarTransmitido()">Confirmar</button>
@@ -128,6 +128,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('mdfe');</script>

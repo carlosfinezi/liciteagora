@@ -30,15 +30,15 @@
     <h3 style="margin-top:0;">Importar do banco</h3>
     <div class="form-row" style="justify-content:center;align-items:end;">
       <div class="form-group" style="min-width:240px;">
-        <label>Conta financeira *</label>
+        <label for="apiConta">Conta financeira *</label>
         <select id="apiConta" onchange="apiPeriodoPadrao()"></select>
       </div>
       <div class="form-group">
-        <label>De</label>
+        <label for="apiDe">De</label>
         <input type="date" id="apiDe">
       </div>
       <div class="form-group">
-        <label>Até</label>
+        <label for="apiAte">Até</label>
         <input type="date" id="apiAte">
       </div>
       <div class="form-group">
@@ -52,11 +52,11 @@
     <h3 style="margin-top:0;">Importar extrato OFX</h3>
     <div class="form-row" style="justify-content:center;align-items:end;">
       <div class="form-group" style="min-width:240px;">
-        <label>Conta financeira *</label>
+        <label for="upConta">Conta financeira *</label>
         <select id="upConta"></select>
       </div>
       <div class="form-group">
-        <label>Arquivo OFX *</label>
+        <label for="upArquivo">Arquivo OFX *</label>
         <input type="file" id="upArquivo" accept=".ofx,.OFX">
       </div>
       <div class="form-group">
@@ -112,9 +112,9 @@
     <div id="baixaBox" class="card" style="display:none;margin-bottom:14px;">
       <div id="baixaAlvo" style="margin-bottom:10px;"></div>
       <div class="form-row">
-        <div class="form-group"><label>Juros</label><input type="number" step="0.01" min="0" id="bJuros" value="0" oninput="recalcularBaixa()"></div>
-        <div class="form-group"><label>Multa</label><input type="number" step="0.01" min="0" id="bMulta" value="0" oninput="recalcularBaixa()"></div>
-        <div class="form-group"><label>Desconto</label><input type="number" step="0.01" min="0" id="bDesconto" value="0" oninput="recalcularBaixa()"></div>
+        <div class="form-group"><label for="bJuros">Juros</label><input type="number" step="0.01" min="0" id="bJuros" value="0" oninput="recalcularBaixa()"></div>
+        <div class="form-group"><label for="bMulta">Multa</label><input type="number" step="0.01" min="0" id="bMulta" value="0" oninput="recalcularBaixa()"></div>
+        <div class="form-group"><label for="bDesconto">Desconto</label><input type="number" step="0.01" min="0" id="bDesconto" value="0" oninput="recalcularBaixa()"></div>
       </div>
       <div id="bResumo" style="font-size:0.88em;"></div>
       <div style="margin-top:12px;display:flex;gap:8px;">
@@ -126,7 +126,7 @@
     <div style="font-size:var(--text-xs);color:var(--text-2);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:6px;">Ou marcar como avulsa</div>
     <div class="muted" style="font-size:var(--text-xs);margin-bottom:10px;">Lança direto na conta financeira, sem título. Sem a conta do plano o valor fica fora do DRE.</div>
     <div class="form-group" style="margin-bottom:10px;">
-      <label>Conta do plano</label>
+      <label for="avPlano">Conta do plano</label>
       <select id="avPlano"><option value="">Sem classificação</option></select>
     </div>
 

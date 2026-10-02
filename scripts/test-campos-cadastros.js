@@ -84,7 +84,12 @@ const FEATS = ['produtos', 'varejo', 'fiscal', 'comercial', 'financeiro', 'estoq
         });
         // A caixa de alerta trava a medição inteira; dispensar e registrar.
         const caixas = [];
-        page.on('dialog', async (d) => { caixas.push(d.message()); try { await d.dismiss(); } catch (e) { /* já foi */ } });
+        /* `beforeunload` fora da conta: é da SAÍDA, e quem o dispara é a prova
+           da máscara aqui mesmo, ao emitir `input` numa tela que marca sujo. */
+        page.on('dialog', async (d) => {
+          if (d.type() !== 'beforeunload') caixas.push(d.message());
+          try { await d.dismiss(); } catch (e) { /* já foi */ }
+        });
         await page.evaluateOnNewDocument(() => { window.__liciteShell = true; });
         await page.setViewport({ width: vp.w, height: vp.h });
         await page.goto(`http://127.0.0.1:${PORTA}/${tela.arq}`, { waitUntil: 'domcontentloaded', timeout: 20000 });

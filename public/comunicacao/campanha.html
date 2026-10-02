@@ -65,7 +65,7 @@
       <section class="secao" id="s-identificacao">
         <h2>Identificação</h2>
         <div class="form-row">
-          <div class="form-group full-width"><label>Nome *</label>
+          <div class="form-group full-width"><label for="cNome">Nome *</label>
             <input type="text" id="cNome" maxlength="80"></div>
         </div>
         <!-- Só com mais de um número de WhatsApp: com um, não há o que escolher. -->
@@ -76,14 +76,14 @@
             Nenhum marcado, sai pelo número padrão.</small>
         </div></div>
         <div class="form-row" data-modo="comm"><div class="form-group full-width">
-          <label>Tipo *</label>
+          <label for="cTipo">Tipo *</label>
           <select id="cTipo">
             <option value="operacional">Operacional — aviso de pedido, boleto, entrega</option>
             <option value="marketing">Marketing — só para quem aceitou receber</option>
           </select>
         </div></div>
         <div class="form-row" data-modo="wa"><div class="form-group full-width">
-          <label>Descrição</label><textarea id="cDesc" rows="2"></textarea>
+          <label for="cDesc">Descrição</label><textarea id="cDesc" rows="2"></textarea>
         </div></div>
       </section>
 
@@ -91,11 +91,11 @@
         <h2>A mensagem</h2>
         <div class="sub">O texto sai <strong>literal</strong>, com as variáveis trocadas no envio.</div>
         <div class="form-row"><div class="form-group full-width">
-          <label>Modelo</label>
+          <label for="cTemplate">Modelo</label>
           <select id="cTemplate" onchange="mudouTemplate()"><option value="">— escrever uma nova —</option></select>
         </div></div>
         <div class="form-row" id="cNovoTemplate"><div class="form-group full-width">
-          <label>Texto da mensagem *</label>
+          <label for="cCorpo">Texto da mensagem *</label>
           <textarea id="cCorpo" rows="4" placeholder="Olá {{razaoSocial}}, ..."></textarea>
           <small class="muted">Variáveis: {{primeiroNome}} · {{nomeFantasia}} · {{razaoSocial}} · {{cpfCnpj}} ·
             {{email}} · {{telefone}} · {{cidade}} · {{ramo}} · {{porte}}. Variável escrita errada é barrada ao salvar.</small>
@@ -106,7 +106,7 @@
         <h2>Quem recebe</h2>
         <div class="sub">Quem pediu para sair é descartado no envio, mesmo estando aqui.</div>
         <div class="form-row"><div class="form-group full-width">
-          <label>Lista</label>
+          <label for="cLista">Lista</label>
           <select id="cLista" onchange="carregarSegmentosDaLista([])"><option value="">— escolha uma lista —</option></select>
           <small class="muted">As listas ficam em <a href="/comunicacao/listas.html">Listas</a>.</small>
         </div></div>
@@ -125,7 +125,7 @@
         <h2>A mensagem</h2>
         <div class="sub">Cada contato recebe o texto do modelo, com as variáveis trocadas pelos dados dele.</div>
         <div class="form-row"><div class="form-group full-width">
-          <label>Modelo de mensagem *</label>
+          <label for="cModelo">Modelo de mensagem *</label>
           <select id="cModelo" onchange="previaModelo()"><option value="">— escolha um modelo —</option></select>
           <small class="muted">Os modelos ficam em <a href="/comunicacao/modelos.html">Modelos de mensagem</a>.
             Só aparecem os de WhatsApp.</small>
@@ -170,15 +170,15 @@
         <h2>Ritmo e horário</h2>
         <div class="sub" id="ritmoSub"></div>
         <div class="form-row">
-          <div class="form-group"><label>Limite por dia</label>
+          <div class="form-group"><label for="cDiario">Limite por dia</label>
             <input type="number" id="cDiario" min="1" max="500" step="1"></div>
-          <div class="form-group"><label>Intervalo mínimo (s)</label>
+          <div class="form-group"><label for="cMin">Intervalo mínimo (s)</label>
             <input type="number" id="cMin" min="0" step="10"></div>
-          <div class="form-group"><label>Intervalo máximo (s)</label>
+          <div class="form-group"><label for="cMax">Intervalo máximo (s)</label>
             <input type="number" id="cMax" min="0" step="10"></div>
-          <div class="form-group"><label>Início</label>
+          <div class="form-group"><label for="cIni">Início</label>
             <input type="time" id="cIni"></div>
-          <div class="form-group"><label>Fim</label>
+          <div class="form-group"><label for="cFim">Fim</label>
             <input type="time" id="cFim"></div>
         </div>
         <div class="form-row"><div class="form-group full-width">

@@ -58,13 +58,13 @@
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Escopo</label>
+        <label for="nEscopo">Escopo</label>
         <select id="nEscopo" onchange="carregarPessoas()">
           <option value="receber">Contas a receber</option>
           <option value="pagar">Contas a pagar</option>
         </select>
       </div>
-      <div class="form-group full-width"><label id="lblPessoa">Cliente</label>
+      <div class="form-group full-width"><label for="nPessoa" id="lblPessoa">Cliente</label>
         <select id="nPessoa" onchange="carregarTitulos()"></select>
       </div>
     </div>
@@ -77,10 +77,10 @@
     </div>
 
     <div class="form-row" style="margin-top:12px;">
-      <div class="form-group"><label>Juros (R$)</label><input type="number" id="nJuros" value="0" step="0.01" min="0" oninput="recalc()"></div>
-      <div class="form-group"><label>Desconto (R$)</label><input type="number" id="nDesconto" value="0" step="0.01" min="0" oninput="recalc()"></div>
-      <div class="form-group"><label>Nº parcelas</label><input type="number" id="nParcelas" value="3" min="1" max="60" oninput="recalc()"></div>
-      <div class="form-group"><label>1º vencimento</label><input type="date" id="nPrimeiroVenc" oninput="recalc()"></div>
+      <div class="form-group"><label for="nJuros">Juros (R$)</label><input type="number" id="nJuros" value="0" step="0.01" min="0" oninput="recalc()"></div>
+      <div class="form-group"><label for="nDesconto">Desconto (R$)</label><input type="number" id="nDesconto" value="0" step="0.01" min="0" oninput="recalc()"></div>
+      <div class="form-group"><label for="nParcelas">Nº parcelas</label><input type="number" id="nParcelas" value="3" min="1" max="60" oninput="recalc()"></div>
+      <div class="form-group"><label for="nPrimeiroVenc">1º vencimento</label><input type="date" id="nPrimeiroVenc" oninput="recalc()"></div>
     </div>
     <div id="resumoAcordo" class="card card-info" style="font-size:0.9em;margin-bottom:10px;"></div>
     <div class="tbl-wrap" style="max-height:180px;overflow-y:auto;">
@@ -90,7 +90,7 @@
       </table>
     </div>
     <div class="form-row" style="margin-top:8px;">
-      <div class="form-group full-width"><label>Observação</label><input type="text" id="nObs"></div>
+      <div class="form-group full-width"><label for="nObs">Observação</label><input type="text" id="nObs"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fechar()">Cancelar</button>

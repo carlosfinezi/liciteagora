@@ -75,35 +75,35 @@
 
     <div class="panel">
       <h3 style="margin-top:0;">Cadastro</h3>
-      <div class="form-row"><div class="form-group full-width"><label>Descrição *</label><input type="text" id="eDesc"></div></div>
+      <div class="form-row"><div class="form-group full-width"><label for="eDesc">Descrição *</label><input type="text" id="eDesc"></div></div>
       <div class="form-row">
-        <div class="form-group"><label>Marca</label><input type="text" id="eMarca"></div>
-        <div class="form-group"><label>Modelo</label><input type="text" id="eModelo"></div>
+        <div class="form-group"><label for="eMarca">Marca</label><input type="text" id="eMarca"></div>
+        <div class="form-group"><label for="eModelo">Modelo</label><input type="text" id="eModelo"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Nº de série</label><input type="text" id="eSerie"></div>
-        <div class="form-group"><label>Patrimônio</label><input type="text" id="ePatrimonio"></div>
+        <div class="form-group"><label for="eSerie">Nº de série</label><input type="text" id="eSerie"></div>
+        <div class="form-group"><label for="ePatrimonio">Patrimônio</label><input type="text" id="ePatrimonio"></div>
       </div>
       <div class="form-row"><div class="form-group full-width">
-        <label>De quem é</label>
+        <label for="eProprietario">De quem é</label>
         <select id="eProprietario" onchange="trocarProprietario()">
           <option value="cliente">Do cliente</option>
           <option value="empresa">Da empresa (máquina nossa)</option>
         </select>
         <small class="muted" id="eVinculo"></small>
       </div></div>
-      <div class="form-row" id="rowCliente"><div class="form-group full-width"><label>Cliente</label><select id="eCliente"></select></div></div>
+      <div class="form-row" id="rowCliente"><div class="form-group full-width"><label for="eCliente">Cliente</label><select id="eCliente"></select></div></div>
       <div class="form-row" id="rowMotivo" style="display:none;">
-        <div class="form-group full-width"><label>Motivo da troca de dono</label>
+        <div class="form-group full-width"><label for="eMotivoTroca">Motivo da troca de dono</label>
           <input type="text" id="eMotivoTroca" placeholder="Ex.: venda entre empresas">
           <small class="muted">Fica registrado na linha do tempo</small>
         </div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Aquisição</label><input type="date" id="eAquisicao"></div>
-        <div class="form-group"><label>Garantia de fábrica até</label><input type="date" id="eGarantiaFab"></div>
+        <div class="form-group"><label for="eAquisicao">Aquisição</label><input type="date" id="eAquisicao"></div>
+        <div class="form-group"><label for="eGarantiaFab">Garantia de fábrica até</label><input type="date" id="eGarantiaFab"></div>
       </div>
-      <div class="form-row"><div class="form-group full-width"><label>Observações</label><input type="text" id="eObs"></div></div>
+      <div class="form-row"><div class="form-group full-width"><label for="eObs">Observações</label><input type="text" id="eObs"></div></div>
       <div class="form-row"><div class="form-group full-width">
         <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
           <input type="checkbox" id="eAtivo"> Equipamento ativo

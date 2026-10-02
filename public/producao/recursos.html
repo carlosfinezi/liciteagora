@@ -117,24 +117,24 @@ function campos(f) {
   return `
     <input type="hidden" id="fId" value="${f.id || ''}">
     <div class="form-row">
-      <div class="form-group"><label>Código</label>
+      <div class="form-group"><label for="fCodigo">Código</label>
         <input type="text" id="fCodigo" value="${esc(f.codigo || '')}" ${f.id ? 'disabled' : ''}></div>
-      <div class="form-group" style="flex:2;"><label>Descrição</label>
+      <div class="form-group" style="flex:2;"><label for="fDescricao">Descrição</label>
         <input type="text" id="fDescricao" value="${esc(f.descricao || '')}"></div>
-      <div class="form-group"><label>Tipo</label>
+      <div class="form-group"><label for="fTipo">Tipo</label>
         <select id="fTipo">
           <option value="forma" ${f.tipo === 'forma' ? 'selected' : ''}>Forma</option>
           <option value="pista" ${f.tipo === 'pista' ? 'selected' : ''}>Pista de protensão</option>
         </select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Comprimento útil (m)</label>
+      <div class="form-group"><label for="fCompr">Comprimento útil (m)</label>
         <input type="number" id="fCompr" step="0.01" min="0" value="${esc(f.comprimentoUtilM != null ? f.comprimentoUtilM : '')}"></div>
-      <div class="form-group"><label>Capacidade (peças por ciclo)</label>
+      <div class="form-group"><label for="fCap">Capacidade (peças por ciclo)</label>
         <input type="number" id="fCap" step="0.01" min="0" value="${f.capacidadePecas != null ? f.capacidadePecas : 1}"></div>
-      <div class="form-group"><label>Localização</label>
+      <div class="form-group"><label for="fLocal">Localização</label>
         <input type="text" id="fLocal" value="${esc(f.localizacao || '')}"></div>
-      <div class="form-group"><label>Ativa</label>
+      <div class="form-group"><label for="fAtivo">Ativa</label>
         <select id="fAtivo"><option value="1" ${f.ativo !== 0 ? 'selected' : ''}>Sim</option>
           <option value="0" ${f.ativo === 0 ? 'selected' : ''}>Não</option></select></div>
     </div>
@@ -197,9 +197,9 @@ async function abrir(id) {
     </table></div>
 
     <div class="form-row" style="align-items:flex-end;margin-top:12px;">
-      <div class="form-group"><label>De</label><input type="datetime-local" id="bIni"></div>
-      <div class="form-group"><label>Até</label><input type="datetime-local" id="bFim"></div>
-      <div class="form-group" style="flex:2;"><label>Motivo</label>
+      <div class="form-group"><label for="bIni">De</label><input type="datetime-local" id="bIni"></div>
+      <div class="form-group"><label for="bFim">Até</label><input type="datetime-local" id="bFim"></div>
+      <div class="form-group" style="flex:2;"><label for="bMotivo">Motivo</label>
         <input type="text" id="bMotivo" placeholder="troca de molde, reforma, pintura…"></div>
       <div class="form-group"><button class="btn btn-primary" onclick="bloquear(${id})">Bloquear</button></div>
     </div>`;

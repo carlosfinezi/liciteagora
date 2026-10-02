@@ -25,16 +25,16 @@
     <h3 style="font-size:0.88em;color:var(--text-2);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:14px;">Cabeçalho</h3>
     <div class="form-row">
       <div class="form-group" style="position:relative;">
-        <label>Fornecedor</label>
+        <label for="fornBusca">Fornecedor</label>
         <input type="text" id="fornBusca" placeholder="CNPJ ou razão social…" oninput="acForn()" autocomplete="off">
         <input type="hidden" id="fornecedorId">
         <div id="fornList" class="ac-list"></div>
       </div>
-      <div class="form-group"><label>Previsão de entrega</label><input type="date" id="dataPrevista"></div>
-      <div class="form-group"><label>Status</label><input id="statusDisplay" readonly></div>
+      <div class="form-group"><label for="dataPrevista">Previsão de entrega</label><input type="date" id="dataPrevista"></div>
+      <div class="form-group"><label for="statusDisplay">Status</label><input id="statusDisplay" readonly></div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Observações</label><textarea id="observacoes" rows="2"></textarea></div>
+      <div class="form-group full-width"><label for="observacoes">Observações</label><textarea id="observacoes" rows="2"></textarea></div>
     </div>
     <div class="actions-bar" id="acoesCabecalho">
       <button class="btn btn-secondary" onclick="salvarCabecalho()">Salvar cabeçalho</button>
@@ -66,13 +66,13 @@
 
     <div id="addItemBox" class="form-row" style="margin-top:14px;">
       <div class="form-group" style="position:relative;">
-        <label>Adicionar produto</label>
+        <label for="prodBusca">Adicionar produto</label>
         <input type="text" id="prodBusca" placeholder="Código ou descrição…" oninput="acProd()" autocomplete="off">
         <input type="hidden" id="prodId">
         <div id="prodList" class="ac-list"></div>
       </div>
-      <div class="form-group"><label>Quantidade</label><input type="number" id="novaQtd" step="0.01"></div>
-      <div class="form-group"><label>Custo unit.</label><input type="text" id="novoCusto" data-formato="dinheiro"></div>
+      <div class="form-group"><label for="novaQtd">Quantidade</label><input type="number" id="novaQtd" step="0.01"></div>
+      <div class="form-group"><label for="novoCusto">Custo unit.</label><input type="text" id="novoCusto" data-formato="dinheiro"></div>
       <div class="form-group" style="display:flex;align-items:flex-end;"><button class="btn btn-primary" onclick="addItem()">+ Adicionar</button></div>
     </div>
   </div>
@@ -116,7 +116,7 @@
       <button class="btn btn-ghost btn-sm" onclick="fecharReceber()">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Data recebimento</label><input type="date" id="recData"></div>
+      <div class="form-group"><label for="recData">Data recebimento</label><input type="date" id="recData"></div>
     </div>
     <div class="tbl-wrap">
       <table>
@@ -142,6 +142,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script>initSidebar('pedidos-compra');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }

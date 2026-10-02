@@ -44,18 +44,18 @@
 
   <div class="rt-toolbar">
     <div class="field">
-      <label>Competência</label>
+      <label for="fComp">Competência</label>
       <input type="month" id="fComp" onchange="carregar()">
     </div>
     <div class="field">
-      <label>Base</label>
+      <label for="fBase">Base</label>
       <select id="fBase" onchange="carregar()">
         <option value="vencimento">Vencimento</option>
         <option value="pagamento">Pagamento</option>
       </select>
     </div>
     <div class="field">
-      <label>Filtro</label>
+      <label for="fFiltro">Filtro</label>
       <select id="fFiltro" onchange="carregar()">
         <option value="1">Somente com retenção</option>
         <option value="0">Todas as CPs do período</option>
@@ -93,10 +93,10 @@
     <div id="mDesc" style="color:var(--text-1);font-size:0.9em;margin-bottom:10px;"></div>
     <div class="resumo">Valor bruto: <strong id="mBruto">R$ 0,00</strong></div>
     <div class="form-ret">
-      <div><label>INSS (R$)</label><input type="number" id="mInss" step="0.01" value="0" oninput="recalcModal()"></div>
-      <div><label>IRRF (R$)</label><input type="number" id="mIrrf" step="0.01" value="0" oninput="recalcModal()"></div>
-      <div><label>ISS (R$)</label><input type="number" id="mIss" step="0.01" value="0" oninput="recalcModal()"></div>
-      <div><label>CSRF (R$)</label><input type="number" id="mCsrf" step="0.01" value="0" oninput="recalcModal()"></div>
+      <div><label for="mInss">INSS (R$)</label><input type="number" id="mInss" step="0.01" value="0" oninput="recalcModal()"></div>
+      <div><label for="mIrrf">IRRF (R$)</label><input type="number" id="mIrrf" step="0.01" value="0" oninput="recalcModal()"></div>
+      <div><label for="mIss">ISS (R$)</label><input type="number" id="mIss" step="0.01" value="0" oninput="recalcModal()"></div>
+      <div><label for="mCsrf">CSRF (R$)</label><input type="number" id="mCsrf" step="0.01" value="0" oninput="recalcModal()"></div>
     </div>
     <div class="resumo">
       Total retido: <strong id="mRetido">R$ 0,00</strong><br>

@@ -50,48 +50,48 @@
                     <h3>Tomador do Servico</h3>
                     <div class="form-row">
                         <div class="form-group autocomplete-wrapper" style="position: relative;">
-                            <label>CPF/CNPJ *</label>
+                            <label for="tomaCpfCnpj">CPF/CNPJ *</label>
                             <input type="text" id="tomaCpfCnpj" placeholder="CPF ou CNPJ do tomador" oninput="buscarTomadorAutocomplete(this.value)" data-formato="cnpj">
                             <div id="tomadorAutocompleteLista" class="autocomplete-list"></div>
                         </div>
                         <div class="form-group">
-                            <label>Razao Social / Nome *</label>
+                            <label for="tomaRazaoSocial">Razao Social / Nome *</label>
                             <input type="text" id="tomaRazaoSocial" placeholder="Nome ou razao social">
                         </div>
                         <div class="form-group">
-                            <label>E-mail</label>
+                            <label for="tomaEmail">E-mail</label>
                             <input type="email" id="tomaEmail" placeholder="E-mail do tomador">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Logradouro</label>
+                            <label for="tomaLogradouro">Logradouro</label>
                             <input type="text" id="tomaLogradouro" placeholder="Rua, Av, etc.">
                         </div>
                         <div class="form-group" style="max-width: 120px;">
-                            <label>Numero</label>
+                            <label for="tomaNumero">Numero</label>
                             <input type="text" id="tomaNumero" placeholder="Nr.">
                         </div>
                         <div class="form-group">
-                            <label>Complemento</label>
+                            <label for="tomaComplemento">Complemento</label>
                             <input type="text" id="tomaComplemento" placeholder="Sala, andar...">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Bairro</label>
+                            <label for="tomaBairro">Bairro</label>
                             <input type="text" id="tomaBairro" placeholder="Bairro">
                         </div>
                         <div class="form-group">
-                            <label>Cod. Municipio (IBGE)</label>
+                            <label for="tomaCodMunicipio">Cod. Municipio (IBGE)</label>
                             <input type="text" id="tomaCodMunicipio" placeholder="Ex: 3550308">
                         </div>
                         <div class="form-group" style="max-width: 80px;">
-                            <label>UF</label>
+                            <label for="tomaUF">UF</label>
                             <input type="text" id="tomaUF" placeholder="SP" maxlength="2">
                         </div>
                         <div class="form-group" style="max-width: 120px;">
-                            <label>CEP</label>
+                            <label for="tomaCEP">CEP</label>
                             <input type="text" id="tomaCEP" placeholder="00000000">
                         </div>
                     </div>
@@ -102,16 +102,16 @@
                     <h3>Servico Prestado</h3>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Código de tributação *</label>
+                            <label for="servCTribNac">Código de tributação *</label>
                             <input type="text" id="servCTribNac" placeholder="Ex: 010101" value="170201">
                             <small class="muted">O cTribNac, da tabela nacional de serviços.</small>
                         </div>
                         <div class="form-group">
-                            <label>Codigo Lista Servico (LC 116)</label>
+                            <label for="servCodListaServico">Codigo Lista Servico (LC 116)</label>
                             <input type="text" id="servCodListaServico" placeholder="Ex: 01.01" value="001">
                         </div>
                         <div class="form-group">
-                            <label>Município da prestação</label><small class="muted">Código IBGE, 7 dígitos</small>
+                            <label for="servMunPrestacao">Município da prestação</label><small class="muted">Código IBGE, 7 dígitos</small>
                             <input type="text" id="servMunPrestacao" inputmode="numeric" pattern="\d{7}" maxlength="7"
                                    placeholder="Ex: 2704302 (vazio = mesmo do prestador)"
                                    oninput="this.value=this.value.replace(/\D/g,'').slice(0,7)">
@@ -119,7 +119,7 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group full-width">
-                            <label>Descricao do Servico *</label>
+                            <label for="servDescricao">Descricao do Servico *</label>
                             <textarea id="servDescricao" placeholder="Descreva o servico prestado..."></textarea>
                         </div>
                     </div>
@@ -130,19 +130,19 @@
                     <h3>Valores</h3>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Valor do Servico (R$) *</label>
+                            <label for="servValor">Valor do Servico (R$) *</label>
                             <input type="text" id="servValor" placeholder="0,00" data-formato="dinheiro">
                         </div>
                         <div class="form-group">
-                            <label>Deducoes (R$)</label>
+                            <label for="servDeducoes">Deducoes (R$)</label>
                             <input type="number" id="servDeducoes" step="0.01" min="0" placeholder="0,00">
                         </div>
                         <div class="form-group">
-                            <label>Aliquota ISS (%)</label>
+                            <label for="servAliquota">Aliquota ISS (%)</label>
                             <input type="number" id="servAliquota" step="0.01" min="0" max="100" placeholder="Ex: 5.00">
                         </div>
                         <div class="form-group">
-                            <label>Data Competencia</label>
+                            <label for="servCompetencia">Data Competencia</label>
                             <input type="date" id="servCompetencia">
                         </div>
                     </div>
@@ -159,7 +159,7 @@
                             </label>
                         </div>
                         <div class="form-group" id="divVencimentoBoleto" style="display: none;">
-                            <label>Data de Vencimento do Boleto</label>
+                            <label for="dataVencimentoBoleto">Data de Vencimento do Boleto</label>
                             <input type="date" id="dataVencimentoBoleto">
                         </div>
                     </div>
@@ -583,6 +583,7 @@
     </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/campo-formato.js"></script>
     <script>initSidebar('nfse');</script>
 </body>
 </html>

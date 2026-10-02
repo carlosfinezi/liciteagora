@@ -18,11 +18,11 @@
   <div class="card" style="max-width:760px;margin-bottom:20px;">
     <h3 style="margin:0 0 10px;">Configuração da emissão</h3>
     <div class="form-row">
-      <div class="form-group"><label>Grupo IBS/CBS na NF-e</label>
+      <div class="form-group"><label for="cAtivo">Grupo IBS/CBS na NF-e</label>
         <select id="cAtivo"><option value="0">Desativado</option><option value="1">Ativado</option></select></div>
-      <div class="form-group"><label>IBS UF (%)</label><input type="number" id="cIBSUF" step="0.0001" style="width:110px;"></div>
-      <div class="form-group"><label>IBS Municipal (%)</label><input type="number" id="cIBSMun" step="0.0001" style="width:110px;"></div>
-      <div class="form-group"><label>CBS (%)</label><input type="number" id="cCBS" step="0.0001" style="width:110px;"></div>
+      <div class="form-group"><label for="cIBSUF">IBS UF (%)</label><input type="number" id="cIBSUF" step="0.0001" style="width:110px;"></div>
+      <div class="form-group"><label for="cIBSMun">IBS Municipal (%)</label><input type="number" id="cIBSMun" step="0.0001" style="width:110px;"></div>
+      <div class="form-group"><label for="cCBS">CBS (%)</label><input type="number" id="cCBS" step="0.0001" style="width:110px;"></div>
     </div>
     <small class="muted">Ano-teste 2026: IBS UF 0,1% + CBS 0,9%. CST/cClassTrib vêm do cadastro de cada produto (fallback 000/000001). Com o grupo ativo, a validação XSD local é pulada — a SEFAZ valida com o schema PL_010.</small>
     <div style="margin-top:12px;"><button class="btn btn-primary btn-sm" onclick="salvarCfg()">Salvar configuração</button>

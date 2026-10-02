@@ -36,17 +36,17 @@
       <button class="btn btn-ghost btn-sm" onclick="fechar()" style="font-size:1.2em;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Código *</label><input type="text" id="cCodigo" placeholder="Ex.: 1.1.001"></div>
-      <div class="form-group full-width"><label>Nome *</label><input type="text" id="cNome"></div>
+      <div class="form-group"><label for="cCodigo">Código *</label><input type="text" id="cCodigo" placeholder="Ex.: 1.1.001"></div>
+      <div class="form-group full-width"><label for="cNome">Nome *</label><input type="text" id="cNome"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Tipo</label>
+      <div class="form-group"><label for="cTipo">Tipo</label>
         <select id="cTipo"><option value="analitica">Analítica (recebe lançamento)</option><option value="sintetica">Sintética (agrupadora)</option></select>
       </div>
-      <div class="form-group"><label>Natureza</label>
+      <div class="form-group"><label for="cNatureza">Natureza</label>
         <select id="cNatureza"><option value="D">Devedora (ativo/despesa)</option><option value="C">Credora (passivo/receita)</option></select>
       </div>
-      <div class="form-group full-width"><label>Conta pai (sintética)</label><select id="cPai"><option value="">— raiz —</option></select></div>
+      <div class="form-group full-width"><label for="cPai">Conta pai (sintética)</label><select id="cPai"><option value="">— raiz —</option></select></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fechar()">Cancelar</button>

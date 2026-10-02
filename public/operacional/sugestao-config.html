@@ -29,7 +29,7 @@
   <div class="panel">
     <div class="form-row">
       <div class="form-group">
-        <label>Ativar sugestão de produto</label>
+        <label for="ativo">Ativar sugestão de produto</label>
         <select id="ativo">
           <option value="1">Ativada</option>
           <option value="0">Desativada</option>
@@ -37,33 +37,33 @@
         <small>Quando desativada, o painel e a coluna de sugestão não aparecem na Inteligência.</small>
       </div>
       <div class="form-group">
-        <label>Marca <span style="color:var(--danger)">*</span></label>
+        <label for="marca">Marca <span style="color:var(--danger)">*</span></label>
         <input type="text" id="marca" placeholder="Ex: TerraMaster, Dell, Multilaser…" maxlength="120">
         <small>A marca que você oferta. A IA busca equivalência técnica com o que o edital pede.</small>
       </div>
       <div class="form-group">
-        <label>Categoria</label>
+        <label for="categoria">Categoria</label>
         <input type="text" id="categoria" placeholder="Ex: gabinetes NAS/DAS, mobiliário de escritório…" maxlength="200">
         <small>Tipo de produto da marca. Ajuda a IA a contextualizar.</small>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Regras da marca</label>
+        <label for="regras">Regras da marca</label>
         <textarea id="regras" rows="6" placeholder="O que a marca fabrica e o que NÃO fabrica; quando responder &quot;nenhum&quot;. Ex: 'Só fabrica X e Y. Não fabrica acessórios avulsos → modelo nenhum, score 0.'"></textarea>
         <small>Texto livre com as regras de equivalência. Reduz sugestões erradas.</small>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Catálogo de specs (opcional)</label>
+        <label for="specs">Catálogo de specs (opcional)</label>
         <textarea id="specs" rows="10" placeholder="Uma linha por modelo, com os specs que importam. Ex:&#10;MODELO-A | 2 baias | desktop | 4GB | 40TB&#10;MODELO-B | 4 baias | rack | 8GB | 80TB" style="font-family:monospace;font-size:12px;"></textarea>
         <small>Tabela curada de modelos+specs. Sem ela, a IA usa o conhecimento próprio (menos preciso).</small>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Modelos válidos (opcional)</label>
+        <label for="modelos">Modelos válidos (opcional)</label>
         <textarea id="modelos" rows="3" placeholder="Lista de códigos válidos, separados por vírgula ou quebra de linha. Ex: MODELO-A, MODELO-B, MODELO-C"></textarea>
         <small>Se preenchido, qualquer modelo fora desta lista é descartado (anti-alucinação). Sem lista, não há validação de catálogo.</small>
       </div>

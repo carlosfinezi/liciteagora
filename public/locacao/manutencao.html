@@ -33,15 +33,15 @@
     <h3>Novo plano</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Ativo</label>
+        <label for="pProduto">Ativo</label>
         <select id="pProduto"></select>
       </div>
       <div class="form-group">
-        <label>Descrição</label>
+        <label for="pDescricao">Descrição</label>
         <input type="text" id="pDescricao" placeholder="Troca de óleo, revisão de 250h…">
       </div>
       <div class="form-group">
-        <label>Medido por</label>
+        <label for="pTipo">Medido por</label>
         <select id="pTipo">
           <option value="horimetro">Horímetro</option>
           <option value="km">Quilometragem</option>
@@ -50,7 +50,7 @@
         <small class="muted">Horímetro/km exigem medidor configurado no item.</small>
       </div>
       <div class="form-group">
-        <label>A cada</label>
+        <label for="pIntervalo">A cada</label>
         <input type="number" id="pIntervalo" min="1" step="1">
       </div>
       <div class="form-group" style="display:flex;align-items:flex-end;">
@@ -63,16 +63,16 @@
     <h3>Registrar leitura de medidor</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Ativo</label>
+        <label for="lProduto">Ativo</label>
         <select id="lProduto"></select>
       </div>
       <div class="form-group">
-        <label>Leitura atual</label>
+        <label for="lValor">Leitura atual</label>
         <input type="text" id="lValor" data-formato="dinheiro">
         <small class="muted">O medidor não retrocede: leitura menor que a anterior é recusada.</small>
       </div>
       <div class="form-group">
-        <label>Tipo</label>
+        <label for="lTipo">Tipo</label>
         <select id="lTipo"><option value="horimetro">Horímetro</option><option value="km">Km</option></select>
       </div>
       <div class="form-group" style="display:flex;align-items:flex-end;">
@@ -86,6 +86,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('locacao-manutencao');</script>
 <script>

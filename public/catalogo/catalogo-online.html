@@ -605,6 +605,7 @@ body.arrastando-lista { user-select: none; -webkit-user-select: none; cursor: gr
 <script src="/js/arrastar-ordenar.js"></script>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script>initSidebar('loja');</script>
 <script>
 /* Catálogo Online — central de montagem da vitrine.
@@ -1395,7 +1396,7 @@ function pintarProduto(p, resumo) {
 
     <div class="pp-sec">
       <h4>Preço</h4>
-      <div class="form-group"><label>Preço de venda *</label>
+      <div class="form-group"><label for="fPrecoVenda">Preço de venda *</label>
         <input type="text" id="fPrecoVenda" value="${Number(p.precoVenda) || 0}" data-formato="dinheiro"></div>
       <p class="pp-nota">Promoção por vigência já existe no ERP, em Tabelas de preço.
         A interface aqui vem numa próxima fase.</p>
@@ -1407,7 +1408,7 @@ function pintarProduto(p, resumo) {
       ${saldo >= SALDO_SUSPEITO ? `<p class="pp-nota">Este saldo veio de uma importação
         (movimentação única de entrada). Corrija em <a href="/estoque/movimentacoes.html">Estoque</a>
         se não corresponder ao real.</p>` : ''}
-      <div class="form-group"><label>Estoque mínimo</label>
+      <div class="form-group"><label for="fEstoqueMinimo">Estoque mínimo</label>
         <input type="number" step="0.01" id="fEstoqueMinimo" value="${Number(p.estoqueMinimo) || 0}"></div>
       <p class="pp-nota">O saldo vem das movimentações e não se edita aqui.</p>
     </div>
@@ -1415,14 +1416,14 @@ function pintarProduto(p, resumo) {
     <div class="pp-sec">
       <h4>Identificação</h4>
       <div class="form-row">
-        <div class="form-group"><label>Código</label>
+        <div class="form-group"><label for="fSku">Código</label>
           <input type="text" id="fSku" value="${esc(p.sku || '')}"></div>
-        <div class="form-group"><label>Unidade</label>
+        <div class="form-group"><label for="fUnidade">Unidade</label>
           <input type="text" id="fUnidade" value="${esc(p.unidade || '')}"></div>
       </div>
-      <div class="form-group"><label>Código de barras</label>
+      <div class="form-group"><label for="fCodigoBarras">Código de barras</label>
         <input type="text" id="fCodigoBarras" value="${esc(p.codigoBarras || '')}"></div>
-      <div class="form-group"><label>Categoria</label>
+      <div class="form-group"><label for="fCategoria">Categoria</label>
         <input type="text" id="fCategoria" list="catList" value="${esc(p.categoria || '')}" autocomplete="off">
         <datalist id="catList">${(DADOS.categorias || [])
           .filter((c) => c.categoria).map((c) => `<option value="${esc(c.categoria)}">`).join('')}</datalist></div>
@@ -1580,7 +1581,7 @@ async function abrirAparencia() {
         <div class="form-row">
           <div class="form-group"><label for="apRaio">Cantos <small class="muted" id="apRaioVal"></small></label>
             <input type="range" id="apRaio" min="0" max="32" step="2" value="${Number(tema.raio) || 0}"></div>
-          <div class="form-group"><label>Ícone da aba</label>
+          <div class="form-group"><label for="arqFavicon">Ícone da aba</label>
             <div style="display:flex;gap:8px;align-items:center;">
               <img id="apFavicon" alt="" style="width:32px;height:32px;border-radius:6px;object-fit:cover;border:1px solid var(--border);"
                    ${CFG_AP.faviconPath ? `src="${esc(CFG_AP.faviconPath)}"` : 'hidden'}>

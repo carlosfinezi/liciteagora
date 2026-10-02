@@ -79,7 +79,18 @@ const FEATS = ['produtos', 'varejo', 'fiscal', 'comercial', 'financeiro', 'estoq
   const app = express();
   app.get('/api/features/status', (_q, s) => s.json({ features: Object.fromEntries(FEATS.map((k) => [k, true])) }));
   app.get('/api/perfis/meu-acesso', (_q, s) => s.json({ irrestrito: true, acessos: {} }));
+  /**
+   * O `contas` deste `if` pegava `/api/contas-a-pagar` e `/api/contas-a-receber`
+   * pelo meio da palavra, e as duas respondem ENVELOPE (`{success, contas}`) na
+   * rota real (`contas-pagar-routes.js:456`). Recebendo `[]`, as duas telas
+   * caíam no `if (!r1.success) throw new Error(r1.error)` e abriam `alert('Erro: ')`
+   * — comportamento CERTO delas, cobrado aqui como se fosse defeito. Medido em
+   * 02/10/2026 nas duas versões da tela, com e sem a peça: alerta idêntico, logo
+   * o harness era a causa.
+   */
+  const ENVELOPE = /^\/api\/contas-a-(pagar|receber)/;
   app.all('/api/*splat', (q, s) => {
+    if (ENVELOPE.test(q.path)) return s.json({ success: true, contas: [], resumo: {} });
     if (/lista|itens|pessoas|contas|segmentos|tags|produtos|pedidos/i.test(q.path)) return s.json([]);
     s.json({ success: true, total: 0, dados: [], itens: [], resultado: [], lista: [] });
   });
@@ -131,7 +142,15 @@ const FEATS = ['produtos', 'varejo', 'fiscal', 'comercial', 'financeiro', 'estoq
           if (/Failed to load resource|favicon|net::ERR|MIME|Refused|ViaCEP|viacep/.test(t)) return;
           erros.push(t.slice(0, 120));
         });
-        page.on('dialog', async (d) => { caixas.push(`${d.type()}: ${d.message().slice(0, 60)}`); try { await d.dismiss(); } catch (e) { /* já foi */ } });
+        /* `beforeunload` fica FORA da conta, e não por tolerância: ele é por
+           definição da SAÍDA, nunca da abertura, e quem o dispara aqui é esta
+           própria suíte — `comercial/pedido.html` marca a tela como suja a cada
+           evento `input` dentro do painel, que é exatamente o que a prova da
+           máscara emite. A tela está certa em avisar que há mudança não salva. */
+        page.on('dialog', async (d) => {
+          if (d.type() !== 'beforeunload') caixas.push(`${d.type()}: ${d.message().slice(0, 60)}`);
+          try { await d.dismiss(); } catch (e) { /* já foi */ }
+        });
         try {
           if (!FORA_DO_SHELL(tela)) await page.evaluateOnNewDocument(() => { window.__liciteShell = true; });
           await page.setViewport({ width: vp.w, height: vp.h });

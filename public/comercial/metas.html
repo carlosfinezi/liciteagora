@@ -93,12 +93,12 @@
       <button class="btn btn-ghost btn-sm" onclick="fecharMeta()" style="font-size:1.2em;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Vendedor *</label><select id="mVend" onchange="preencherMetaAtual()"></select></div>
+      <div class="form-group full-width"><label for="mVend">Vendedor *</label><select id="mVend" onchange="preencherMetaAtual()"></select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Meta de receita (R$) *</label><input type="text" id="mValor" data-formato="dinheiro"></div>
-      <div class="form-group"><label>Meta de margem (R$)</label><input type="number" id="mMargem" step="0.01" min="0"></div>
-      <div class="form-group"><label>Meta de pedidos</label><input type="number" id="mPedidos" step="1" min="0"></div>
+      <div class="form-group"><label for="mValor">Meta de receita (R$) *</label><input type="text" id="mValor" data-formato="dinheiro"></div>
+      <div class="form-group"><label for="mMargem">Meta de margem (R$)</label><input type="number" id="mMargem" step="0.01" min="0"></div>
+      <div class="form-group"><label for="mPedidos">Meta de pedidos</label><input type="number" id="mPedidos" step="1" min="0"></div>
     </div>
     <small class="muted">Meta de margem é opcional, mas é o que impede bater a meta de receita à custa de desconto.</small>
     <div class="modal-actions">
@@ -120,11 +120,11 @@
       Sem definir aqui, o painel usa a soma como referência.
     </p>
     <div class="form-row">
-      <div class="form-group"><label>Meta de receita (R$) *</label><input type="text" id="eValor" data-formato="dinheiro"></div>
-      <div class="form-group"><label>Meta de margem (R$)</label><input type="number" id="eMargem" step="0.01" min="0"></div>
+      <div class="form-group"><label for="eValor">Meta de receita (R$) *</label><input type="text" id="eValor" data-formato="dinheiro"></div>
+      <div class="form-group"><label for="eMargem">Meta de margem (R$)</label><input type="number" id="eMargem" step="0.01" min="0"></div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Observação</label><input type="text" id="eObs"></div>
+      <div class="form-group full-width"><label for="eObs">Observação</label><input type="text" id="eObs"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharEquipe()">Cancelar</button>
@@ -135,6 +135,7 @@
 
 <div id="toasts"></div>
 <script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script>initSidebar('comercial-metas');</script>
 <script>
 function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',6000);}

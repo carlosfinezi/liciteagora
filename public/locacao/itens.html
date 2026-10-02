@@ -68,7 +68,7 @@
         </div>
       </div>
       <div class="form-group">
-        <label>Pode ser alugado?</label>
+        <label for="eAlugavel">Pode ser alugado?</label>
         <select id="eAlugavel"><option value="1">Sim</option><option value="0">Não — desativado</option></select>
         <small class="muted">"Não" tira das novas locações sem apagar o histórico.</small>
       </div>
@@ -77,7 +77,7 @@
     <h4 style="margin:18px 0 4px;">Controle das unidades</h4>
     <div class="form-row">
       <div class="form-group">
-        <label>Precisa saber qual unidade saiu?</label>
+        <label for="eExigeSerie">Precisa saber qual unidade saiu?</label>
         <select id="eExigeSerie">
           <option value="0">Não — as unidades são iguais entre si</option>
           <option value="1">Sim — cada unidade tem número de série</option>
@@ -88,7 +88,7 @@
         </small>
       </div>
       <div class="form-group">
-        <label>Tempo de preparo</label><small class="muted">Entre uma locação e a seguinte</small>
+        <label for="ePreparo">Tempo de preparo</label><small class="muted">Entre uma locação e a seguinte</small>
         <div style="display:flex;align-items:center;gap:6px;">
           <input type="number" id="ePreparo" step="0.5" min="0" max="720" style="width:100px;">
           <span class="muted">horas</span>
@@ -107,17 +107,17 @@
     </p>
     <div class="form-row">
       <div class="form-group">
-        <label>Valor fixo (R$)</label>
+        <label for="eCaucao">Valor fixo (R$)</label>
         <input type="number" id="eCaucao" step="0.01" min="0" onchange="atualizarPrevia()">
         <small class="muted">O mesmo valor sempre, independente do aluguel.</small>
       </div>
       <div class="form-group">
-        <label>Ou percentual (%)</label>
+        <label for="eCaucaoPct">Ou percentual (%)</label>
         <input type="number" id="eCaucaoPct" step="0.01" min="0" max="1000"
                placeholder="deixe vazio para usar o valor fixo" onchange="atualizarPrevia()">
       </div>
       <div class="form-group">
-        <label>O percentual incide sobre</label>
+        <label for="eCaucaoBase">O percentual incide sobre</label>
         <select id="eCaucaoBase" onchange="atualizarPrevia()">
           <option value="locacao">o valor do aluguel (ex.: 30% do contrato)</option>
           <option value="bem">o valor do equipamento (ex.: 10% de R$ 10.000)</option>
@@ -132,17 +132,17 @@
     </p>
     <div class="form-row">
       <div class="form-group">
-        <label>Valor fixo (R$)</label>
+        <label for="eReposicao">Valor fixo (R$)</label>
         <input type="number" id="eReposicao" step="0.01" min="0" onchange="atualizarPrevia()">
       </div>
       <div class="form-group">
-        <label>Percentual</label><small class="muted">Do valor do equipamento</small>
+        <label for="eReposicaoPct">Percentual</label><small class="muted">Do valor do equipamento</small>
         <input type="number" id="eReposicaoPct" step="0.01" min="0" max="1000"
                placeholder="deixe vazio para usar o valor fixo" onchange="atualizarPrevia()">
         <small class="muted">Ex.: 120% para cobrir a reposição com margem.</small>
       </div>
       <div class="form-group">
-        <label>Valor do equipamento</label>
+        <label for="eValorBem">Valor do equipamento</label>
         <input type="text" id="eValorBem" disabled data-formato="dinheiro">
         <small class="muted">Vem do cadastro do produto (preço de venda; na falta dele, o de custo).</small>
       </div>
@@ -157,7 +157,7 @@
     </p>
     <div class="form-row">
       <div class="form-group">
-        <label>O equipamento tem contador de uso?</label>
+        <label for="eMedidor">O equipamento tem contador de uso?</label>
         <select id="eMedidor" onchange="ajustarMedidor()">
           <option value="nenhum">Não tem — cobra só pelo tempo</option>
           <option value="horimetro">Sim, horímetro (conta horas de trabalho)</option>
@@ -165,7 +165,7 @@
         </select>
       </div>
       <div class="form-group">
-        <label id="labelFranquia">Uso incluído por diária</label>
+        <label for="eFranquia" id="labelFranquia">Uso incluído por diária</label>
         <input type="number" id="eFranquia" step="0.1" min="0"
                placeholder="ex.: 8" onchange="atualizarPrevia()">
         <small class="muted" id="hintFranquia">
@@ -188,6 +188,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('locacao-itens');</script>
 <script>

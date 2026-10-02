@@ -26,7 +26,7 @@
   <div id="rateioWrap" style="display:none;">
     <h2 style="font-size:1.05em;margin-top:20px;">Rateio</h2>
     <div class="form-row">
-      <div class="form-group"><label>Critério</label>
+      <div class="form-group"><label for="gCriterio">Critério</label>
         <select id="gCriterio" onchange="montarParticipantes()">
           <option value="igual">Divisão igual</option>
           <option value="proporcional-vendas">Proporcional às vendas</option>
@@ -34,7 +34,7 @@
         </select>
         <small class="muted">O critério vem da convenção do sindicato.</small>
       </div>
-      <div class="form-group"><label>Retenção para encargos (%)</label>
+      <div class="form-group"><label for="gRetencao">Retenção para encargos (%)</label>
         <input type="number" id="gRetencao" step="0.01" min="0" value="0">
         <small class="muted" id="gTetoAviso"></small>
       </div>

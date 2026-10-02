@@ -63,7 +63,7 @@
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>De quem é</label>
+        <label for="nProprietario">De quem é</label>
         <select id="nProprietario" onchange="trocarProprietario()">
           <option value="cliente">Do cliente</option>
           <option value="empresa">Da empresa (máquina nossa, ainda em estoque)</option>
@@ -71,40 +71,40 @@
       </div>
     </div>
     <div class="form-row" id="linhaCliente">
-      <div class="form-group full-width"><label>Cliente</label><select id="nCliente"><option value="">— sem dono definido —</option></select></div>
+      <div class="form-group full-width"><label for="nCliente">Cliente</label><select id="nCliente"><option value="">— sem dono definido —</option></select></div>
     </div>
     <div id="linhaEstoque" style="display:none;">
       <div class="form-row">
         <div class="form-group full-width">
-          <label>Produto do estoque</label>
+          <label for="nProduto">Produto do estoque</label>
           <select id="nProduto" onchange="carregarSeries()"><option value="">— selecione —</option></select>
         </div>
       </div>
       <div class="form-row">
         <div class="form-group full-width">
-          <label>Unidade (nº de série)</label>
+          <label for="nSerial">Unidade (nº de série)</label>
           <select id="nSerial" onchange="aplicarSerie()"><option value="">— escolha o produto —</option></select>
           <small class="muted">Vincular não movimenta estoque: a baixa é na venda.</small>
         </div>
       </div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Descrição *</label><input type="text" id="nDesc" placeholder="Ex.: Notebook, Compressor, Servidor"></div>
+      <div class="form-group full-width"><label for="nDesc">Descrição *</label><input type="text" id="nDesc" placeholder="Ex.: Notebook, Compressor, Servidor"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Marca</label><input type="text" id="nMarca"></div>
-      <div class="form-group"><label>Modelo</label><input type="text" id="nModelo"></div>
+      <div class="form-group"><label for="nMarca">Marca</label><input type="text" id="nMarca"></div>
+      <div class="form-group"><label for="nModelo">Modelo</label><input type="text" id="nModelo"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Nº de série</label><input type="text" id="nSerie"></div>
-      <div class="form-group"><label>Patrimônio</label><input type="text" id="nPatrimonio"></div>
+      <div class="form-group"><label for="nSerie">Nº de série</label><input type="text" id="nSerie"></div>
+      <div class="form-group"><label for="nPatrimonio">Patrimônio</label><input type="text" id="nPatrimonio"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Aquisição</label><input type="date" id="nAquisicao"></div>
-      <div class="form-group"><label>Garantia de fábrica até</label><input type="date" id="nGarantiaFab"></div>
+      <div class="form-group"><label for="nAquisicao">Aquisição</label><input type="date" id="nAquisicao"></div>
+      <div class="form-group"><label for="nGarantiaFab">Garantia de fábrica até</label><input type="date" id="nGarantiaFab"></div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Observações</label><input type="text" id="nObs"></div>
+      <div class="form-group full-width"><label for="nObs">Observações</label><input type="text" id="nObs"></div>
     </div>
     <small class="muted">Se a série já existir, o cadastro existente é reaproveitado em vez de duplicar.</small>
     <div class="modal-actions">

@@ -36,19 +36,19 @@
       <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Data *</label><input type="date" id="fData"></div>
-      <div class="form-group"><label>Placa</label><input type="text" id="fPlaca" data-formato="placa"></div>
+      <div class="form-group"><label for="fData">Data *</label><input type="date" id="fData"></div>
+      <div class="form-group"><label for="fPlaca">Placa</label><input type="text" id="fPlaca" data-formato="placa"></div>
     </div>
     <div class="form-row">
-      <div class="form-group" style="flex:1;"><label>Motorista (funcionário)</label><select id="fMot"><option value="">— ou texto livre abaixo —</option></select></div>
-      <div class="form-group" style="flex:1;"><label>Motorista (texto)</label><input type="text" id="fMotNome"></div>
+      <div class="form-group" style="flex:1;"><label for="fMot">Motorista (funcionário)</label><select id="fMot"><option value="">— ou texto livre abaixo —</option></select></div>
+      <div class="form-group" style="flex:1;"><label for="fMotNome">Motorista (texto)</label><input type="text" id="fMotNome"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>UF Origem</label><input type="text" id="fUfO" maxlength="2" style="text-transform:uppercase"></div>
-      <div class="form-group"><label>UF Destino</label><input type="text" id="fUfD" maxlength="2" style="text-transform:uppercase"></div>
-      <div class="form-group"><label>KM inicial</label><input type="number" id="fKmI"></div>
+      <div class="form-group"><label for="fUfO">UF Origem</label><input type="text" id="fUfO" maxlength="2" style="text-transform:uppercase"></div>
+      <div class="form-group"><label for="fUfD">UF Destino</label><input type="text" id="fUfD" maxlength="2" style="text-transform:uppercase"></div>
+      <div class="form-group"><label for="fKmI">KM inicial</label><input type="number" id="fKmI"></div>
     </div>
-    <div class="form-row"><div class="form-group full-width"><label>Observações</label><textarea id="fObs" rows="2"></textarea></div></div>
+    <div class="form-row"><div class="form-group full-width"><label for="fObs">Observações</label><textarea id="fObs" rows="2"></textarea></div></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="salvar()">Criar</button>

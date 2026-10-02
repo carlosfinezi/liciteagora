@@ -68,10 +68,10 @@
     <div id="mcItens" style="max-height:34vh;overflow:auto;"></div>
 
     <div class="form-row" style="margin-top:12px;">
-      <div class="form-group"><label>Pessoas</label><input type="number" id="mcPessoas" min="1"></div>
-      <div class="form-group"><label>Taxa serviço %</label><input type="number" id="mcTaxa" step="0.01"></div>
-      <div class="form-group"><label>Couvert R$</label><input type="number" id="mcCouvert" step="0.01"></div>
-      <div class="form-group"><label>Desconto R$</label><input type="number" id="mcDesconto" step="0.01"></div>
+      <div class="form-group"><label for="mcPessoas">Pessoas</label><input type="number" id="mcPessoas" min="1"></div>
+      <div class="form-group"><label for="mcTaxa">Taxa serviço %</label><input type="number" id="mcTaxa" step="0.01"></div>
+      <div class="form-group"><label for="mcCouvert">Couvert R$</label><input type="number" id="mcCouvert" step="0.01"></div>
+      <div class="form-group"><label for="mcDesconto">Desconto R$</label><input type="number" id="mcDesconto" step="0.01"></div>
     </div>
 
     <div id="mcTotais" style="text-align:right;font-size:1.05em;margin:8px 0;"></div>
@@ -97,7 +97,7 @@
       <button class="btn btn-ghost btn-sm" onclick="fechar('modalAvulsa')" style="font-size:1.2em;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Tipo</label>
+      <div class="form-group full-width"><label for="avTipo">Tipo</label>
         <select id="avTipo" onchange="document.getElementById('avCodigoWrap').style.display = this.value==='individual' ? '' : 'none';">
           <option value="balcao">Balcão (gera senha)</option>
           <option value="individual">Cartão / chaveiro</option>
@@ -105,7 +105,7 @@
         </select>
       </div>
       <div class="form-group full-width" id="avCodigoWrap" style="display:none;">
-        <label>Código do cartão</label><input type="text" id="avCodigo" placeholder="042">
+        <label for="avCodigo">Código do cartão</label><input type="text" id="avCodigo" placeholder="042">
       </div>
     </div>
     <div class="modal-actions">
@@ -123,7 +123,7 @@
       <button class="btn btn-ghost btn-sm" onclick="fechar('modalMover')" style="font-size:1.2em;padding:4px 10px;">×</button>
     </div>
     <div class="form-group full-width">
-      <label id="mvLabel">Mesa de destino</label>
+      <label for="mvAlvo" id="mvLabel">Mesa de destino</label>
       <select id="mvAlvo"></select>
     </div>
     <div class="modal-actions">

@@ -795,6 +795,20 @@ function isPaginaPermitida(page) {
     return p.includes(page) || p.includes(HERDA_DE_MENU[page]);
 }
 
+// Carrega a peça que faz o modal se anunciar como diálogo (role, título, foco
+// preso e devolvido). Ela entra por AQUI, e não por uma tag em cada tela,
+// porque são 100 telas com modal e 99 delas carregam este arquivo — a 100ª é
+// `auth/admin/index.html`, que tem a tag direto. O "como" fica em
+// `public/js/dialogo.js`; o porquê de ser uma peça só está lá também.
+(function injectDialogo() {
+    if (typeof document === 'undefined') return;
+    if (document.querySelector('script[data-peca-dialogo]')) return;
+    const s = document.createElement('script');
+    s.src = '/js/dialogo.js';
+    s.setAttribute('data-peca-dialogo', '1');
+    (document.head || document.documentElement).appendChild(s);
+})();
+
 // Carrega a biblioteca Lucide Icons (SVG premium) do CDN. Se falhar,
 // o sidebar cai graciosamente para os emojis originais.
 (function injectLucide() {

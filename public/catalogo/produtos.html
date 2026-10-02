@@ -38,16 +38,16 @@
 
   <div class="card" id="painelFiltros" style="display:none;margin-bottom:14px;">
     <div class="form-row">
-      <div class="form-group"><label>Marca</label><select id="fMarca" onchange="onFiltroChange()"></select></div>
-      <div class="form-group"><label>Categoria</label><select id="fCategoria" onchange="onFiltroChange()"></select></div>
-      <div class="form-group"><label>Tipo</label><select id="fTipo" onchange="onFiltroChange()"></select></div>
-      <div class="form-group"><label>Fornecedor</label><select id="fFornecedor" onchange="onFiltroChange()"></select></div>
-      <div class="form-group"><label>Unidade</label><select id="fUnidade" onchange="onFiltroChange()"></select></div>
-      <div class="form-group"><label>NCM</label><input type="text" id="fNcm" oninput="onFiltroDebounced()" placeholder="parte do NCM…"></div>
+      <div class="form-group"><label for="fMarca">Marca</label><select id="fMarca" onchange="onFiltroChange()"></select></div>
+      <div class="form-group"><label for="fCategoria">Categoria</label><select id="fCategoria" onchange="onFiltroChange()"></select></div>
+      <div class="form-group"><label for="fTipo">Tipo</label><select id="fTipo" onchange="onFiltroChange()"></select></div>
+      <div class="form-group"><label for="fFornecedor">Fornecedor</label><select id="fFornecedor" onchange="onFiltroChange()"></select></div>
+      <div class="form-group"><label for="fUnidade">Unidade</label><select id="fUnidade" onchange="onFiltroChange()"></select></div>
+      <div class="form-group"><label for="fNcm">NCM</label><input type="text" id="fNcm" oninput="onFiltroDebounced()" placeholder="parte do NCM…"></div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Estoque</label>
+        <label for="fEstoque">Estoque</label>
         <select id="fEstoque" onchange="onFiltroChange()">
           <option value="">— todos —</option>
           <option value="comSaldo">Com saldo</option>
@@ -56,17 +56,17 @@
         </select>
       </div>
       <div class="form-group">
-        <label>Imagem</label>
+        <label for="fImagem">Imagem</label>
         <select id="fImagem" onchange="onFiltroChange()">
           <option value="">— todos —</option>
           <option value="com">Com imagem</option>
           <option value="sem">Sem imagem</option>
         </select>
       </div>
-      <div class="form-group"><label>Venda mín (R$)</label><input type="number" step="0.01" id="fVendaMin" oninput="onFiltroDebounced()"></div>
-      <div class="form-group"><label>Venda máx (R$)</label><input type="number" step="0.01" id="fVendaMax" oninput="onFiltroDebounced()"></div>
-      <div class="form-group"><label>Custo mín (R$)</label><input type="text" id="fCustoMin" oninput="onFiltroDebounced()" data-formato="dinheiro"></div>
-      <div class="form-group"><label>Custo máx (R$)</label><input type="text" id="fCustoMax" oninput="onFiltroDebounced()" data-formato="dinheiro"></div>
+      <div class="form-group"><label for="fVendaMin">Venda mín (R$)</label><input type="number" step="0.01" id="fVendaMin" oninput="onFiltroDebounced()"></div>
+      <div class="form-group"><label for="fVendaMax">Venda máx (R$)</label><input type="number" step="0.01" id="fVendaMax" oninput="onFiltroDebounced()"></div>
+      <div class="form-group"><label for="fCustoMin">Custo mín (R$)</label><input type="text" id="fCustoMin" oninput="onFiltroDebounced()" data-formato="dinheiro"></div>
+      <div class="form-group"><label for="fCustoMax">Custo máx (R$)</label><input type="text" id="fCustoMax" oninput="onFiltroDebounced()" data-formato="dinheiro"></div>
     </div>
     <div style="display:flex;justify-content:flex-end;">
       <button class="btn btn-ghost btn-sm" onclick="limparFiltros()">Limpar tudo</button>
@@ -122,7 +122,7 @@
 
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Arquivo (.xlsx / .xls / .csv)</label>
+        <label for="planFile">Arquivo (.xlsx / .xls / .csv)</label>
         <input type="file" id="planFile" accept=".xlsx,.xls,.csv">
       </div>
     </div>
@@ -160,6 +160,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('produtos');</script>

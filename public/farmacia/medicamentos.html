@@ -52,25 +52,25 @@
       <h3 id="edTitulo">Medicamento</h3>
       <div class="form-row">
         <div class="form-group">
-          <label>Registro ANVISA</label>
+          <label for="edRegistro">Registro ANVISA</label>
           <input type="text" id="edRegistro">
         </div>
         <div class="form-group">
-          <label>Isento de registro</label>
+          <label for="edIsento">Isento de registro</label>
           <select id="edIsento" onchange="toggleIsento()">
             <option value="0">Não</option>
             <option value="1">Sim</option>
           </select>
         </div>
         <div class="form-group" id="grpMotivo" style="display:none;">
-          <label>Motivo da isenção (nº da decisão)</label>
+          <label for="edMotivo">Motivo da isenção (nº da decisão)</label>
           <input type="text" id="edMotivo">
           <small class="muted">Obrigatório quando isento — a NF-e recusa "ISENTO" sem motivo.</small>
         </div>
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Tarja</label>
+          <label for="edTarja">Tarja</label>
           <select id="edTarja">
             <option value="livre">Livre</option>
             <option value="vermelha">Vermelha</option>
@@ -79,14 +79,14 @@
           </select>
         </div>
         <div class="form-group">
-          <label>Lista da Portaria 344/98</label>
+          <label for="edLista344">Lista da Portaria 344/98</label>
           <select id="edLista344">
             <option value="">— não controlado —</option>
           </select>
           <small class="muted">Curadoria da farmácia: a CMED não publica isto.</small>
         </div>
         <div class="form-group">
-          <label>Antimicrobiano (RDC 20/2011)</label>
+          <label for="edAnti">Antimicrobiano (RDC 20/2011)</label>
           <select id="edAnti">
             <option value="0">Não</option>
             <option value="1">Sim</option>
@@ -95,15 +95,15 @@
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>PMC (teto de venda)</label>
+          <label for="edPmc">PMC (teto de venda)</label>
           <input type="number" id="edPmc" step="0.01">
         </div>
         <div class="form-group">
-          <label>PF (teto de compra)</label>
+          <label for="edPf">PF (teto de compra)</label>
           <input type="number" id="edPf" step="0.01">
         </div>
         <div class="form-group">
-          <label>Regime de preço</label>
+          <label for="edRegime">Regime de preço</label>
           <select id="edRegime">
             <option value="regulado">Regulado</option>
             <option value="liberado">Liberado</option>

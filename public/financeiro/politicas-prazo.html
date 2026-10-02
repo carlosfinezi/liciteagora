@@ -70,25 +70,25 @@
 
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Nome *</label>
+        <label for="fNome">Nome *</label>
         <input type="text" id="fNome" placeholder="Ex.: À vista dinheiro, Boleto 30/60/90, Governo 45 dias">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Tipo</label>
+        <label for="fTipo">Tipo</label>
         <select id="fTipo" onchange="atualizarTipo()">
           <option value="prazo">A prazo</option>
           <option value="vista">À vista</option>
         </select>
       </div>
       <div class="form-group" id="grupoPrazo">
-        <label>Dias das parcelas *</label>
+        <label for="fPrazoDias">Dias das parcelas *</label>
         <input type="text" id="fPrazoDias" placeholder="30 ou 30/60/90" oninput="previewParcelas()">
         <div class="parcelas-preview" id="prazoPreview">Dias a partir da emissão. Um valor define o vencimento; vários geram uma parcela para cada.</div>
       </div>
       <div class="form-group">
-        <label>Valor mínimo da parcela (R$)</label>
+        <label for="fValorMin">Valor mínimo da parcela (R$)</label>
         <input type="text" id="fValorMin" placeholder="sem mínimo" data-formato="dinheiro">
       </div>
     </div>
@@ -103,7 +103,7 @@
 
     <div class="form-row">
       <div class="form-group">
-        <label>Acréscimo / desconto (%)</label>
+        <label for="fCoeficiente">Acréscimo / desconto (%)</label>
         <input type="number" id="fCoeficiente" step="0.01" placeholder="0">
         <small style="color:var(--text-3);">Positivo acresce, negativo desconta. Registrado na política e devolvido pela API de condições; ainda não entra sozinho no cálculo do pedido.</small>
       </div>
@@ -128,7 +128,7 @@
 
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Observações</label>
+        <label for="fObs">Observações</label>
         <textarea id="fObs" rows="2"></textarea>
       </div>
     </div>
@@ -144,6 +144,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('politicas-prazo');</script>

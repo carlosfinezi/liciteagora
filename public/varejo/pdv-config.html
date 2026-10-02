@@ -31,12 +31,12 @@
 
     <div class="form-row" style="margin-top:14px;">
       <div class="form-group">
-        <label>Natureza de operação *</label>
+        <label for="cfgNatureza">Natureza de operação *</label>
         <select id="cfgNatureza" onchange="mostrarEfeitos()"></select>
         <small id="hintNatureza" class="muted">Decide o CFOP da NFC-e, a conta a receber e a baixa de estoque.</small>
       </div>
       <div class="form-group">
-        <label>Política de prazo padrão</label>
+        <label for="cfgPolitica">Política de prazo padrão</label>
         <select id="cfgPolitica" onchange="mostrarPolitica()"></select>
         <small id="hintPolitica" class="muted">Define os meios de pagamento oferecidos no caixa e o vencimento das parcelas.</small>
       </div>
@@ -44,7 +44,7 @@
 
     <div class="form-row" style="margin-top:10px;">
       <div class="form-group full-width">
-        <label>Comprovante após a venda</label>
+        <label for="cfgModoImp">Comprovante após a venda</label>
         <select id="cfgModoImp">
           <option value="nenhum">Nenhum (só exibe confirmação na tela)</option>
           <option value="termico-58">Cupom térmico 58 mm (impressora POS compacta)</option>

@@ -203,7 +203,7 @@ function renderAtual(){
         ${difInfo}
       </div>
       <div class="input-gigante">
-        <label style="color:var(--text-2);font-size:var(--text-xs);">Saldo contado (físico)</label>
+        <label for="inputContagem" style="color:var(--text-2);font-size:var(--text-xs);">Saldo contado (físico)</label>
         <input type="number" step="0.01" id="inputContagem"
                value="${it.saldoContado != null ? it.saldoContado : ''}"
                ${somenteLeitura?'disabled':'autofocus'}
@@ -211,7 +211,7 @@ function renderAtual(){
       </div>
       <div class="form-row" style="margin-top:14px;">
         <div class="form-group full-width">
-          <label>Observação (opcional)</label>
+          <label for="inputObs">Observação (opcional)</label>
           <input type="text" id="inputObs" value="${(it.observacoes||'').replace(/"/g,'&quot;')}" ${somenteLeitura?'disabled':''}>
         </div>
       </div>

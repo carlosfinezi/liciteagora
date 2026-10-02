@@ -49,9 +49,9 @@
       <button class="btn btn-ghost btn-sm" onclick="fechar('modalNova')" style="font-size:1.2em;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Setor/Destino</label><input type="text" id="nSetor" placeholder="Ex.: Oficina, Escritório"></div>
-      <div class="form-group" id="grpDep" style="display:none;"><label>Depósito</label><select id="nDeposito"></select></div>
-      <div class="form-group"><label>Necessário para</label><input type="date" id="nData"></div>
+      <div class="form-group"><label for="nSetor">Setor/Destino</label><input type="text" id="nSetor" placeholder="Ex.: Oficina, Escritório"></div>
+      <div class="form-group" id="grpDep" style="display:none;"><label for="nDeposito">Depósito</label><select id="nDeposito"></select></div>
+      <div class="form-group"><label for="nData">Necessário para</label><input type="date" id="nData"></div>
     </div>
     <div class="tbl-wrap" style="margin-top:8px;">
       <table>
@@ -61,7 +61,7 @@
     </div>
     <button class="btn btn-ghost btn-sm" onclick="addLinhaItem()" style="margin-top:8px;">+ Item</button>
     <div class="form-row" style="margin-top:8px;">
-      <div class="form-group full-width"><label>Observação</label><input type="text" id="nObs"></div>
+      <div class="form-group full-width"><label for="nObs">Observação</label><input type="text" id="nObs"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fechar('modalNova')">Cancelar</button>

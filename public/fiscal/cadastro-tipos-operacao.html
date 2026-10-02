@@ -89,17 +89,17 @@
       <div class="subtab-content" data-subtab-pane="geral">
         <div class="form-row">
           <div class="form-group">
-            <label>Código *</label>
+            <label for="fCodigo">Código *</label>
             <input type="text" id="fCodigo" maxlength="20" placeholder="VDA-NORMAL" style="text-transform:uppercase;">
           </div>
           <div class="form-group" style="flex:2;">
-            <label>Descrição *</label>
+            <label for="fDesc">Descrição *</label>
             <input type="text" id="fDesc" placeholder="Venda normal">
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label>Categoria</label>
+            <label for="fCategoria">Categoria</label>
             <select id="fCategoria">
               <option value="venda">Venda</option>
               <option value="compra">Compra</option>
@@ -116,7 +116,7 @@
             </select>
           </div>
           <div class="form-group">
-            <label>Finalidade NF-e</label>
+            <label for="fFinalidade">Finalidade NF-e</label>
             <select id="fFinalidade">
               <option value="1">1 · Normal</option>
               <option value="2">2 · Complementar</option>
@@ -134,19 +134,19 @@
         </p>
         <div class="form-row">
           <div class="form-group">
-            <label>Emite NF-e?</label>
+            <label for="fEmiteNFe">Emite NF-e?</label>
             <select id="fEmiteNFe"><option value="1">Sim</option><option value="0">Não (doc. interno)</option></select>
           </div>
           <div class="form-group">
-            <label>Gera financeiro (contas a receber)?</label>
+            <label for="fGeraFin">Gera financeiro (contas a receber)?</label>
             <select id="fGeraFin"><option value="1">Sim</option><option value="0">Não</option></select>
           </div>
           <div class="form-group">
-            <label>Movimenta estoque?</label>
+            <label for="fMovEst">Movimenta estoque?</label>
             <select id="fMovEst"><option value="1">Sim</option><option value="0">Não</option></select>
           </div>
           <div class="form-group">
-            <label>Entra no DRE (gerencial)?</label>
+            <label for="fGerencial">Entra no DRE (gerencial)?</label>
             <select id="fGerencial"><option value="1">Sim</option><option value="0">Não</option></select>
           </div>
         </div>
@@ -182,15 +182,15 @@
         </p>
         <div class="form-row">
           <div class="form-group">
-            <label>CFOP interno (mesma UF)</label>
+            <label for="fCfopInterno">CFOP interno (mesma UF)</label>
             <input type="text" id="fCfopInterno" maxlength="4" placeholder="5102" style="font-family:monospace;">
           </div>
           <div class="form-group">
-            <label>CFOP interestadual</label>
+            <label for="fCfopInterestadual">CFOP interestadual</label>
             <input type="text" id="fCfopInterestadual" maxlength="4" placeholder="6102" style="font-family:monospace;">
           </div>
           <div class="form-group">
-            <label>CFOP exterior</label>
+            <label for="fCfopExterior">CFOP exterior</label>
             <input type="text" id="fCfopExterior" maxlength="4" placeholder="7102" style="font-family:monospace;">
           </div>
         </div>
@@ -198,14 +198,14 @@
         <h4 style="margin:18px 0 8px;">Textos padrão</h4>
         <div class="form-row">
           <div class="form-group full-width">
-            <label>Natureza da operação</label><small class="muted">O texto que vai no natOp da NF-e</small>
+            <label for="fTextoNFe">Natureza da operação</label><small class="muted">O texto que vai no natOp da NF-e</small>
             <input type="text" id="fTextoNFe" maxlength="60" placeholder="VENDA DE MERCADORIA">
             <small class="muted">Vai literalmente no campo natOp da NF-e (máx 60 chars, sem acentos).</small>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group full-width">
-            <label>Observação fiscal padrão (infCpl)</label>
+            <label for="fObsFiscal">Observação fiscal padrão (infCpl)</label>
             <textarea id="fObsFiscal" rows="2" placeholder="Cláusulas legais, artigos, etc."></textarea>
           </div>
         </div>

@@ -117,29 +117,29 @@
     <input type="hidden" id="rId">
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Nome *</label>
+        <label for="rNome">Nome *</label>
         <input type="text" id="rNome" placeholder="Ex.: Comissão padrão João">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Vendedor (vazio = todos)</label>
+        <label for="rVendedor">Vendedor (vazio = todos)</label>
         <select id="rVendedor"><option value="">— todos —</option></select>
       </div>
       <div class="form-group">
-        <label>Categoria de produto (texto)</label>
+        <label for="rCategoria">Categoria de produto (texto)</label>
         <input type="text" id="rCategoria" placeholder="Ex.: Eletrônicos">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group" style="flex:1;position:relative;">
-        <label>Produto específico (vazio = todos)</label>
+        <label for="rProdBusca">Produto específico (vazio = todos)</label>
         <input type="text" id="rProdBusca" placeholder="Código ou descrição…" oninput="acProd()" autocomplete="off">
         <input type="hidden" id="rProdId">
         <div id="acProdList" class="ac-list"></div>
       </div>
       <div class="form-group" style="flex:1;position:relative;">
-        <label>Cliente específico (vazio = todos)</label>
+        <label for="rCliBusca">Cliente específico (vazio = todos)</label>
         <input type="text" id="rCliBusca" placeholder="Razão social…" oninput="acCli()" autocomplete="off">
         <input type="hidden" id="rCliId">
         <div id="acCliList" class="ac-list"></div>
@@ -147,7 +147,7 @@
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Tipo *</label>
+        <label for="rTipo">Tipo *</label>
         <select id="rTipo">
           <option value="percentual_venda">% sobre venda</option>
           <option value="percentual_lucro">% sobre lucro (venda − custo médio)</option>
@@ -155,35 +155,35 @@
         </select>
       </div>
       <div class="form-group">
-        <label>Valor *</label>
+        <label for="rValor">Valor *</label>
         <input type="number" id="rValor" step="0.01" min="0" placeholder="Ex.: 5 (= 5%)">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Gatilho de meta (%)</label>
+        <label for="rGatilho">Gatilho de meta (%)</label>
         <input type="number" id="rGatilho" step="1" min="0" max="300" placeholder="em branco = sem gatilho">
         <small class="muted" style="font-size:var(--text-xs);">Abaixo deste % da meta do período não há comissão nenhuma.</small>
       </div>
       <div class="form-group">
-        <label>Valor acelerado</label>
+        <label for="rAcelerado">Valor acelerado</label>
         <input type="number" id="rAcelerado" step="0.01" min="0" placeholder="em branco = sem acelerador">
         <small class="muted" style="font-size:var(--text-xs);">Vale no lugar do valor normal quando a meta é batida.</small>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Vigência início</label>
+        <label for="rIni">Vigência início</label>
         <input type="date" id="rIni">
       </div>
       <div class="form-group">
-        <label>Vigência fim</label>
+        <label for="rFim">Vigência fim</label>
         <input type="date" id="rFim">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Observações</label>
+        <label for="rObs">Observações</label>
         <textarea id="rObs" rows="2"></textarea>
       </div>
     </div>

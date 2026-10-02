@@ -134,9 +134,9 @@
   <div class="modal-card">
     <h2 style="margin-top:0;">Cadastrar sala BLL</h2>
     <p style="color:var(--text-2); font-size:var(--text-xs);">Cole a URL da sala de disputa aberta no LiciteAgora Browser (portal BLL).</p>
-    <label class="blk">URL da sala</label>
+    <label for="inpUrl" class="blk">URL da sala</label>
     <input type="text" id="inpUrl" placeholder="https://bllcompras.com/BatchList?param1=[gkz]...&param2=7">
-    <label class="blk">Notas (opcional)</label>
+    <label for="inpNotas" class="blk">Notas (opcional)</label>
     <input type="text" id="inpNotas" placeholder="ex: Pregão Prefeitura 33/2026">
     <div id="msgModal" style="font-size:var(--text-xs); margin-bottom:12px;"></div>
     <div style="text-align:right;">
@@ -299,8 +299,8 @@ function loteHtml(s,l){
     </div>
     ${escadaHtml}
     <div class="lote-cfg">
-      <div class="fld"><label>Piso (R$ inteiros)</label><input type="number" step="1" min="0" id="lim-${l.id}" value="${piso}"></div>
-      <div class="fld"><label>Decremento</label><input type="number" step="1" min="1" id="dec-${l.id}" value="${dec}"></div>
+      <div class="fld"><label for="lim-${l.id}">Piso (R$ inteiros)</label><input type="number" step="1" min="0" id="lim-${l.id}" value="${piso}"></div>
+      <div class="fld"><label for="dec-${l.id}">Decremento</label><input type="number" step="1" min="1" id="dec-${l.id}" value="${dec}"></div>
       <label class="chk-auto"><input type="checkbox" id="ativo-${l.id}" ${al.ativo?'checked':''}> Auto-lance ativo</label>
       <button class="btn btn-primary btn-sm" onclick="salvarLote(${l.id})">Salvar</button>
       <span class="cfg-msg" id="msg-${l.id}"></span>

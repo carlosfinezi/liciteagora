@@ -47,26 +47,26 @@
       <button class="btn btn-ghost btn-sm" onclick="fechar('modalModelo')" style="font-size:1.2em;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group" style="flex:2;"><label>Nome *</label>
+      <div class="form-group" style="flex:2;"><label for="mdNome">Nome *</label>
         <input type="text" id="mdNome" maxlength="80" placeholder="ex.: Aviso de boleto vencendo"></div>
-      <div class="form-group"><label>Canal *</label>
+      <div class="form-group"><label for="mdCanal">Canal *</label>
         <select id="mdCanal" onchange="mudouCanalModelo()">
           <option value="whatsapp">WhatsApp</option><option value="email">E-mail</option>
         </select></div>
     </div>
     <div class="form-row" id="mdLinhaAssunto" style="display:none;">
-      <div class="form-group full-width"><label>Assunto (e-mail)</label>
+      <div class="form-group full-width"><label for="mdAssunto">Assunto (e-mail)</label>
         <input type="text" id="mdAssunto" maxlength="150"></div>
     </div>
     <div class="form-row"><div class="form-group full-width">
-      <label>Mensagem *</label>
+      <label for="mdCorpo">Mensagem *</label>
       <textarea id="mdCorpo" rows="6" placeholder="Olá {{primeiroNome}}, seu boleto vence em..."></textarea>
       <small class="muted">Variáveis: {{primeiroNome}} · {{nomeFantasia}} · {{razaoSocial}} · {{cpfCnpj}} · {{email}} ·
         {{telefone}} · {{cidade}} · {{ramo}} · {{porte}}<br>
         Variável escrita errada é barrada ao salvar.</small>
     </div></div>
     <div class="form-row" id="mdLinhaImagem"><div class="form-group full-width">
-      <label>Imagens e vídeos</label>
+      <label for="mdArquivo">Imagens e vídeos</label>
       <div class="imgs" id="mdImagens"></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <input type="file" id="mdArquivo" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4" multiple

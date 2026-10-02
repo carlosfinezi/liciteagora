@@ -59,7 +59,7 @@
     <h3>Nova locação</h3>
     <div class="form-row">
       <div class="form-group" style="flex:2;">
-        <label>Cliente</label>
+        <label for="qCliente">Cliente</label>
         <div id="clienteEscolhido" style="display:none;">
           <div style="display:flex;align-items:center;gap:8px;">
             <strong id="clienteNome"></strong>
@@ -73,7 +73,7 @@
         </div>
       </div>
       <div class="form-group" style="flex:2;">
-        <label>Como esta locação será cobrada?</label>
+        <label for="nTipo">Como esta locação será cobrada?</label>
         <select id="nTipo" onchange="ajustarTipo()">
           <option value="avulsa">Período fechado — sai e volta em datas definidas, fatura uma vez</option>
           <option value="aberta">Sem data para voltar — fatura todo mês até o cliente devolver</option>
@@ -83,44 +83,44 @@
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Saída prevista</label>
+        <label for="nSaida">Saída prevista</label>
         <input type="datetime-local" id="nSaida">
       </div>
       <div class="form-group">
-        <label>Retorno previsto</label>
+        <label for="nRetorno">Retorno previsto</label>
         <input type="datetime-local" id="nRetorno">
         <small class="muted" id="hintRetorno"></small>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Caução (R$)</label>
+        <label for="nCaucao">Caução (R$)</label>
         <input type="number" id="nCaucao" step="0.01" min="0" value="0">
       </div>
       <div class="form-group" style="flex:2;">
-        <label>Endereço da obra / entrega</label>
+        <label for="nEndereco">Endereço da obra / entrega</label>
         <input type="text" id="nEndereco">
       </div>
       <div class="form-group">
-        <label>Quem recebe na obra</label>
+        <label for="nContatoObra">Quem recebe na obra</label>
         <input type="text" id="nContatoObra" placeholder="nome de quem confere">
       </div>
       <div class="form-group">
-        <label>Telefone na obra</label>
+        <label for="nTelefoneObra">Telefone na obra</label>
         <input type="text" id="nTelefoneObra" data-formato="telefone">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group" style="flex:2;">
-        <label>Endereço de cobrança</label>
+        <label for="nEnderecoCobranca">Endereço de cobrança</label>
         <input type="text" id="nEnderecoCobranca" placeholder="vazio = usa o da obra">
       </div>
       <div class="form-group">
-        <label>Tipo de frete</label>
+        <label for="nTipoFrete">Tipo de frete</label>
         <input type="text" id="nTipoFrete" placeholder="SEM FRETE, CIF, FOB…">
       </div>
       <div class="form-group">
-        <label>Documento auxiliar / OC do cliente</label>
+        <label for="nDocAuxiliar">Documento auxiliar / OC do cliente</label>
         <input type="text" id="nDocAuxiliar">
       </div>
     </div>
@@ -137,6 +137,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('locacao-locacoes');</script>
 <script>
@@ -360,11 +361,11 @@ async function abrir(id) {
         ${c.status === 'orcamento' ? `
         <div class="form-row" style="align-items:flex-end;">
           <div class="form-group">
-            <label>Acrescentar item</label>
+            <label for="iProduto">Acrescentar item</label>
             <select id="iProduto"></select>
           </div>
           <div class="form-group" style="max-width:110px;">
-            <label>Qtd</label>
+            <label for="iQtd">Qtd</label>
             <input type="number" id="iQtd" value="1" min="1" step="1">
           </div>
           <div class="form-group">

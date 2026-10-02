@@ -86,13 +86,13 @@
     <input type="hidden" id="fId">
     <div class="form-row">
       <div class="form-group" style="flex:1;position:relative;">
-        <label>Cliente *</label>
+        <label for="fClienteBusca">Cliente *</label>
         <input type="text" id="fClienteBusca" placeholder="Razão social, CPF/CNPJ…" oninput="acCliente()" autocomplete="off">
         <input type="hidden" id="fClienteId">
         <div id="acClienteList" class="ac-list"></div>
       </div>
       <div class="form-group" style="flex:1;position:relative;">
-        <label>Pedido origem (opcional)</label>
+        <label for="fPedidoBusca">Pedido origem (opcional)</label>
         <input type="text" id="fPedidoBusca" placeholder="Número do pedido…" oninput="acPedido()" autocomplete="off">
         <input type="hidden" id="fPedidoId">
         <div id="acPedidoList" class="ac-list"></div>
@@ -100,12 +100,12 @@
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Tipo de operação *</label>
+        <label for="fTipoOp">Tipo de operação *</label>
         <select id="fTipoOp"></select>
         <small class="muted">Define o CFOP e a natureza fiscal (defeito / arrependimento / troca)</small>
       </div>
       <div class="form-group" style="flex:2;">
-        <label>Motivo (texto livre)</label>
+        <label for="fMotivo">Motivo (texto livre)</label>
         <input type="text" id="fMotivo" placeholder="Detalhe adicional do motivo…">
       </div>
     </div>
@@ -133,7 +133,7 @@
 
     <div class="form-row" style="margin-top:16px;">
       <div class="form-group full-width">
-        <label>Observações</label>
+        <label for="fObs">Observações</label>
         <textarea id="fObs" rows="2"></textarea>
       </div>
     </div>
@@ -158,7 +158,7 @@
     </div>
     <div class="form-row">
       <div class="form-group full-width" style="position:relative;">
-        <label>Produto *</label>
+        <label for="iProdBusca">Produto *</label>
         <input type="text" id="iProdBusca" placeholder="Código ou descrição…" oninput="acProd()" autocomplete="off">
         <input type="hidden" id="iProdId">
         <input type="hidden" id="iRastreiaLote">
@@ -168,29 +168,29 @@
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Quantidade *</label>
+        <label for="iQtd">Quantidade *</label>
         <input type="number" id="iQtd" step="any" min="0.001" value="1">
       </div>
       <div class="form-group">
-        <label>Valor unitário (R$) *</label>
+        <label for="iValor">Valor unitário (R$) *</label>
         <input type="text" id="iValor" value="0" data-formato="dinheiro">
       </div>
     </div>
     <div class="form-row" id="rowLote" style="display:none;">
       <div class="form-group full-width">
-        <label>Lote *</label>
+        <label for="iLote">Lote *</label>
         <select id="iLote"><option value="">— escolha —</option></select>
       </div>
     </div>
     <div class="form-row" id="rowSerial" style="display:none;">
       <div class="form-group full-width">
-        <label>Números de série * <small class="muted">(escolha exatamente <span id="qtdSerialNeeded">N</span> serial(is) baixados)</small></label>
+        <label for="iSerials">Números de série * <small class="muted">(escolha exatamente <span id="qtdSerialNeeded">N</span> serial(is) baixados)</small></label>
         <select id="iSerials" multiple style="height:120px;font-family:monospace;"></select>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Motivo do item (opcional)</label>
+        <label for="iMotivo">Motivo do item (opcional)</label>
         <input type="text" id="iMotivo">
       </div>
     </div>
@@ -203,6 +203,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('devolucoes');</script>

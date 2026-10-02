@@ -39,34 +39,34 @@
     </div>
     <input type="hidden" id="fId">
     <div class="form-row">
-      <div class="form-group" style="flex:2;"><label>Nome *</label><input type="text" id="fNome"></div>
-      <div class="form-group"><label>CPF</label><input type="text" id="fCpf"></div>
-      <div class="form-group"><label>Nascimento</label><input type="date" id="fNasc"></div>
+      <div class="form-group" style="flex:2;"><label for="fNome">Nome *</label><input type="text" id="fNome"></div>
+      <div class="form-group"><label for="fCpf">CPF</label><input type="text" id="fCpf"></div>
+      <div class="form-group"><label for="fNasc">Nascimento</label><input type="date" id="fNasc"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Admissão *</label><input type="date" id="fAdm"></div>
-      <div class="form-group"><label>Cargo</label><input type="text" id="fCargo"></div>
-      <div class="form-group"><label>Departamento</label><input type="text" id="fDep"></div>
+      <div class="form-group"><label for="fAdm">Admissão *</label><input type="date" id="fAdm"></div>
+      <div class="form-group"><label for="fCargo">Cargo</label><input type="text" id="fCargo"></div>
+      <div class="form-group"><label for="fDep">Departamento</label><input type="text" id="fDep"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Tipo de contrato</label>
+      <div class="form-group"><label for="fTipo">Tipo de contrato</label>
         <select id="fTipo"><option>CLT</option><option>PJ</option><option>MEI</option><option>autonomo</option><option>estagio</option><option>jovem-aprendiz</option></select>
       </div>
-      <div class="form-group"><label>Salário (R$)</label><input type="number" id="fSal" step="0.01" min="0" value="0"></div>
-      <div class="form-group"><label>Jornada semanal (h)</label><input type="number" id="fJor" step="0.5" value="44"></div>
+      <div class="form-group"><label for="fSal">Salário (R$)</label><input type="number" id="fSal" step="0.01" min="0" value="0"></div>
+      <div class="form-group"><label for="fJor">Jornada semanal (h)</label><input type="number" id="fJor" step="0.5" value="44"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>E-mail</label><input type="email" id="fEmail"></div>
-      <div class="form-group"><label>Telefone</label><input type="text" id="fTel"></div>
-      <div class="form-group" style="flex:2;"><label>Endereço</label><input type="text" id="fEnd"></div>
+      <div class="form-group"><label for="fEmail">E-mail</label><input type="email" id="fEmail"></div>
+      <div class="form-group"><label for="fTel">Telefone</label><input type="text" id="fTel"></div>
+      <div class="form-group" style="flex:2;"><label for="fEnd">Endereço</label><input type="text" id="fEnd"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Banco</label><input type="text" id="fBanco"></div>
-      <div class="form-group"><label>Agência</label><input type="text" id="fAg"></div>
-      <div class="form-group"><label>Conta</label><input type="text" id="fConta"></div>
-      <div class="form-group"><label>PIX</label><input type="text" id="fPix"></div>
+      <div class="form-group"><label for="fBanco">Banco</label><input type="text" id="fBanco"></div>
+      <div class="form-group"><label for="fAg">Agência</label><input type="text" id="fAg"></div>
+      <div class="form-group"><label for="fConta">Conta</label><input type="text" id="fConta"></div>
+      <div class="form-group"><label for="fPix">PIX</label><input type="text" id="fPix"></div>
     </div>
-    <div class="form-row"><div class="form-group full-width"><label>Observações</label><textarea id="fObs" rows="2"></textarea></div></div>
+    <div class="form-row"><div class="form-group full-width"><label for="fObs">Observações</label><textarea id="fObs" rows="2"></textarea></div></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="salvar()">Salvar</button>

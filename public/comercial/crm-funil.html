@@ -97,13 +97,13 @@
     <input type="hidden" id="funilId">
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Nome *</label>
+        <label for="funilNome">Nome *</label>
         <input type="text" id="funilNome" placeholder="Ex.: Pós-venda">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Descrição</label>
+        <label for="funilDesc">Descrição</label>
         <input type="text" id="funilDesc" placeholder="(opcional)">
       </div>
     </div>
@@ -125,17 +125,17 @@
     <input type="hidden" id="etId">
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Nome *</label>
+        <label for="etNome">Nome *</label>
         <input type="text" id="etNome" placeholder="Ex.: Qualificado">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group" style="width:90px;">
-        <label>Cor</label>
+        <label for="etCor">Cor</label>
         <input type="color" id="etCor" value="#4dabf7" style="height:38px;padding:2px;">
       </div>
       <div class="form-group" style="flex:1;">
-        <label>Tipo</label>
+        <label for="etTipo">Tipo</label>
         <select id="etTipo">
           <option value="normal">Normal</option>
           <option value="ganho">Ganho (fecha ganho)</option>
@@ -173,7 +173,7 @@
     <input type="hidden" id="agendOpId">
     <div class="form-row">
       <div class="form-group" style="width:150px;">
-        <label>Ação *</label>
+        <label for="agendTipo">Ação *</label>
         <select id="agendTipo">
           <option value="ligacao">📞 Ligação</option>
           <option value="reuniao">🤝 Reunião</option>
@@ -184,19 +184,19 @@
         </select>
       </div>
       <div class="form-group" style="flex:1;">
-        <label>Data e hora *</label>
+        <label for="agendData">Data e hora *</label>
         <input type="datetime-local" id="agendData">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Título *</label>
+        <label for="agendTitulo">Título *</label>
         <input type="text" id="agendTitulo" placeholder="Ex.: Ligar para follow-up">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Comentário</label>
+        <label for="agendComent">Comentário</label>
         <textarea id="agendComent" rows="3" placeholder="Detalhes da ação…"></textarea>
       </div>
     </div>
@@ -217,49 +217,49 @@
     <input type="hidden" id="opId">
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Título *</label>
+        <label for="opTit">Título *</label>
         <input type="text" id="opTit" placeholder="Ex.: Venda de equipamento para Cliente X">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group" style="flex:1;position:relative;">
-        <label>Cliente <small class="muted">(escolha um cadastrado ou digite um nome)</small></label>
+        <label for="opClienteBusca">Cliente <small class="muted">(escolha um cadastrado ou digite um nome)</small></label>
         <input type="text" id="opClienteBusca" placeholder="Clique para ver a lista ou digite para buscar…" oninput="acCliente()" onfocus="focoCliente()" autocomplete="off">
         <input type="hidden" id="opClienteId">
         <div id="acClienteList" class="ac-list"></div>
       </div>
       <div class="form-group" style="width:160px;">
-        <label>Valor (R$)</label>
+        <label for="opValor">Valor (R$)</label>
         <input type="text" id="opValor" value="0" data-formato="dinheiro">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Telefone / WhatsApp <small class="muted">(do cliente)</small></label>
+        <label for="opTelefone">Telefone / WhatsApp <small class="muted">(do cliente)</small></label>
         <input type="text" id="opTelefone" placeholder="Ex.: (94) 91234-5678 — preenche ao escolher o cliente" autocomplete="off" oninput="maskTelInput(this)" data-formato="telefone">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group" id="grpEtapa">
-        <label>Etapa</label>
+        <label for="opEtapa">Etapa</label>
         <select id="opEtapa"></select>
       </div>
       <div class="form-group">
-        <label>Probabilidade</label>
+        <label for="opProb">Probabilidade</label>
         <input type="number" id="opProb" min="0" max="100" value="50">
       </div>
       <div class="form-group">
-        <label>Vendedor</label>
+        <label for="opVendedor">Vendedor</label>
         <select id="opVendedor"><option value="">—</option></select>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Fonte</label>
+        <label for="opFonte">Fonte</label>
         <select id="opFonte"><option value="">—</option></select>
       </div>
       <div class="form-group">
-        <label>Previsão de fechamento</label>
+        <label for="opPrev">Previsão de fechamento</label>
         <input type="date" id="opPrev">
       </div>
     </div>
@@ -281,7 +281,7 @@
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Descrição</label>
+        <label for="opDesc">Descrição</label>
         <textarea id="opDesc" rows="3"></textarea>
       </div>
     </div>
@@ -294,6 +294,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script>initSidebar('crm-funil');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }

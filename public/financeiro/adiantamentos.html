@@ -55,23 +55,23 @@
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Tipo</label>
+        <label for="nTipo">Tipo</label>
         <select id="nTipo" onchange="carregarQuem()">
           <option value="cliente">De cliente (dinheiro entra)</option>
           <option value="fornecedor">A fornecedor (dinheiro sai)</option>
         </select>
       </div>
-      <div class="form-group"><label>Valor (R$)</label><input type="text" id="nValor" data-formato="dinheiro"></div>
+      <div class="form-group"><label for="nValor">Valor (R$)</label><input type="text" id="nValor" data-formato="dinheiro"></div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label id="lblQuem">Cliente</label><select id="nQuem"></select></div>
+      <div class="form-group full-width"><label for="nQuem" id="lblQuem">Cliente</label><select id="nQuem"></select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Conta financeira</label><select id="nConta"></select></div>
-      <div class="form-group"><label>Data</label><input type="date" id="nData"></div>
+      <div class="form-group"><label for="nConta">Conta financeira</label><select id="nConta"></select></div>
+      <div class="form-group"><label for="nData">Data</label><input type="date" id="nData"></div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Observação</label><input type="text" id="nObs"></div>
+      <div class="form-group full-width"><label for="nObs">Observação</label><input type="text" id="nObs"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fechar('modalNovo')">Cancelar</button>
@@ -88,10 +88,10 @@
     </div>
     <div id="usarResumo" class="card card-info" style="margin-bottom:12px;font-size:0.9em;"></div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Título em aberto</label><select id="uTitulo"></select></div>
+      <div class="form-group full-width"><label for="uTitulo">Título em aberto</label><select id="uTitulo"></select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Valor a abater (R$)</label><input type="text" id="uValor" data-formato="dinheiro"></div>
+      <div class="form-group"><label for="uValor">Valor a abater (R$)</label><input type="text" id="uValor" data-formato="dinheiro"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fechar('modalUsar')">Cancelar</button>
@@ -104,6 +104,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('fin-adiantamentos');</script>

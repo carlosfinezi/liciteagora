@@ -165,30 +165,30 @@ async function abrirNova() {
   document.getElementById('modalBody').innerHTML = `
     <div class="form-row">
       <div class="form-group" style="flex:2;">
-        <label>Peça</label>
+        <label for="nProduto">Peça</label>
         <select id="nProduto" onchange="aoTrocarPeca()">
           <option value="">Selecione…</option>
           ${PECAS.map(p => `<option value="${p.produtoId}" data-modo="${esc(p.modo)}">${esc(p.descricao)}</option>`).join('')}
         </select>
       </div>
-      <div class="form-group"><label>Quantidade</label>
+      <div class="form-group"><label for="nQtd">Quantidade</label>
         <input type="number" id="nQtd" min="1" step="1" value="1"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Forma / pista</label>
+      <div class="form-group"><label for="nForma">Forma / pista</label>
         <select id="nForma"><option value="">Usar a padrão da peça</option>
           ${FORMAS.map(f => `<option value="${f.id}">${esc(f.codigo)} — ${esc(f.descricao)}</option>`).join('')}
         </select></div>
-      <div class="form-group"><label>Data planejada</label>
+      <div class="form-group"><label for="nData">Data planejada</label>
         <input type="datetime-local" id="nData"></div>
     </div>
     <div class="form-row" id="linhaObra" style="display:none;">
-      <div class="form-group" style="flex:2;"><label>Obra <small class="muted">(obrigatória para peça de obra)</small></label>
+      <div class="form-group" style="flex:2;"><label for="nObra">Obra <small class="muted">(obrigatória para peça de obra)</small></label>
         <select id="nObra"><option value="">Selecione…</option>
           ${OBRAS.map(o => `<option value="${o.id}">${esc(o.numero)} — ${esc(o.nome)}</option>`).join('')}
         </select></div>
     </div>
-    <div class="form-group"><label>Observações</label><textarea id="nObs" rows="2"></textarea></div>
+    <div class="form-group"><label for="nObs">Observações</label><textarea id="nObs" rows="2"></textarea></div>
     <div style="text-align:right;">
       <button class="btn" onclick="fechar()">Cancelar</button>
       <button class="btn btn-primary" onclick="criar()">Criar</button>
@@ -336,9 +336,9 @@ async function iniciarProcesso(id) {
   const lotes = await api('GET', '/api/producao/lotes');
   const opcoes = (lotes.body.lotes || []).slice(0, 50);
   document.getElementById('modalBody').innerHTML = `
-    <div class="form-group"><label>Data e hora do início do processo</label>
+    <div class="form-group"><label for="cData">Data e hora do início do processo</label>
       <input type="datetime-local" id="cData"></div>
-    <div class="form-group"><label data-vocab="lote">Lote de processo</label> <small class="muted">(obrigatório quando a ficha exige liberação por ensaio)</small>
+    <div class="form-group"><label for="cLote" data-vocab="lote">Lote de processo</label> <small class="muted">(obrigatório quando a ficha exige liberação por ensaio)</small>
       <select id="cLote"><option value="">Sem lote</option>
         ${opcoes.map(l => `<option value="${l.id}">${esc(l.codigo)} — ${esc(l.data)} — ${esc(l.situacao)}</option>`).join('')}
       </select></div>
@@ -355,17 +355,17 @@ async function concluir(id) {
   document.getElementById('modalBody').innerHTML = `
     <p class="muted">Os valores vêm do que já foi apontado. O custo unitário divide pelas peças BOAS: o refugo encarece o que sobrou.</p>
     <div class="form-row">
-      <div class="form-group"><label>Peças boas</label>
+      <div class="form-group"><label for="fProd">Peças boas</label>
         <input type="number" id="fProd" min="0" step="1" value="${t.quantidadeProduzida}"></div>
-      <div class="form-group"><label>Refugo</label>
+      <div class="form-group"><label for="fRef">Refugo</label>
         <input type="number" id="fRef" min="0" step="1" value="${t.quantidadeRefugo}"></div>
-      <div class="form-group"><label>Data da saída do recurso</label>
+      <div class="form-group"><label for="fData">Data da saída do recurso</label>
         <input type="datetime-local" id="fData"></div>
     </div>
-    <div class="form-group"><label>Motivo do refugo <small class="muted">(obrigatório se houver refugo)</small></label>
+    <div class="form-group"><label for="fMotivo">Motivo do refugo <small class="muted">(obrigatório se houver refugo)</small></label>
       <input type="text" id="fMotivo"></div>
     ${o.exigeIdentificacao ? `
-      <div class="form-group"><label>Identificações <small class="muted">(uma por linha; em branco = geradas a partir do número da OP)</small></label>
+      <div class="form-group"><label for="fIdents">Identificações <small class="muted">(uma por linha; em branco = geradas a partir do número da OP)</small></label>
         <textarea id="fIdents" rows="4"></textarea></div>` : ''}
     <div style="text-align:right;">
       <button class="btn" onclick="abrir(${id})">Voltar</button>

@@ -157,7 +157,7 @@ async function abrirNovo() {
   document.getElementById('modalTitulo').textContent = 'Cadastrar tipo de peça';
   document.getElementById('modalBody').innerHTML = `
     <p class="muted">A peça continua sendo um produto do catálogo — aqui se diz apenas <em>como ela é produzida</em>.</p>
-    <div class="form-group"><label>Produto</label>
+    <div class="form-group"><label for="pProduto">Produto</label>
       <select id="pProduto">
         <option value="">Selecione…</option>
         ${PRODUTOS.map(p => `<option value="${p.id}">${esc(p.descricao)}</option>`).join('')}
@@ -194,12 +194,12 @@ async function abrir(produtoId) {
         : '<tr><td colspan="7" class="empty">Sem ficha: a OP não pode ser liberada sem ela.</td></tr>'}</tbody>
     </table></div>
     <div class="form-row" style="align-items:flex-end;">
-      <div class="form-group" style="flex:2;"><label>Insumo</label>
+      <div class="form-group" style="flex:2;"><label for="fInsumo">Insumo</label>
         <select id="fInsumo"><option value="">Selecione…</option></select></div>
-      <div class="form-group"><label>Quantidade</label><input type="number" id="fQtd" step="0.0001" min="0"></div>
-      <div class="form-group"><label>Unidade</label><input type="text" id="fUnid" value="KG" style="width:70px;"></div>
-      <div class="form-group"><label>Perda %</label><input type="number" id="fPerda" step="0.1" min="0" max="100" value="0"></div>
-      <div class="form-group"><label>Grupo</label>
+      <div class="form-group"><label for="fQtd">Quantidade</label><input type="number" id="fQtd" step="0.0001" min="0"></div>
+      <div class="form-group"><label for="fUnid">Unidade</label><input type="text" id="fUnid" value="KG" style="width:70px;"></div>
+      <div class="form-group"><label for="fPerda">Perda %</label><input type="number" id="fPerda" step="0.1" min="0" max="100" value="0"></div>
+      <div class="form-group"><label for="fGrupo">Grupo</label>
         <select id="fGrupo">
           <option value="principal">principal</option><option value="concreto">concreto</option><option value="aco">aço</option>
           <option value="forma">forma</option><option value="consumivel">consumível</option>
@@ -233,57 +233,57 @@ async function renderCampos(pc) {
   if (!alvo) return;
   alvo.innerHTML = `
     <div class="form-row">
-      <div class="form-group"><label>Modo</label>
+      <div class="form-group"><label for="pModo">Modo</label>
         <select id="pModo" onchange="aoTrocar()">
           <option value="estoque" ${pc.modo !== 'projeto' ? 'selected' : ''}>Estoque (produz para repor saldo)</option>
           <option value="projeto" ${pc.modo === 'projeto' ? 'selected' : ''}>Projeto (produz sob encomenda)</option>
         </select></div>
-      <div class="form-group"><label>Liberação por ensaio</label>
+      <div class="form-group"><label for="pEnsaio">Liberação por ensaio</label>
         <select id="pEnsaio" onchange="aoTrocar()">
           <option value="0" ${!pc.exigeEnsaioLiberacao ? 'selected' : ''}>Não — sai do recurso pelo tempo</option>
           <option value="1" ${pc.exigeEnsaioLiberacao ? 'selected' : ''}>Sim — só sai com ensaio aprovado</option>
         </select></div>
-      <div class="form-group"><label data-vocab="tempoProcesso">Tempo de processo (h)</label>
+      <div class="form-group"><label for="pCuraH" data-vocab="tempoProcesso">Tempo de processo (h)</label>
         <input type="number" id="pCuraH" min="0" step="1" value="${pc.tempoProcessoHoras != null ? pc.tempoProcessoHoras : 24}"></div>
     </div>
     <div class="nota-regra" id="notaRegra"></div>
     <div class="form-row">
-      <div class="form-group"><label data-vocab="quantidadeBase">Quantidade base</label>
+      <div class="form-group"><label for="pVol" data-vocab="quantidadeBase">Quantidade base</label>
         <input type="number" id="pVol" step="0.0001" min="0" value="${pc.quantidadeBase || 0}">
         <small class="muted">quanto UMA unidade representa — é o numerador do indicador</small></div>
-      <div class="form-group"><label>Unidade</label>
+      <div class="form-group"><label for="pUnidade">Unidade</label>
         <input type="text" id="pUnidade" maxlength="10" style="width:80px;"
           value="${esc(pc.unidadeBase || 'UN')}" placeholder="m3, kg, m2">
         <small class="muted">m³, kg, m², UN…</small></div>
-      <div class="form-group"><label>Peso (kg)</label>
+      <div class="form-group"><label for="pPeso">Peso (kg)</label>
         <input type="number" id="pPeso" step="0.01" min="0" value="${pc.pesoKg || 0}"></div>
-      <div class="form-group"><label>Peças por ciclo</label>
+      <div class="form-group"><label for="pCiclo">Peças por ciclo</label>
         <input type="number" id="pCiclo" step="0.01" min="0.01" value="${pc.unidadesPorCiclo || 1}"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Comprimento (m)</label>
+      <div class="form-group"><label for="pComp">Comprimento (m)</label>
         <input type="number" id="pComp" step="0.01" min="0" value="${pc.comprimentoM != null ? pc.comprimentoM : ''}"></div>
-      <div class="form-group"><label>Largura (m)</label>
+      <div class="form-group"><label for="pLarg">Largura (m)</label>
         <input type="number" id="pLarg" step="0.01" min="0" value="${pc.larguraM != null ? pc.larguraM : ''}"></div>
-      <div class="form-group"><label>Altura (m)</label>
+      <div class="form-group"><label for="pAlt">Altura (m)</label>
         <input type="number" id="pAlt" step="0.01" min="0" value="${pc.alturaM != null ? pc.alturaM : ''}"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Limite de conformidade</label>
+      <div class="form-group"><label for="pFckP">Limite de conformidade</label>
         <input type="number" id="pFckP" step="0.1" min="0" value="${pc.ensaioLimiteConformidade != null ? pc.ensaioLimiteConformidade : ''}">
         <small class="muted">atesta o lote; não trava</small></div>
-      <div class="form-group" id="grpFckT"><label>Limite de liberação</label>
+      <div class="form-group" id="grpFckT"><label for="pFckT">Limite de liberação</label>
         <input type="number" id="pFckT" step="0.1" min="0" value="${pc.ensaioLimiteLiberacao != null ? pc.ensaioLimiteLiberacao : ''}">
         <small class="muted">o ensaio precisa atingir este valor para a unidade sair do recurso</small></div>
-      <div class="form-group"><label>Forma padrão</label>
+      <div class="form-group"><label for="pForma">Forma padrão</label>
         <select id="pForma"><option value="">Nenhuma</option>
           ${FORMAS.map(f => `<option value="${f.id}" ${pc.recursoPadraoId === f.id ? 'selected' : ''}>${esc(f.codigo)} — ${esc(f.descricao)}</option>`).join('')}
         </select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Código do projeto</label>
+      <div class="form-group"><label for="pProj">Código do projeto</label>
         <input type="text" id="pProj" value="${esc(pc.codigoProjeto || '')}"></div>
-      <div class="form-group"><label>Ativo</label>
+      <div class="form-group"><label for="pAtivo">Ativo</label>
         <select id="pAtivo"><option value="1" ${pc.ativo !== 0 ? 'selected' : ''}>Sim</option>
           <option value="0" ${pc.ativo === 0 ? 'selected' : ''}>Não</option></select></div>
     </div>

@@ -155,7 +155,7 @@
 
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Origem das imagens</label>
+        <label for="fotoOrigem">Origem das imagens</label>
         <select id="fotoOrigem">
           <option value="fabricante">Fabricante (sou revendedor autorizado)</option>
           <option value="distribuidor">Distribuidor (recebi o material de divulgação)</option>
@@ -168,7 +168,7 @@
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>URLs — uma por linha, no formato <code>SKU;URL</code></label>
+        <label for="fotoLista">URLs — uma por linha, no formato <code>SKU;URL</code></label>
         <textarea id="fotoLista" rows="7" placeholder="HS-SSD-E3000;https://cdn.fabricante.com/ssd-e3000.jpg&#10;SP-L60BK;https://cdn.fabricante.com/caixa-som.jpg"></textarea>
       </div>
     </div>
@@ -229,11 +229,11 @@
       <button class="btn btn-ghost btn-sm" onclick="fechar('modalInt')" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Canal *</label><select id="iCanal"></select></div>
-      <div class="form-group" style="flex:2;"><label>Apelido</label><input type="text" id="iApelido"></div>
+      <div class="form-group"><label for="iCanal">Canal *</label><select id="iCanal"></select></div>
+      <div class="form-group" style="flex:2;"><label for="iApelido">Apelido</label><input type="text" id="iApelido"></div>
     </div>
-    <div class="form-row"><div class="form-group full-width"><label>Credenciais</label><small class="muted">Em JSON. Fica cifrado em base64</small><textarea id="iCred" rows="3" placeholder='{"token":"abc...","user":"..."}'></textarea></div></div>
-    <div class="form-row"><div class="form-group full-width"><label>Observações</label><textarea id="iObs" rows="2"></textarea></div></div>
+    <div class="form-row"><div class="form-group full-width"><label for="iCred">Credenciais</label><small class="muted">Em JSON. Fica cifrado em base64</small><textarea id="iCred" rows="3" placeholder='{"token":"abc...","user":"..."}'></textarea></div></div>
+    <div class="form-row"><div class="form-group full-width"><label for="iObs">Observações</label><textarea id="iObs" rows="2"></textarea></div></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fechar('modalInt')">Cancelar</button>
       <button class="btn btn-primary" onclick="salvarInt()">Salvar</button>
@@ -251,23 +251,23 @@
       <button class="btn btn-ghost btn-sm" onclick="fechar('modalPed')" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Canal *</label><select id="pCanal"></select></div>
-      <div class="form-group"><label>ID externo *</label><input type="text" id="pIdExt"></div>
-      <div class="form-group"><label>Nº externo</label><input type="text" id="pNumExt"></div>
+      <div class="form-group"><label for="pCanal">Canal *</label><select id="pCanal"></select></div>
+      <div class="form-group"><label for="pIdExt">ID externo *</label><input type="text" id="pIdExt"></div>
+      <div class="form-group"><label for="pNumExt">Nº externo</label><input type="text" id="pNumExt"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Comprador</label><input type="text" id="pComp"></div>
-      <div class="form-group"><label>CPF/CNPJ</label><input type="text" id="pCpf"></div>
-      <div class="form-group"><label>E-mail</label><input type="email" id="pEmail"></div>
+      <div class="form-group"><label for="pComp">Comprador</label><input type="text" id="pComp"></div>
+      <div class="form-group"><label for="pCpf">CPF/CNPJ</label><input type="text" id="pCpf"></div>
+      <div class="form-group"><label for="pEmail">E-mail</label><input type="email" id="pEmail"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Data *</label><input type="date" id="pData"></div>
-      <div class="form-group"><label>Valor total</label><input type="number" id="pVal" step="0.01" min="0"></div>
-      <div class="form-group"><label>Frete</label><input type="number" id="pFrete" step="0.01" min="0" value="0"></div>
+      <div class="form-group"><label for="pData">Data *</label><input type="date" id="pData"></div>
+      <div class="form-group"><label for="pVal">Valor total</label><input type="number" id="pVal" step="0.01" min="0"></div>
+      <div class="form-group"><label for="pFrete">Frete</label><input type="number" id="pFrete" step="0.01" min="0" value="0"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Status</label><select id="pStatus"></select></div>
-      <div class="form-group" style="flex:2;"><label>Forma pagamento</label><input type="text" id="pForma"></div>
+      <div class="form-group"><label for="pStatus">Status</label><select id="pStatus"></select></div>
+      <div class="form-group" style="flex:2;"><label for="pForma">Forma pagamento</label><input type="text" id="pForma"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fechar('modalPed')">Cancelar</button>
@@ -278,6 +278,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('marketplaces');</script>
@@ -677,14 +678,14 @@ function renderRascunho(bloqueios){
   document.getElementById('rascCorpo').innerHTML = erro + publicado + marcaTrocada + pend + cat + `
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Título <small class="muted" id="rascTitCount"></small></label>
+        <label for="rTitulo">Título <small class="muted" id="rascTitCount"></small></label>
         <input type="text" id="rTitulo" maxlength="${MAX_TITULO}" value="${(a.titulo||'').replace(/"/g,'&quot;')}"
                oninput="contarTitulo()">
       </div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Preço (R$)</label><input type="text" id="rPreco" value="${Number(a.preco)||0}" data-formato="dinheiro"></div>
-      <div class="form-group"><label>Quantidade</label><input type="number" id="rQtd" step="1" min="0" value="${Number(a.quantidade)||0}"></div>
+      <div class="form-group"><label for="rPreco">Preço (R$)</label><input type="text" id="rPreco" value="${Number(a.preco)||0}" data-formato="dinheiro"></div>
+      <div class="form-group"><label for="rQtd">Quantidade</label><input type="number" id="rQtd" step="1" min="0" value="${Number(a.quantidade)||0}"></div>
       <div class="form-group"><label>Categoria no ML</label><input type="text" value="${a.categoriaNome||'—'} (${a.categoriaId||'—'})" disabled></div>
       <div class="form-group" style="flex:0 0 auto;align-self:flex-end;">
         <button class="btn btn-secondary btn-sm" onclick="pesquisarPreco()">Pesquisar preço no ML</button>
@@ -692,7 +693,7 @@ function renderRascunho(bloqueios){
     </div>
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Código de barras (GTIN) do produto</label>
+        <label for="rGtin">Código de barras (GTIN) do produto</label>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <input type="text" id="rGtin" value="${a.codigoBarras||''}" placeholder="sem código cadastrado" style="max-width:220px;">
           <button class="btn btn-secondary btn-sm" onclick="gravarGtin(document.getElementById('rGtin').value)">Gravar</button>
@@ -704,7 +705,7 @@ function renderRascunho(bloqueios){
     <div id="gtinPainel"></div>
     <div id="precoPainel"></div>
     <div class="form-row">
-      <div class="form-group full-width"><label>Descrição</label><textarea id="rDesc" rows="6">${a.descricao||''}</textarea></div>
+      <div class="form-group full-width"><label for="rDesc">Descrição</label><textarea id="rDesc" rows="6">${a.descricao||''}</textarea></div>
     </div>
     <div class="form-row"><div class="form-group full-width">
       <label>Fotos (${fotos.length})</label>

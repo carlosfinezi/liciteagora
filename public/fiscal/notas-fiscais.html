@@ -84,7 +84,7 @@
   <div class="panel">
     <div class="form-row" style="align-items:end;flex-wrap:wrap;">
       <div class="form-group">
-        <label>Tipo</label>
+        <label for="fTipo">Tipo</label>
         <select id="fTipo" onchange="carregar()">
           <option value="todas">Todas</option>
           <option value="entrada">Entrada</option>
@@ -94,29 +94,29 @@
         </select>
       </div>
       <div class="form-group" style="flex:2;min-width:240px;">
-        <label>Busca <small class="muted">(chave, número, razão social, CPF/CNPJ)</small></label>
+        <label for="fBusca">Busca <small class="muted">(chave, número, razão social, CPF/CNPJ)</small></label>
         <input type="text" id="fBusca" placeholder="Filtrar…" oninput="onBusca()">
       </div>
       <div class="form-group">
-        <label>Data início</label>
+        <label for="fDataIni">Data início</label>
         <input type="date" id="fDataIni" onchange="carregar()">
       </div>
       <div class="form-group">
-        <label>Data fim</label>
+        <label for="fDataFim">Data fim</label>
         <input type="date" id="fDataFim" onchange="carregar()">
       </div>
       <div class="form-group" style="flex:0 0 100px;">
-        <label>CFOP</label>
+        <label for="fCfop">CFOP</label>
         <input type="text" id="fCfop" placeholder="Ex.: 5102" maxlength="4" oninput="onBusca()">
       </div>
       <div class="form-group" style="flex:0 0 200px;">
-        <label>Tipo de operação</label>
+        <label for="fTipoOperacao">Tipo de operação</label>
         <select id="fTipoOperacao" onchange="carregar()">
           <option value="">Todos</option>
         </select>
       </div>
       <div class="form-group" style="flex:0 0 180px;">
-        <label>Status SEFAZ</label>
+        <label for="fStatusSefaz">Status SEFAZ</label>
         <select id="fStatusSefaz" onchange="carregar()">
           <option value="">Todos</option>
           <optgroup label="Saída (NF emitida)">
@@ -133,7 +133,7 @@
         </select>
       </div>
       <div class="form-group">
-        <label>Status interno</label>
+        <label for="fStatus">Status interno</label>
         <select id="fStatus" onchange="carregar()">
           <option value="ativa">Ativas</option>
           <option value="excluida">Excluídas</option>
@@ -172,7 +172,7 @@
       <button class="btn btn-ghost btn-sm" onclick="fecharCancelarNfce()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
     <div class="form-group">
-      <label>Justificativa</label>
+      <label for="nfceMotivo">Justificativa</label>
       <textarea id="nfceMotivo" placeholder="Descreva o motivo do cancelamento…" style="min-height:100px;"></textarea>
       <small class="muted">Mínimo de 15 caracteres.</small>
     </div>
@@ -211,29 +211,29 @@
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>CPF/CNPJ do tomador</label>
+        <label for="edTomaCpfCnpj">CPF/CNPJ do tomador</label>
         <input type="text" id="edTomaCpfCnpj" data-formato="cnpj">
       </div>
       <div class="form-group" style="flex:2;">
-        <label>Razão social / Nome</label>
+        <label for="edTomaRazaoSocial">Razão social / Nome</label>
         <input type="text" id="edTomaRazaoSocial">
       </div>
     </div>
     <div class="form-group">
-      <label>Descrição do serviço</label>
+      <label for="edDescricao">Descrição do serviço</label>
       <textarea id="edDescricao" style="min-height:70px;"></textarea>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Código tributação nacional</label>
+        <label for="edCTribNac">Código tributação nacional</label>
         <input type="text" id="edCTribNac">
       </div>
       <div class="form-group">
-        <label>Valor do serviço</label>
+        <label for="edValor">Valor do serviço</label>
         <input type="text" id="edValor" data-formato="dinheiro">
       </div>
       <div class="form-group">
-        <label>Competência</label>
+        <label for="edCompetencia">Competência</label>
         <input type="date" id="edCompetencia">
       </div>
     </div>
@@ -263,7 +263,7 @@
       ⚠ Conta a receber e boleto associados também serão cancelados.
     </p>
     <div class="form-group" style="margin-bottom:15px;">
-      <label>Motivo</label>
+      <label for="nfseCodigoMotivo">Motivo</label>
       <select id="nfseCodigoMotivo">
         <option value="1">Erro na emissão</option>
         <option value="2">Serviço não prestado</option>
@@ -271,7 +271,7 @@
       </select>
     </div>
     <div class="form-group">
-      <label>Justificativa</label>
+      <label for="nfseMotivo">Justificativa</label>
       <textarea id="nfseMotivo" placeholder="Descreva o motivo do cancelamento…" style="min-height:100px;"></textarea>
       <small class="muted">Mínimo de 15 caracteres.</small>
     </div>
@@ -301,6 +301,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('notas-fiscais');</script>

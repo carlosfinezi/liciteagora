@@ -46,18 +46,18 @@
       <button class="btn btn-ghost btn-sm" onclick="fechar()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
     <div class="row">
-      <label>Fornecedor *</label>
+      <label for="rFornecBusca">Fornecedor *</label>
       <input type="text" id="rFornecBusca" placeholder="CNPJ ou razão social..." oninput="debounceFornec()">
       <div id="rFornecList" class="fornec-result"></div>
       <div id="rFornecSel" style="color:var(--success);font-size:var(--text-xs);margin-top:4px;"></div>
     </div>
     <div class="row-2">
       <div class="row">
-        <label>Categoria</label>
+        <label for="rCategoria">Categoria</label>
         <select id="rCategoria"><option value="">— sem —</option></select>
       </div>
       <div class="row">
-        <label>Forma padrão</label>
+        <label for="rForma">Forma padrão</label>
         <select id="rForma">
           <option value="">—</option>
           <option value="pix">PIX</option><option value="boleto">Boleto</option>
@@ -66,11 +66,11 @@
         </select>
       </div>
     </div>
-    <div class="row"><label>Descrição base *</label><input type="text" id="rDesc" placeholder="ex: Aluguel escritório"></div>
+    <div class="row"><label for="rDesc">Descrição base *</label><input type="text" id="rDesc" placeholder="ex: Aluguel escritório"></div>
     <div class="row-2">
-      <div class="row"><label>Valor *</label><input type="text" id="rValor" data-formato="dinheiro"></div>
+      <div class="row"><label for="rValor">Valor *</label><input type="text" id="rValor" data-formato="dinheiro"></div>
       <div class="row">
-        <label>Frequência *</label>
+        <label for="rFreq">Frequência *</label>
         <select id="rFreq">
           <option value="mensal">Mensal</option>
           <option value="semanal">Semanal</option>
@@ -79,10 +79,10 @@
       </div>
     </div>
     <div class="row-2">
-      <div class="row"><label>Próxima geração *</label><input type="date" id="rProxima"></div>
-      <div class="row"><label>Dia do mês (opcional)</label><input type="number" min="1" max="28" id="rDia" placeholder="ex: 10"></div>
+      <div class="row"><label for="rProxima">Próxima geração *</label><input type="date" id="rProxima"></div>
+      <div class="row"><label for="rDia">Dia do mês (opcional)</label><input type="number" min="1" max="28" id="rDia" placeholder="ex: 10"></div>
     </div>
-    <div class="row"><label>Observações</label><textarea id="rObs" rows="2"></textarea></div>
+    <div class="row"><label for="rObs">Observações</label><textarea id="rObs" rows="2"></textarea></div>
 
     <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:12px;margin-top:12px;">
       <label style="display:flex;gap:8px;align-items:center;font-weight:600;">
@@ -95,11 +95,11 @@
       </p>
       <div id="blocoAuto" style="display:none;margin-top:10px;">
         <div class="row-2">
-          <div class="row"><label>Conta de origem *</label><select id="rContaFin"></select></div>
-          <div class="row"><label>Teto por pagamento (R$) *</label>
+          <div class="row"><label for="rContaFin">Conta de origem *</label><select id="rContaFin"></select></div>
+          <div class="row"><label for="rLimite">Teto por pagamento (R$) *</label>
             <input type="number" id="rLimite" step="0.01" min="0.01" placeholder="ex: 500,00"></div>
         </div>
-        <div class="row"><label>Pagar antes do vencimento</label><small class="muted">Em quantos dias</small>
+        <div class="row"><label for="rDiasAntes">Pagar antes do vencimento</label><small class="muted">Em quantos dias</small>
           <input type="number" id="rDiasAntes" min="0" max="30" value="0">
           <small class="muted">0 = paga no dia do vencimento.</small></div>
         <p class="muted" style="font-size:var(--text-xs);margin:8px 0 0;">
@@ -118,6 +118,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/campo-formato.js"></script>
 <script>initSidebar('contas-a-pagar');</script>
 <script>
 function fmt(v){ return (v==null||isNaN(v))?'0,00':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
