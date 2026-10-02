@@ -42,7 +42,6 @@
 </main></div>
 <div id="toasts"></div>
 <script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('ctb-contabilizacao');</script>
@@ -95,7 +94,7 @@ async function verPendencias(){
 async function processar(){
   const i=document.getElementById('pInicio').value,f=document.getElementById('pFim').value;
   if(!i||!f)return showAlert('Informe o período','error');
-  if(!await Aviso.confirmar(`Contabilizar todos os eventos pendentes de ${i} a ${f}?`))return;
+  if(!confirm(`Contabilizar todos os eventos pendentes de ${i} a ${f}?`))return;
   const r=await fetch('/api/contabilidade/processar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({inicio:i,fim:f})});
   const d=await r.json();if(!d.success)return showAlert(d.error,'error');
   showAlert(`${d.gerados} lançamento(s) gerado(s)${d.erros.length?` · ${d.erros.length} erro(s): ${d.erros[0].erro}`:''}`,d.erros.length?'error':'success');

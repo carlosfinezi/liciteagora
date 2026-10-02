@@ -23,7 +23,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('integracoes');</script>
 
 <script>
@@ -167,7 +166,7 @@ async function testar(key, label) {
 }
 
 async function remover(key, label) {
-  if (!await Aviso.confirmar('Remover credenciais de ' + label + '?')) return;
+  if (!confirm('Remover credenciais de ' + label + '?')) return;
   try {
     const r = await fetch('/api/integracoes/portais/' + encodeURIComponent(key) + '/credenciais', { method: 'DELETE' });
     const d = await r.json();

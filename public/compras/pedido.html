@@ -142,8 +142,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-    <script src="/js/campo-formato.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('pedidos-compra');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -344,7 +342,7 @@ async function editarItem(itemId, campo, valor){
 }
 
 async function removerItem(itemId){
-  if (!await Aviso.confirmar('Remover este item?')) return;
+  if (!confirm('Remover este item?')) return;
   const r = await fetch(`/api/pedidos-compra/${PED_ID}/itens/${itemId}`, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -358,7 +356,7 @@ async function enviar(){
   // Fornecedor com integração executa algo de verdade (compra, envio): a
   // confirmação vem do adaptador e diz qual é a consequência.
   const pergunta = integ.confirmacao || 'Marcar como enviado ao fornecedor?';
-  if (!await Aviso.confirmar(pergunta)) return;
+  if (!confirm(pergunta)) return;
   const r = await fetch(`/api/pedidos-compra/${PED_ID}/enviar`, { method:'POST' });
   const d = await r.json();
   // Alçada: a mensagem dizia o motivo mas não para onde ir, e a solicitação
@@ -466,7 +464,7 @@ function mostrarFalhasNicsrs(integResp){
 }
 
 async function cancelar(){
-  if (!await Aviso.confirmar('Cancelar este pedido de compra?')) return;
+  if (!confirm('Cancelar este pedido de compra?')) return;
   const r = await fetch(`/api/pedidos-compra/${PED_ID}/cancelar`, { method:'POST' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');

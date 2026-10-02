@@ -1184,15 +1184,15 @@
             body.fonte = fonte.trim();
         }
         const rotulo = document.getElementById('massaAcao').selectedOptions[0].textContent;
-        if (!await Aviso.confirmar(`${rotulo}\n\nAplicar a ${SEL_PESSOAS.size} pessoa(s)?`)) return;
+        if (!confirm(`${rotulo}\n\nAplicar a ${SEL_PESSOAS.size} pessoa(s)?`)) return;
 
         const d = await fetch('/api/pessoas/acao-massa', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         }).then(r => r.json());
-        if (!d.success) return Aviso.erro(Aviso.mensagemDeErro(d));
+        if (!d.success) return alert(d.error);
         SEL_PESSOAS.clear();
         await carregarPessoas();
-        Aviso.ok(`${d.alterados} de ${d.total} atualizado(s).`);
+        alert(`${d.alterados} de ${d.total} atualizado(s).`);
     }
 
     // Filtro por categoria: o cadastro é único, então é ele que responde
@@ -1566,7 +1566,7 @@
 
     async function removerIntegracao(id) {
         const pessoaId = pessoaAtualId();
-        if (!pessoaId || !await Aviso.confirmar('Remover esta integração?')) return;
+        if (!pessoaId || !confirm('Remover esta integração?')) return;
         const r = await fetch(`/api/fornecedor-integracoes/${pessoaId}/${id}`, { method: 'DELETE' });
         const d = await r.json();
         if (!d.success) return showAlert(d.error, 'error');
@@ -2541,7 +2541,7 @@
             return showAlert('Cadastro com movimentação vinculada não pode ser excluído:\n' + resumo, 'error');
         }
         const nome = document.getElementById('razaoSocial').value || 'este cadastro';
-        if (!await Aviso.confirmar(`Excluir DEFINITIVAMENTE "${nome}"?\n\nSomem também contatos, endereços, dados bancários e anexos. Não há como desfazer.\n\nPara apenas tirar de uso, cancele e marque o status como Inativo.`)) return;
+        if (!confirm(`Excluir DEFINITIVAMENTE "${nome}"?\n\nSomem também contatos, endereços, dados bancários e anexos. Não há como desfazer.\n\nPara apenas tirar de uso, cancele e marque o status como Inativo.`)) return;
         try {
             const resp = await fetch('/api/pessoas/' + id, { method: 'DELETE' });
             const data = await resp.json();

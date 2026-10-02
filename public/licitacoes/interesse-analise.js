@@ -147,7 +147,7 @@ async function analisarIa(licKey, btn) {
     const lic = iaLicitacaoPorChave(licKey);
     if (!lic) return;
     if (iaLoteRodando) {
-        Aviso.erro('Há uma análise em lote rodando. Espere terminar ou clique em Parar.');
+        alert('Há uma análise em lote rodando. Espere terminar ou clique em Parar.');
         return;
     }
 
@@ -187,7 +187,7 @@ async function analisarIaLote() {
     if (iaLoteRodando) return;
     const lista = iaLicitacoesDoLote();
     if (lista.length === 0) {
-        Aviso.erro('Nenhuma licitação no filtro atual para analisar.');
+        alert('Nenhuma licitação no filtro atual para analisar.');
         return;
     }
 
@@ -202,11 +202,11 @@ async function analisarIaLote() {
         : `até ${lista.length} licitação(ões) ${escopo}`;
 
     if (sabidas === lista.length && aAnalisar === 0) {
-        Aviso.erro('Todas as licitações deste recorte já têm análise. Para refazer uma delas, use o botão do card.');
+        alert('Todas as licitações deste recorte já têm análise. Para refazer uma delas, use o botão do card.');
         return;
     }
 
-    const ok = await Aviso.confirmar(
+    const ok = confirm(
         `Analisar ${quantas}?\n\n` +
         'Cada uma baixa o edital e consome uma chamada paga de IA. ' +
         'As que já têm análise são puladas.\n\n' +

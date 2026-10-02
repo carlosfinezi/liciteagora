@@ -70,7 +70,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('ctb-lancamentos');</script>
@@ -162,7 +161,7 @@ async function salvar(){
 }
 
 async function estornar(id){
-  if (!await Aviso.confirmar('Estornar o lançamento #'+id+'? Um lançamento inverso será criado na data de hoje.')) return;
+  if (!confirm('Estornar o lançamento #'+id+'? Um lançamento inverso será criado na data de hoje.')) return;
   const r = await fetch(`/api/contabilidade/lancamentos/${id}/estornar`, { method:'POST' });
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');

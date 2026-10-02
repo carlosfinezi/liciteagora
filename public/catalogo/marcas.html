@@ -59,7 +59,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('cadastro-marcas');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -114,7 +113,7 @@ async function salvar(){
 }
 
 async function inativar(valor){
-  if (!await Aviso.confirmar('Inativar marca "'+valor+'"?')) return;
+  if (!confirm('Inativar marca "'+valor+'"?')) return;
   try {
     const r = await fetch('/api/produto-lookup/marca/'+encodeURIComponent(valor), { method:'DELETE' });
     const d = await r.json();

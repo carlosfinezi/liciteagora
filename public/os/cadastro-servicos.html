@@ -154,8 +154,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
-    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('cadastro-servicos');</script>
@@ -334,7 +332,7 @@ async function salvar(){
 async function inativar(){
   const id = document.getElementById('fId').value;
   if (!id) return;
-  if (!await Aviso.confirmar('Inativar este serviço? Itens de OS existentes não são afetados, mas ele não aparecerá em novos lançamentos.')) return;
+  if (!confirm('Inativar este serviço? Itens de OS existentes não são afetados, mas ele não aparecerá em novos lançamentos.')) return;
   try {
     const r = await fetch('/api/servicos/' + id, { method: 'DELETE' });
     const d = await r.json();

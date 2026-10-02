@@ -110,8 +110,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
-    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('comercial-vendas-perdidas');</script>
@@ -304,7 +302,7 @@ async function salvar(){
 }
 
 async function excluir(id){
-  if (!await Aviso.confirmar('Excluir este registro?')) return;
+  if (!confirm('Excluir este registro?')) return;
   const r = await fetch('/api/vendas-perdidas/'+id, { method:'DELETE' }); const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
   carregar();

@@ -122,8 +122,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-    <script src="/js/campo-formato.js"></script>
-    <script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('estoque-lotes');</script>
@@ -229,7 +227,7 @@ async function verDetalhe(id){
   const l=d.lote;
   const movs = (d.movimentacoes||[]).map(m=>`${m.data} · ${m.tipo} · qtd ${m.quantidade}`).join('\n') || '(sem movimentações)';
   const serial = (d.serial||[]).length;
-  Aviso.erro(`Lote ${l.numero}\nProduto: ${l.sku} — ${l.descricao}\nSaldo: ${l.saldoAtual} / ${l.quantidadeInicial}\nValidade: ${fmtData(l.dataValidade)}\nCusto: R$ ${fmt(l.custoUnitario)}\nSeriais vinculados: ${serial}\n\nMovimentações:\n${movs}`);
+  alert(`Lote ${l.numero}\nProduto: ${l.sku} — ${l.descricao}\nSaldo: ${l.saldoAtual} / ${l.quantidadeInicial}\nValidade: ${fmtData(l.dataValidade)}\nCusto: R$ ${fmt(l.custoUnitario)}\nSeriais vinculados: ${serial}\n\nMovimentações:\n${movs}`);
 }
 
 let acTimer;

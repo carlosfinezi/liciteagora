@@ -426,7 +426,7 @@
         if (e) e.preventDefault();
         const grupoId = document.getElementById('fltGrupo').value;
         const q = document.getElementById('txtBusca').value.trim();
-        if (!grupoId && q.length < 3) return Aviso.erro('Digite pelo menos 3 caracteres ou selecione um grupo');
+        if (!grupoId && q.length < 3) return alert('Digite pelo menos 3 caracteres ou selecione um grupo');
 
         const tam = document.getElementById('selTamanho').value;
         document.getElementById('btnBuscar').disabled = true;
@@ -477,7 +477,7 @@
             if (grupoId) carregarSugestoes(grupoId, itensAtuais.map(i => i.itemId));
 
         } catch (err) {
-            Aviso.erro(Aviso.mensagemDeErro(err));
+            alert('Erro: ' + err.message);
         } finally {
             document.getElementById('btnBuscar').disabled = false;
             document.getElementById('btnBuscar').textContent = 'Buscar Itens';
@@ -695,7 +695,7 @@
     async function exportarExcel() {
         const grupoId = document.getElementById('fltGrupo').value;
         const q = document.getElementById('txtBusca').value.trim();
-        if (!grupoId && q.length < 3) { Aviso.erro('Faça uma busca (ou selecione um grupo) antes de exportar.'); return; }
+        if (!grupoId && q.length < 3) { alert('Faça uma busca (ou selecione um grupo) antes de exportar.'); return; }
         const btn = document.getElementById('btnExportar');
         const txtOriginal = btn ? btn.textContent : '';
         if (btn) { btn.disabled = true; btn.textContent = 'Gerando…'; }
@@ -718,7 +718,7 @@
             a.remove();
             URL.revokeObjectURL(url);
         } catch (err) {
-            Aviso.erro(Aviso.mensagemDeErro(err));
+            alert('Erro ao exportar: ' + err.message);
         } finally {
             if (btn) { btn.disabled = false; btn.textContent = txtOriginal; }
         }
@@ -926,7 +926,7 @@
                 const resp = await fetch(`/api/bi/classificar-ia?grupoId=${grupoId}&maxItens=100`, { method: 'POST' });
                 const data = await resp.json();
                 if (!resp.ok) {
-                    Aviso.erro(Aviso.mensagemDeErro((data.error || resp.status)));
+                    alert('Erro: ' + (data.error || resp.status));
                     break;
                 }
                 if (data.processados === 0 || data.restantes === 0) break;
@@ -938,7 +938,7 @@
             if (!chk.checked) chk.checked = true;
             pesquisar();
         } catch (e) {
-            Aviso.erro(Aviso.mensagemDeErro(e));
+            alert('Erro: ' + e.message);
         } finally {
             btn.disabled = false;
         }
@@ -1018,7 +1018,7 @@
             while (true) {
                 const resp = await fetch(`/api/bi/sugerir-produto?grupoId=${grupoId}&marca=${encodeURIComponent(SUGESTAO_MARCA)}&maxItens=80`, { method: 'POST' });
                 const data = await resp.json();
-                if (!resp.ok) { Aviso.erro(Aviso.mensagemDeErro((data.error || resp.status))); break; }
+                if (!resp.ok) { alert('Erro: ' + (data.error || resp.status)); break; }
                 if (data.processados === 0 || data.restantes === 0) break;
                 await atualizarStatusSugestao();
             }
@@ -1028,7 +1028,7 @@
                 await carregarSugestoes(grupoId, itensAtuais.map(i => i.itemId));
             }
         } catch (e) {
-            Aviso.erro(Aviso.mensagemDeErro(e));
+            alert('Erro: ' + e.message);
         } finally {
             btn.disabled = false;
         }
@@ -1047,7 +1047,7 @@
     document.getElementById('txtBusca').focus();
 
     function mostrarHomologados() {
-        if (ultimoHomologados.length === 0) { Aviso.erro('Aguarde a busca de vencedores finalizar.'); return; }
+        if (ultimoHomologados.length === 0) { alert('Aguarde a busca de vencedores finalizar.'); return; }
 
         const old = document.getElementById('modalHomologados');
         if (old) old.remove();
@@ -1108,7 +1108,7 @@
 
     function mostrarFornecedores() {
         const entries = Object.entries(ultimoFornecedoresMap);
-        if (entries.length === 0) { Aviso.erro('Aguarde a busca de vencedores finalizar.'); return; }
+        if (entries.length === 0) { alert('Aguarde a busca de vencedores finalizar.'); return; }
 
         entries.sort((a, b) => b[1].count - a[1].count);
 
@@ -1156,7 +1156,7 @@
     // Pesquisa de Preço via Dados Abertos
     async function buscarPesquisaPreco() {
         const q = document.getElementById('txtBusca').value.trim();
-        if (q.length < 3) return Aviso.erro('Digite pelo menos 3 caracteres');
+        if (q.length < 3) return alert('Digite pelo menos 3 caracteres');
 
         const btn = document.getElementById('btnPesquisaPreco');
         btn.disabled = true; btn.textContent = '⏳ Buscando...';
@@ -1167,7 +1167,7 @@
             const resultados = data.resultado || [];
 
             if (resultados.length === 0) {
-                Aviso.erro('Nenhum resultado na Pesquisa de Preço para: ' + q);
+                alert('Nenhum resultado na Pesquisa de Preço para: ' + q);
                 return;
             }
 
@@ -1175,7 +1175,7 @@
             const total = data.totalRegistros || resultados.length;
             mostrarResultadosDadosAbertos(resultados, `Pesquisa de Preço: "${q}" (${total} registros)`);
         } catch (err) {
-            Aviso.erro(Aviso.mensagemDeErro(err));
+            alert('Erro: ' + err.message);
         } finally {
             btn.disabled = false; btn.textContent = '💰 Pesquisa de Preço (Dados Abertos)';
         }
@@ -1184,7 +1184,7 @@
     // Itens de Contratações via Dados Abertos (Lei 14.133)
     async function buscarDadosAbertos() {
         const q = document.getElementById('txtBusca').value.trim();
-        if (q.length < 3) return Aviso.erro('Digite pelo menos 3 caracteres');
+        if (q.length < 3) return alert('Digite pelo menos 3 caracteres');
 
         const btn = document.getElementById('btnDadosAbertos');
         btn.disabled = true; btn.textContent = '⏳ Buscando...';
@@ -1195,14 +1195,14 @@
             const resultados = data.resultado || [];
 
             if (resultados.length === 0) {
-                Aviso.erro('Nenhum item na API Dados Abertos para: ' + q);
+                alert('Nenhum item na API Dados Abertos para: ' + q);
                 return;
             }
 
             const total = data.totalRegistros || resultados.length;
             mostrarResultadosDadosAbertos(resultados, `Itens Contratações 14.133: "${q}" (${total} registros)`);
         } catch (err) {
-            Aviso.erro(Aviso.mensagemDeErro(err));
+            alert('Erro: ' + err.message);
         } finally {
             btn.disabled = false; btn.textContent = '📋 Itens Contratações (Lei 14.133)';
         }
@@ -1266,7 +1266,7 @@
     // ============= ANÁLISE IA (DeepSeek) =============
     async function abrirAnaliseIA() {
         if (itensAtuais.length === 0) {
-            return Aviso.erro('Faça uma busca primeiro.');
+            return alert('Faça uma busca primeiro.');
         }
         const old = document.getElementById('modalAnaliseIA');
         if (old) old.remove();
@@ -1522,8 +1522,6 @@
 </div>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-    <script src="/js/aviso-sistema.js"></script>
-    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('inteligencia');</script>
 </body>
 </html>

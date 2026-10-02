@@ -124,7 +124,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('ssl-integracao');</script>
 
 <script>
@@ -212,12 +211,12 @@ async function testar(){
 
 // Leva o preço da NicSRS (US$) para o catálogo de produtos (R$), pela PTAX.
 async function atualizarPrecos(){
-  if (!await Aviso.confirmar('Atualizar o custo dos produtos SSL com o preço atual da NicSRS convertido pela PTAX do dia?\n\nOnde houver markup cadastrado, o preço de VENDA é recalculado junto — senão o produto ficaria com custo novo e venda antiga.')) return;
+  if (!confirm('Atualizar o custo dos produtos SSL com o preço atual da NicSRS convertido pela PTAX do dia?\n\nOnde houver markup cadastrado, o preço de VENDA é recalculado junto — senão o produto ficaria com custo novo e venda antiga.')) return;
   showAlert('Atualizando preços…');
   try {
     // Cria no catálogo o que a API oferece e o tenant não tem: sem o produto
     // cadastrado não há o que vincular a um item de contrato.
-    const criar = await Aviso.confirmar('Criar também os produtos que existem na NicSRS e ainda não estão no seu catálogo?\n\nOK = cria (código SSL-NICSRS-NNN, markup 100%). Cancelar = só atualiza preços dos já cadastrados.');
+    const criar = confirm('Criar também os produtos que existem na NicSRS e ainda não estão no seu catálogo?\n\nOK = cria (código SSL-NICSRS-NNN, markup 100%). Cancelar = só atualiza preços dos já cadastrados.');
     const r = await fetch('/api/ssl/produtos/atualizar-precos', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ criarFaltantes: criar })

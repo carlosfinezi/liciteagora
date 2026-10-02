@@ -299,8 +299,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
-    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('notas-fiscais');</script>
@@ -779,7 +777,7 @@ let _reemitindo = false;
 async function reemitirNfse(id, jaConfirmado){
   fecharDetalhesNfse();
   if (_reemitindo) return;
-  if (!jaConfirmado && !await Aviso.confirmar('Reemitir esta NFS-e para a SEFIN?')) return;
+  if (!jaConfirmado && !confirm('Reemitir esta NFS-e para a SEFIN?')) return;
   _reemitindo = true;
   showAlert('Reemitindo nota, aguarde…', 'info');
   try {

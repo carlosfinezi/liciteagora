@@ -74,7 +74,6 @@ input { width: 100%; padding: 11px; border: 1px solid var(--border); border-radi
   <div class="rodape" id="rodape"></div>
 </div>
 
-<script src="/js/aviso-sistema.js"></script>
 <script>
 const TOKEN = new URLSearchParams(location.search).get('token') || '';
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
@@ -160,10 +159,10 @@ function renderMarcada() {
 }
 
 async function cancelar() {
-  if (!await Aviso.confirmar('Cancelar esta reunião?')) return;
+  if (!confirm('Cancelar esta reunião?')) return;
   const d = await fetch('/api/agendar/' + TOKEN + '/cancelar', { method: 'POST' })
     .then(r => r.json()).catch(() => null);
-  if (!d?.success) return Aviso.erro(d?.error || 'Não foi possível cancelar.');
+  if (!d?.success) return alert(d?.error || 'Não foi possível cancelar.');
   document.getElementById('titulo').textContent = 'Reunião cancelada';
   document.getElementById('corpo').innerHTML =
     '<div class="aviso ok">Tudo certo, a reunião foi cancelada. '

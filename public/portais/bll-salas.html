@@ -322,30 +322,30 @@ async function salvarLote(loteId){
 }
 
 async function toggleDry(id, aoVivo){
-  if(aoVivo && !await Aviso.confirmar('⚠️ Modo AO VIVO: o robô vai enviar lances REAIS (reais inteiros) quando o lote tiver auto-lance ativo e houver degrau acima do piso. Confirmar?')){ render(); return; }
+  if(aoVivo && !confirm('⚠️ Modo AO VIVO: o robô vai enviar lances REAIS (reais inteiros) quando o lote tiver auto-lance ativo e houver degrau acima do piso. Confirmar?')){ render(); return; }
   try{
     const r=await fetch('/api/bll/salas/'+id+'/dry-run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dryRun:!aoVivo})});
     const d=await r.json(); if(!d.success) throw new Error(d.error); carregar();
-  }catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  }catch(e){ alert(e.message); }
 }
 async function toggleAtivo(id, ativo){
   try{
     const r=await fetch('/api/bll/salas/'+id+'/ativo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ativo})});
     const d=await r.json(); if(!d.success) throw new Error(d.error); carregar();
-  }catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  }catch(e){ alert(e.message); }
 }
 async function redescobrir(id){
   try{
     const r=await fetch('/api/bll/salas/'+id+'/redescobrir',{method:'POST'});
     const d=await r.json(); if(!d.success) throw new Error(d.error); carregar();
-  }catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  }catch(e){ alert(e.message); }
 }
 async function remover(id){
-  if(!await Aviso.confirmar('Remover esta sala? O motor para de monitorar.')) return;
+  if(!confirm('Remover esta sala? O motor para de monitorar.')) return;
   try{
     const r=await fetch('/api/bll/salas/'+id,{method:'DELETE'});
     const d=await r.json(); if(!d.success) throw new Error(d.error); expanded.delete(id); carregar();
-  }catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  }catch(e){ alert(e.message); }
 }
 
 function abrir(id){ document.getElementById(id).classList.add('open'); }
@@ -375,7 +375,6 @@ carregar();
 </script>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-    <script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('bll-salas');</script>
 </body>

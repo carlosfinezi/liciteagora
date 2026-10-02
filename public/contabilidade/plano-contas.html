@@ -81,7 +81,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('plano-contas');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -158,7 +157,7 @@ async function salvar(){
 }
 
 async function excluir(id){
-  if (!await Aviso.confirmar('Desativar esta conta?')) return;
+  if (!confirm('Desativar esta conta?')) return;
   const r = await fetch('/api/plano-contas/'+id, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');

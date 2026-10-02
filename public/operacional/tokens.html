@@ -109,7 +109,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-    <script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('tokens');</script>
 <script>
 const fmtTs = (iso) => {
@@ -133,7 +132,7 @@ async function carregar() {
             fetch('/api/sniper/electron/eventos-historico?limite=80&janelaMin=1440').then(x => x.json()),
             fetch('/api/sniper/comprasnet-uso-bearer?janelaMin=10').then(x => x.json()),
         ]);
-        if (!rTok.success) { Aviso.erro(Aviso.mensagemDeErro((rTok.error||''))); return; }
+        if (!rTok.success) { alert('Erro: ' + (rTok.error||'')); return; }
         renderAlertaDedup(rHb);
         renderElectronStatus(rHb);
         renderAtual(rTok.atual);

@@ -99,7 +99,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-    <script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('estoque-inventario');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -317,7 +316,7 @@ async function finalizar(){
   const pendentes = itens.filter(i => i.saldoContado == null).length;
   let msg = `Finalizar inventário? Isso gerará ajustes automáticos no estoque para todos os itens divergentes.`;
   if (pendentes > 0) msg += `\n\n⚠️ ${pendentes} item(ns) não foram contados. Eles serão ignorados (nenhum ajuste gerado).`;
-  if (!await Aviso.confirmar(msg)) return;
+  if (!confirm(msg)) return;
 
   try {
     const r = await fetch('/api/inventarios/'+INVENTARIO_ID+'/finalizar', {
@@ -326,7 +325,7 @@ async function finalizar(){
     });
     const d = await r.json();
     if (!d.success) return showAlert(d.error, 'error');
-    showAlert(`Inventário finalizado. ${d.totalDivergencias} ajuste(s) gerado(s) — faltas R$ ${fmt(d.faltas)}, sobras R$ ${fmt(d.sobras)}, resultado líquido ${(d.liquido||0)<0?'−':''}R$ ${fmt(Math.abs(d.liquido||0))}.`);
+    showAlert(`Inventário finalizado. ${d.totalDivergencias} ajuste(s) gerado(s), valor divergência R$ ${fmt(d.valorDivergencia)}.`);
     setTimeout(() => carregar(), 1000);
   } catch(e){ showAlert('Erro: '+e.message, 'error'); }
 }

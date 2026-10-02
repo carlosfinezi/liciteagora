@@ -294,8 +294,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
-    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('crm-funil');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -716,7 +714,7 @@ async function salvarFunil(){
 }
 async function excluirFunil(){
   if (!funilAtual) return;
-  if (!await Aviso.confirmar(`Excluir o funil "${funilAtual.nome}" e suas etapas?\n\nSó é possível se ele não tiver oportunidades.`)) return;
+  if (!confirm(`Excluir o funil "${funilAtual.nome}" e suas etapas?\n\nSó é possível se ele não tiver oportunidades.`)) return;
   try {
     const r = await fetch('/api/crm/funis/'+funilAtual.id, { method:'DELETE' });
     const d = await r.json();
@@ -788,7 +786,7 @@ async function excluirEt(id){
   if ((funilAtual.etapas.length||0) <= 1) return showAlert('O funil precisa ter pelo menos uma etapa','error');
   const n = etapaCounts[id] || 0;
   if (n > 0) return showAlert(`A etapa "${et.nome}" tem ${n} oportunidade(s). Mova-as para outra etapa antes de excluir.`, 'error');
-  if (!await Aviso.confirmar(`Excluir a etapa "${et.nome}"?`)) return;
+  if (!confirm(`Excluir a etapa "${et.nome}"?`)) return;
   try {
     const r = await fetch('/api/crm/etapas/'+id, {
       method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ativo: false })

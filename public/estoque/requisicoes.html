@@ -93,7 +93,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('estoque-requisicoes');</script>
@@ -216,7 +215,7 @@ async function confirmarAtender(){
 }
 
 async function cancelar(id){
-  if (!await Aviso.confirmar('Cancelar esta requisição?')) return;
+  if (!confirm('Cancelar esta requisição?')) return;
   const r = await fetch(`/api/requisicoes/${id}/cancelar`, { method:'POST' }); const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
   if (d.aviso) showAlert(d.aviso); else showAlert('Cancelada');

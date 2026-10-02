@@ -77,7 +77,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('funcionarios');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -145,7 +144,7 @@ async function addPonto(){
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   carregarPonto();
 }
-async function remPonto(pid){ if (!await Aviso.confirmar('Remover registro?')) return; await fetch('/api/funcionarios/ponto/'+pid,{method:'DELETE'}); carregarPonto(); }
+async function remPonto(pid){ if (!confirm('Remover registro?')) return; await fetch('/api/funcionarios/ponto/'+pid,{method:'DELETE'}); carregarPonto(); }
 
 async function carregarFerias(){
   const r = await fetch(`/api/funcionarios/${id}/ferias`);
@@ -172,7 +171,7 @@ async function addFerias(){
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   carregarFerias();
 }
-async function remFerias(fid){ if (!await Aviso.confirmar('Remover?')) return; await fetch('/api/funcionarios/ferias/'+fid,{method:'DELETE'}); carregarFerias(); }
+async function remFerias(fid){ if (!confirm('Remover?')) return; await fetch('/api/funcionarios/ferias/'+fid,{method:'DELETE'}); carregarFerias(); }
 
 async function carregarAtestados(){
   const r = await fetch(`/api/funcionarios/${id}/atestados`);
@@ -193,7 +192,7 @@ async function addAtestado(){
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   carregarAtestados();
 }
-async function remAt(aid){ if (!await Aviso.confirmar('Remover?')) return; await fetch('/api/funcionarios/atestados/'+aid,{method:'DELETE'}); carregarAtestados(); }
+async function remAt(aid){ if (!confirm('Remover?')) return; await fetch('/api/funcionarios/atestados/'+aid,{method:'DELETE'}); carregarAtestados(); }
 
 async function demitir(){
   const data = prompt('Data de demissão (YYYY-MM-DD):', new Date().toISOString().slice(0,10));

@@ -119,7 +119,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('estoque-inventario');</script>
@@ -227,7 +226,7 @@ async function criar(){
 }
 
 async function cancelar(id){
-  if(!await Aviso.confirmar('Cancelar este inventário? (nada será ajustado no estoque)')) return;
+  if(!confirm('Cancelar este inventário? (nada será ajustado no estoque)')) return;
   const r = await fetch('/api/inventarios/'+id+'/cancelar', { method:'POST' });
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');

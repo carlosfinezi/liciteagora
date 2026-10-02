@@ -1485,7 +1485,7 @@ async function addPecaTerceira(){
 }
 
 async function remPeca(itemId){
-  if (!await Aviso.confirmar('Remover esta peça?')) return;
+  if (!confirm('Remover esta peça?')) return;
   const r = await fetch('/api/os/pecas/'+itemId, { method:'DELETE' });
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   carregar();
@@ -1568,7 +1568,7 @@ async function addServicoTerceiro(){
   carregar();
 }
 async function remServico(id){
-  if (!await Aviso.confirmar('Remover este serviço?')) return;
+  if (!confirm('Remover este serviço?')) return;
   const r = await fetch('/api/os/servicos/'+id, { method:'DELETE' });
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   carregar();
@@ -1588,7 +1588,7 @@ async function addApont(){
   carregar();
 }
 async function remApont(id){
-  if (!await Aviso.confirmar('Remover apontamento?')) return;
+  if (!confirm('Remover apontamento?')) return;
   const r = await fetch('/api/os/apontamentos/'+id, { method:'DELETE' });
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   carregar();
@@ -1607,7 +1607,7 @@ async function aguardar(){
 async function concluir(){
   const solucao = prompt('Solução aplicada (opcional, mas recomendada):');
   if (solucao === null) return;
-  const baixar = await Aviso.confirmar('Baixar peças do estoque agora? (Cancelar = não baixar)');
+  const baixar = confirm('Baixar peças do estoque agora? (Cancelar = não baixar)');
   const r = await fetch(`/api/os/${id}/concluir`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ solucao, baixarEstoque: baixar }) });
   const d = await r.json();
   if (!d.success) {
@@ -1734,7 +1734,7 @@ async function emitirNfse(){
   const aviso = !osData.tipoOperacao?.emiteNFe
     ? 'O tipo desta OS é documento interno — a NFSe NÃO será enviada à SEFIN (apenas registrada localmente). Continuar?'
     : 'Emitir NFSe dos serviços para a SEFIN? Esta ação transmite a nota fiscal eletrônica.';
-  if (!await Aviso.confirmar(aviso)) return;
+  if (!confirm(aviso)) return;
   const r = await fetch(`/api/os/${id}/emitir-nfse`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error || 'Falha ao emitir NFSe', 'error');
@@ -1746,7 +1746,7 @@ async function emitirNfe(){
   const aviso = !osData.tipoOperacao?.emiteNFe
     ? 'O tipo desta OS é documento interno — a NF-e NÃO será enviada à SEFAZ. Continuar?'
     : 'Emitir NF-e das peças para a SEFAZ? Esta ação transmite a nota fiscal eletrônica.';
-  if (!await Aviso.confirmar(aviso)) return;
+  if (!confirm(aviso)) return;
   const r = await fetch(`/api/os/${id}/emitir-nfe`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error || 'Falha ao emitir NF-e', 'error');
@@ -1816,7 +1816,7 @@ async function toggleChecklist(itemId, concluido) {
   carregar();
 }
 async function removeChecklist(itemId) {
-  if (!await Aviso.confirmar('Remover este item?')) return;
+  if (!confirm('Remover este item?')) return;
   const r = await fetch(`/api/os/checklist/${itemId}`, { method: 'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -1863,7 +1863,7 @@ async function enviarAnexo() {
   carregar();
 }
 async function removerAnexo(anexoId) {
-  if (!await Aviso.confirmar('Remover este anexo?')) return;
+  if (!confirm('Remover este anexo?')) return;
   const r = await fetch(`/api/os/anexos/${anexoId}`, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');

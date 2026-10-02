@@ -77,7 +77,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('portal-credenciais');</script>
@@ -154,7 +153,7 @@ async function salvar(){
   carregar();
 }
 async function revogar(pessoaId){
-  if (!await Aviso.confirmar('Revogar acesso deste cliente?')) return;
+  if (!confirm('Revogar acesso deste cliente?')) return;
   const r = await fetch('/api/portal/credencial/'+pessoaId, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');

@@ -876,7 +876,7 @@
         }
 
         async function removerCertificado() {
-            if (!await Aviso.confirmar('Tem certeza que deseja remover o certificado digital?')) {
+            if (!confirm('Tem certeza que deseja remover o certificado digital?')) {
                 return;
             }
 
@@ -926,8 +926,6 @@
     </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
-    <script src="/js/aviso-sistema.js"></script>
-    <script src="/js/campo-formato.js"></script>
     <script>initSidebar('minha-empresa');
     </script>
 </body>

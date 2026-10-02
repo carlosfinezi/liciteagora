@@ -98,7 +98,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-    <script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('blitz');</script>
@@ -237,18 +236,18 @@ async function carregarHistorico() {
 }
 
 async function cancelar(compraId, itemNumero) {
-    if (!await Aviso.confirmar('Cancelar a rajada agendada do item '+itemNumero+'?')) return;
+    if (!confirm('Cancelar a rajada agendada do item '+itemNumero+'?')) return;
     try {
         var r = await fetch('/api/sniper/cancelar-blitz', {
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ compraId, itemNumero })
         });
         var d = await r.json();
-        if (!d.success) { Aviso.erro('Falha: '+(d.error||'')); return; }
+        if (!d.success) { alert('Falha: '+(d.error||'')); return; }
         carregarAgendadas();
         carregarKpis();
     } catch (e) {
-        Aviso.erro(Aviso.mensagemDeErro(e));
+        alert('Erro: '+e.message);
     }
 }
 

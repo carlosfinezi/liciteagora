@@ -51,7 +51,6 @@
   <div class="rodape">Cotação eletrônica · powered by <strong>Licite Agora</strong></div>
 </div>
 
-<script src="/js/aviso-sistema.js"></script>
 <script>
 const token = new URLSearchParams(location.search).get('t');
 let DADOS = null;
@@ -114,7 +113,7 @@ async function enviarResposta(){
 }
 
 async function declinar(){
-  if (!await Aviso.confirmar('Confirmar que não vai participar desta cotação?')) return;
+  if (!confirm('Confirmar que não vai participar desta cotação?')) return;
   const r = await fetch('/api/cotacao-publica/'+token, {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ declinar: true, observacao: document.getElementById('obs').value.trim() || null })

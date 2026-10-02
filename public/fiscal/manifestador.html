@@ -61,7 +61,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-    <script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('manifestador');</script>
@@ -81,12 +80,12 @@ async function sincronizar(){
     if (!d.success) throw new Error(d.error || d.xMotivo || 'erro');
     if (d.aguardando) {
       const min = Math.ceil((d.esperarSegundos||0)/60);
-      Aviso.info(`Consulta não enviada — a SEFAZ limita a distribuição de XMLs a uma consulta por hora quando não há nota nova.\n\n${d.xMotivo}\n\nPróxima consulta liberada em ~${min} min. O download automático já roda sozinho a cada 65 min.`);
+      alert(`Consulta não enviada — a SEFAZ limita a distribuição de XMLs a uma consulta por hora quando não há nota nova.\n\n${d.xMotivo}\n\nPróxima consulta liberada em ~${min} min. O download automático já roda sozinho a cada 65 min.`);
     } else {
-      Aviso.ok(`Sincronização concluída.\n\nNovos: ${d.novos}\nÚlt. NSU: ${d.ultNSU}\nMax NSU: ${d.maxNSU}\nStatus SEFAZ: ${d.cStat} ${d.xMotivo||''}`);
+      alert(`Sincronização concluída.\n\nNovos: ${d.novos}\nÚlt. NSU: ${d.ultNSU}\nMax NSU: ${d.maxNSU}\nStatus SEFAZ: ${d.cStat} ${d.xMotivo||''}`);
     }
     await carregar();
-  } catch (e) { Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch (e) { alert('Erro: '+e.message); }
   finally { btn.disabled = false; btn.textContent = '🔄 Buscar novidades na SEFAZ'; }
 }
 
@@ -104,8 +103,8 @@ async function enviarXmlUpload(input){
     document.getElementById('filtSituacao').value = 'pendente';
     await carregar();
     const aviso = d.temProtocolo ? '' : '\n\n⚠ XML sem protocolo de autorização (nota não processada pela SEFAZ). Confira antes de importar.';
-    Aviso.ok(`XML da NF-e ${d.numeroNF||''} (${d.emitente||'emitente'}) ${d.jaNaInbox?'atualizado na':'adicionado à'} caixa de entrada.\n\nRevise a linha e clique em "Importar".${aviso}`);
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+    alert(`XML da NF-e ${d.numeroNF||''} (${d.emitente||'emitente'}) ${d.jaNaInbox?'atualizado na':'adicionado à'} caixa de entrada.\n\nRevise a linha e clique em "Importar".${aviso}`);
+  } catch(e){ alert('Erro ao importar XML: '+e.message); }
   finally { btn.disabled = false; btn.textContent = '⬆ Importar XML'; input.value=''; }
 }
 
@@ -123,7 +122,7 @@ async function carregar(){
     const bloqueio = c.ultimoCStat === '656' ? ' · ⚠ SEFAZ bloqueou por consumo indevido (libera 1h após a última tentativa)' : '';
     document.getElementById('cursorInfo').textContent = `NSU atual: ${c.ultNSU||'0'} · Max SEFAZ: ${c.maxNSU||'—'} · Última sync: ${c.ultimaSincronizacao||'nunca'}${bloqueio}`;
     render(d.items);
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 // Prazo de 10 dias da SEFAZ para manifestar. Só faz sentido enquanto não há
@@ -267,7 +266,7 @@ function renderPreview(d){
 }
 
 async function manifestar(chave){
-  if (!await Aviso.confirmar('Manifestar Ciência na SEFAZ para esta NF-e? Isso libera o download do XML completo.')) return;
+  if (!confirm('Manifestar Ciência na SEFAZ para esta NF-e? Isso libera o download do XML completo.')) return;
   try {
     const r = await fetch('/api/nfe-entrada/inbox/'+chave+'/manifestar', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -279,13 +278,13 @@ async function manifestar(chave){
     const r2 = await fetch('/api/nfe-entrada/inbox/'+chave+'/baixar-xml', { method:'POST' });
     const d2 = await r2.json();
     if (d2.success) {
-      Aviso.ok('Ciência registrada e XML completo baixado. Clique em Importar.');
+      alert('Ciência registrada e XML completo baixado. Clique em Importar.');
     } else {
       const schemas = (d2.schemasEncontrados||[]).join(', ') || '(nenhum)';
-      Aviso.ok(`Ciência registrada ✓\n\nO XML completo (procNFe) ainda não está disponível na SEFAZ.\nSchemas recebidos: ${schemas}\n\n${d2.aviso||'Aguarde 1-5 minutos e clique em "🔄 Buscar novidades na SEFAZ" — o procNFe virá pelo fluxo NSU.'}`);
+      alert(`Ciência registrada ✓\n\nO XML completo (procNFe) ainda não está disponível na SEFAZ.\nSchemas recebidos: ${schemas}\n\n${d2.aviso||'Aguarde 1-5 minutos e clique em "🔄 Buscar novidades na SEFAZ" — o procNFe virá pelo fluxo NSU.'}`);
     }
     carregar();
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 async function importar(chave, confirmarTipoOperacao){
@@ -298,18 +297,18 @@ async function importar(chave, confirmarTipoOperacao){
     // 409 = nota de entrada do emitente (tpNF=0): mercadoria normalmente SAI
     // daqui. Confirma antes de deixar virar entrada de estoque.
     if (r.status === 409 && d.tpNF === 0) {
-      const segue = await Aviso.confirmar(`${d.error}.\n\nNatureza da operação: ${d.naturezaOperacao||'—'}\n\nImportar assim mesmo como entrada?`);
+      const segue = confirm(`${d.error}.\n\nNatureza da operação: ${d.naturezaOperacao||'—'}\n\nImportar assim mesmo como entrada?`);
       if (!segue) return;
       return importar(chave, true);
     }
     if (!d.success) throw new Error(d.error);
-    Aviso.ok(`Importada!\nItens: ${d.itens}\nDuplicatas: ${d.duplicatas}`);
+    alert(`Importada!\nItens: ${d.itens}\nDuplicatas: ${d.duplicatas}`);
     location.href = '/fiscal/nfe-entrada-detalhe.html?id=' + d.nfeId;
-  } catch (e) { Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch (e) { alert('Erro: '+e.message); }
 }
 
 async function ignorar(chave){
-  if (!await Aviso.confirmar('Marcar esta NF-e como ignorada? (não será importada ao estoque nem contas a pagar)')) return;
+  if (!confirm('Marcar esta NF-e como ignorada? (não será importada ao estoque nem contas a pagar)')) return;
   await fetch('/api/nfe-entrada/inbox/'+chave+'/ignorar', { method:'POST' });
   carregar();
 }
@@ -318,7 +317,7 @@ const EVENTO_LABEL = { '210210': 'Ciência', '210200': 'Confirmação', '210220'
 
 async function manifestarEvento(chave, tpEvento){
   const label = EVENTO_LABEL[tpEvento] || tpEvento;
-  if (!await Aviso.confirmar(`Registrar ${label} (${tpEvento}) na SEFAZ para esta NF-e?`)) return;
+  if (!confirm(`Registrar ${label} (${tpEvento}) na SEFAZ para esta NF-e?`)) return;
   try {
     const r = await fetch('/api/nfe-entrada/inbox/'+chave+'/manifestar', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -326,15 +325,15 @@ async function manifestarEvento(chave, tpEvento){
     });
     const d = await r.json();
     if (!d.success) throw new Error(`${label} falhou: cStat ${d.cStat||'?'} ${d.xMotivo||d.error||''}`);
-    Aviso.ok(`${label} registrada. cStat: ${d.cStat} · ${d.xMotivo||''}`);
+    alert(`${label} registrada. cStat: ${d.cStat} · ${d.xMotivo||''}`);
     carregar();
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 async function manifestarNaoRealizada(chave){
   const just = prompt('Informe a justificativa (mínimo 15 caracteres) para "Operação Não Realizada":');
   if (!just) return;
-  if (just.trim().length < 15) return Aviso.erro('Justificativa precisa ter pelo menos 15 caracteres.');
+  if (just.trim().length < 15) return alert('Justificativa precisa ter pelo menos 15 caracteres.');
   try {
     const r = await fetch('/api/nfe-entrada/inbox/'+chave+'/manifestar', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -342,9 +341,9 @@ async function manifestarNaoRealizada(chave){
     });
     const d = await r.json();
     if (!d.success) throw new Error(`Evento falhou: cStat ${d.cStat||'?'} ${d.xMotivo||d.error||''}`);
-    Aviso.ok(`Operação não realizada registrada. cStat: ${d.cStat} · ${d.xMotivo||''}`);
+    alert(`Operação não realizada registrada. cStat: ${d.cStat} · ${d.xMotivo||''}`);
     carregar();
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 carregar();

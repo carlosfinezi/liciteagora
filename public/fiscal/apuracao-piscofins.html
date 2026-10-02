@@ -339,7 +339,7 @@ async function salvarAjuste() {
 }
 
 async function excluirAjuste(id) {
-  if (!await Aviso.confirmar('Excluir este ajuste?')) return;
+  if (!confirm('Excluir este ajuste?')) return;
   try {
     const r = await fetch('/api/fiscal/apuracao-piscofins/ajustes/' + id + '/excluir', { method: 'POST' });
     const d = await r.json();
@@ -349,7 +349,7 @@ async function excluirAjuste(id) {
 }
 
 async function fechar() {
-  if (!await Aviso.confirmar('Fechar a competência? Os números ficam congelados e o crédito passa a ser ' +
+  if (!confirm('Fechar a competência? Os números ficam congelados e o crédito passa a ser ' +
                'transportado para o mês seguinte.')) return;
   try {
     const r = await fetch('/api/fiscal/apuracao-piscofins/' + $('competencia').value + '/fechar', { method: 'POST' });
@@ -361,7 +361,7 @@ async function fechar() {
 }
 
 async function reabrir() {
-  if (!await Aviso.confirmar('Reabrir a competência?')) return;
+  if (!confirm('Reabrir a competência?')) return;
   try {
     const r = await fetch('/api/fiscal/apuracao-piscofins/' + $('competencia').value + '/reabrir', { method: 'POST' });
     const d = await r.json();
@@ -385,8 +385,6 @@ document.addEventListener('click', (ev) => {
 </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
-    <script src="/js/aviso-sistema.js"></script>
-    <script src="/js/campo-formato.js"></script>
     <script>initSidebar('apuracao-piscofins');</script>
 </body>
 </html>

@@ -183,7 +183,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('apuracao-sn');</script>
 <script>
 let apAtual = null;
@@ -419,7 +418,7 @@ async function salvarEdicao(){
 }
 
 async function fecharApuracao(){
-  if (!await Aviso.confirmar('Fechar apuração de ' + val('fCompetencia') + '? Os números ficarão congelados.')) return;
+  if (!confirm('Fechar apuração de ' + val('fCompetencia') + '? Os números ficarão congelados.')) return;
   try {
     const r = await fetch('/api/fiscal/apuracao/' + val('fCompetencia') + '/fechar', { method: 'POST' });
     const d = await r.json();
@@ -432,7 +431,7 @@ async function fecharApuracao(){
 }
 
 async function reabrirApuracao(){
-  if (!await Aviso.confirmar('Reabrir apuração de ' + val('fCompetencia') + '?')) return;
+  if (!confirm('Reabrir apuração de ' + val('fCompetencia') + '?')) return;
   try {
     const r = await fetch('/api/fiscal/apuracao/' + val('fCompetencia') + '/reabrir', { method: 'POST' });
     const d = await r.json();

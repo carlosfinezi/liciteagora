@@ -84,7 +84,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('aprovacoes');</script>
@@ -181,7 +180,7 @@ async function decidir(id, acao) {
   if (acao === 'aprovar') {
     const a = (FILA || []).find(x => x.id === id);
     if (a && euPossoAutoAprovar(a)
-        && !await Aviso.confirmar('Esta solicitação é sua. Aprovar o próprio pedido?\n\nFica registrado como auto-aprovada, com seu usuário, na fila e no log de auditoria.')) return;
+        && !confirm('Esta solicitação é sua. Aprovar o próprio pedido?\n\nFica registrado como auto-aprovada, com seu usuário, na fila e no log de auditoria.')) return;
   }
   const r = await fetch(`/api/alcadas/aprovacoes/${id}/${acao}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motivo }) });

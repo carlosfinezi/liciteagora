@@ -437,7 +437,7 @@
         }
 
         async function removerPalavra(id, palavra) {
-            if (!await Aviso.confirmar(`Remover a palavra "${palavra}"?`)) return;
+            if (!confirm(`Remover a palavra "${palavra}"?`)) return;
             try {
                 const r = await fetch(`${API_URL}/api/chat/palavras-chave/${id}`, { method: 'DELETE' });
                 const d = await r.json();
@@ -942,11 +942,11 @@
             const inpItem = document.getElementById('resp-item-' + idSeguro);
             const btn = document.getElementById('resp-btn-' + idSeguro);
             const texto = (ta && ta.value || '').trim();
-            if (!texto) { Aviso.erro('Escreva a mensagem antes de enviar.'); return; }
+            if (!texto) { alert('Escreva a mensagem antes de enviar.'); return; }
 
             const item = inpItem && inpItem.value.trim() ? inpItem.value.trim() : null;
             const alvo = item ? `item ${item}` : 'a compra toda';
-            if (!await Aviso.confirmar(`Enviar esta mensagem no chat do pregão (${alvo})?\n\n"${texto}"\n\nEla fica pública no processo e não pode ser apagada.`)) return;
+            if (!confirm(`Enviar esta mensagem no chat do pregão (${alvo})?\n\n"${texto}"\n\nEla fica pública no processo e não pode ser apagada.`)) return;
 
             if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
             try {
@@ -957,15 +957,15 @@
                 });
                 const j = await r.json();
                 if (j.success) {
-                    Aviso.ok('Mensagem enviada.');
+                    alert('Mensagem enviada.');
                     if (ta) ta.value = '';
                     toggleResposta(idSeguro);
                     if (typeof carregarMensagens === 'function') carregarMensagens();
                 } else {
-                    Aviso.erro('Falha ao enviar: ' + (j.error || j.message || r.status));
+                    alert('Falha ao enviar: ' + (j.error || j.message || r.status));
                 }
             } catch (e) {
-                Aviso.erro(Aviso.mensagemDeErro(e));
+                alert('Erro: ' + e.message);
             } finally {
                 if (btn) { btn.disabled = false; btn.textContent = 'Enviar mensagem'; }
             }
@@ -1031,7 +1031,7 @@
 
         // Marcar todas como lidas
         async function marcarTodasLidas() {
-            if (!await Aviso.confirmar('Marcar todas as mensagens como lidas?')) return;
+            if (!confirm('Marcar todas as mensagens como lidas?')) return;
 
             try {
                 const res = await fetch(`${API_URL}/api/chat/leitura/marcar-todas`, {
@@ -1185,7 +1185,7 @@
         }
 
         async function desativarTelegram() {
-            if (!await Aviso.confirmar('Desativar notificações do Telegram?')) return;
+            if (!confirm('Desativar notificações do Telegram?')) return;
 
             try {
                 const res = await fetch(`${API_URL}/api/telegram/config`, {
@@ -1212,7 +1212,6 @@
     <script src="/js/icons.js"></script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
-    <script src="/js/aviso-sistema.js"></script>
     <script src="/js/chat-monitor-config-panel.js"></script>
     <script>initSidebar('comprasnet-monitor'); renderChatConfigPanel('cfgPanel','comprasnet');</script>
 </body>

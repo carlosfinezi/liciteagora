@@ -70,7 +70,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('bll-proposta');</script>
 <script>
@@ -239,7 +238,7 @@ async function enviar() {
   const vals = valoresArray();
   if (vals.some((v) => !(v > 0))) return alerta('Informe um valor válido (> 0) para todos os itens.', 'warn');
   const total = vals.reduce((a, b) => a + (b || 0), 0);
-  if (!await Aviso.confirmar('ENVIAR proposta ao BLL agora?\n\nItens: ' + itensCarregados.length +
+  if (!confirm('ENVIAR proposta ao BLL agora?\n\nItens: ' + itensCarregados.length +
     '\nSoma dos valores unitários: R$ ' + total.toFixed(2).replace('.', ',') +
     '\n\nEsta ação é REAL e irreversível.')) return;
   const btn = document.getElementById('btnEnviar');

@@ -861,7 +861,7 @@ function atualizarResumo() {
 // ==================== EXCLUSÃO ====================
 
 async function excluirProposta(compraId) {
-    if (!await Aviso.confirmar(`Tem certeza que deseja EXCLUIR a proposta da compra ${compraId}?\n\nIsso remove a participação e todas as propostas de itens.`)) {
+    if (!confirm(`Tem certeza que deseja EXCLUIR a proposta da compra ${compraId}?\n\nIsso remove a participação e todas as propostas de itens.`)) {
         return;
     }
 
@@ -874,16 +874,16 @@ async function excluirProposta(compraId) {
         const result = await resp.json();
 
         if (result.success) {
-            Aviso.ok(`Proposta excluída com sucesso.\n\n${result.message || ''}`);
+            alert(`Proposta excluída com sucesso.\n\n${result.message || ''}`);
             // Recarregar a página para refletir o estado atualizado
             location.reload();
         } else {
-            Aviso.erro(`Erro ao excluir: ${result.error || 'Erro desconhecido'}`);
+            alert(`Erro ao excluir: ${result.error || 'Erro desconhecido'}`);
             btn.disabled = false;
             btn.textContent = 'Excluir Proposta';
         }
     } catch (error) {
-        Aviso.erro(`Erro de conexão: ${error.message}`);
+        alert(`Erro de conexão: ${error.message}`);
         btn.disabled = false;
         btn.textContent = 'Excluir Proposta';
     }
@@ -894,7 +894,7 @@ async function excluirProposta(compraId) {
 async function enviarProposta(compraId) {
     const disputa = disputasData.get(compraId);
     if (!disputa) {
-        Aviso.erro('Carregue os itens primeiro.');
+        alert('Carregue os itens primeiro.');
         return;
     }
 
@@ -914,7 +914,7 @@ async function enviarProposta(compraId) {
     });
 
     if (itensSelecionados.length === 0) {
-        Aviso.erro('Selecione ao menos um item com valor definido.');
+        alert('Selecione ao menos um item com valor definido.');
         return;
     }
 
@@ -1408,13 +1408,13 @@ function formatarValorPDF(valor) {
 async function gerarPDFParticipacao(compraId, assinar = false) {
     const disputa = disputasData.get(compraId);
     if (!disputa || !disputa.itens?.length) {
-        Aviso.erro('Carregue os itens antes de gerar o PDF.');
+        alert('Carregue os itens antes de gerar o PDF.');
         return;
     }
 
     const p = participacoesData.find(x => x.compraId === compraId);
     if (!p) {
-        Aviso.erro('Participação não encontrada.');
+        alert('Participação não encontrada.');
         return;
     }
 
@@ -1439,7 +1439,7 @@ async function gerarPDFParticipacao(compraId, assinar = false) {
     });
 
     if (itensPDF.length === 0) {
-        Aviso.erro('Selecione ao menos um item com valor para gerar o PDF.');
+        alert('Selecione ao menos um item com valor para gerar o PDF.');
         return;
     }
 
@@ -1626,18 +1626,18 @@ async function gerarPDFIndividual(licitacao, assinar = false) {
                 link.href = 'data:application/pdf;base64,' + result.pdfAssinado;
                 link.download = nomeArquivo;
                 link.click();
-                Aviso.ok('PDF assinado gerado com sucesso!');
+                alert('PDF assinado gerado com sucesso!');
             } else {
-                Aviso.erro(Aviso.mensagemDeErro(result.error + '\nGerando PDF sem assinatura.'));
+                alert('Erro ao assinar: ' + result.error + '\nGerando PDF sem assinatura.');
                 doc.save(nomeArquivo.replace('_assinado', ''));
             }
         } catch (error) {
-            Aviso.erro('Erro ao assinar PDF. Gerando versão sem assinatura.');
+            alert('Erro ao assinar PDF. Gerando versão sem assinatura.');
             doc.save(nomeArquivo.replace('_assinado', ''));
         }
     } else {
         doc.save(nomeArquivo);
-        Aviso.ok('PDF gerado com sucesso!');
+        alert('PDF gerado com sucesso!');
     }
 }
 
@@ -1813,7 +1813,7 @@ async function salvarNovoProdutoMatch() {
         observacoes: document.getElementById('formProd_obs').value.trim() || null,
     };
     if (!payload.sku || !payload.descricao) {
-        Aviso.erro('SKU e Descrição são obrigatórios.');
+        alert('SKU e Descrição são obrigatórios.');
         return;
     }
     try {
@@ -1824,7 +1824,7 @@ async function salvarNovoProdutoMatch() {
         });
         const data = await r.json();
         if (!data.success) {
-            Aviso.erro('Falha: ' + (data.error || 'erro desconhecido'));
+            alert('Falha: ' + (data.error || 'erro desconhecido'));
             return;
         }
         const { scopeId, num } = _cadastroContext;
@@ -1839,7 +1839,7 @@ async function salvarNovoProdutoMatch() {
         aplicarMatchProduto(scopeId, num, novoProduto.id);
         fecharCadastroProduto();
     } catch (e) {
-        Aviso.erro(Aviso.mensagemDeErro(e));
+        alert('Erro: ' + e.message);
     }
 }
 

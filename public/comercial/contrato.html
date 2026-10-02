@@ -311,8 +311,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
-    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('contratos');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -645,7 +643,7 @@ async function confirmarAnexo(){
 }
 
 async function removerAnexo(anexoId){
-  if (!await Aviso.confirmar('Remover este anexo? O arquivo é apagado do disco.')) return;
+  if (!confirm('Remover este anexo? O arquivo é apagado do disco.')) return;
   try {
     const d = await fetch('/api/contratos/anexos/'+anexoId, { method:'DELETE' }).then(r=>r.json());
     if (!d.success) throw new Error(d.error);
@@ -678,7 +676,7 @@ async function gerarPedidoCompra(itemId, confirmar){
   if (r.status === 409 && d.precisaDecisao) {
     const lista = (d.pedidos||[]).map(p =>
       `  • ${p.numero} — ${p.status}${p.dataEmissao ? ' em ' + fmtData(p.dataEmissao) : ''}`).join('\n');
-    if (!await Aviso.confirmar(`Este item já tem pedido de compra:\n\n${lista}\n\nGerar outro assim mesmo?`)) return;
+    if (!confirm(`Este item já tem pedido de compra:\n\n${lista}\n\nGerar outro assim mesmo?`)) return;
     return gerarPedidoCompra(itemId, true);
   }
   if (!d.success) return showAlert(d.error,'error');
@@ -742,7 +740,7 @@ async function salvarItem(){
 }
 
 async function removerItem(itemId){
-  if (!await Aviso.confirmar('Remover este item do contrato?')) return;
+  if (!confirm('Remover este item do contrato?')) return;
   const r = await fetch(`/api/contratos/${id}/itens/${itemId}`, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -944,7 +942,7 @@ async function salvarOsAuto(){
 }
 
 async function desligarOsAuto(){
-  if (!await Aviso.confirmar('Desligar a geração automática de OS deste contrato?\n\nAs OS já criadas continuam como estão — só param de nascer novas.')) return;
+  if (!confirm('Desligar a geração automática de OS deste contrato?\n\nAs OS já criadas continuam como estão — só param de nascer novas.')) return;
   const r = await fetch(`/api/contratos/${id}/os-automatica`, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -1032,7 +1030,7 @@ async function confirmarVincular(){
 }
 
 async function desvincular(){
-  if (!await Aviso.confirmar('Desvincular a recorrência deste contrato?\n\nEla continua ativa e faturando no financeiro — só deixa de ser controlada por este contrato.')) return;
+  if (!confirm('Desvincular a recorrência deste contrato?\n\nEla continua ativa e faturando no financeiro — só deixa de ser controlada por este contrato.')) return;
   const r = await fetch(`/api/contratos/${id}/vincular-recorrencia`, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -1149,7 +1147,7 @@ async function confirmarVincularNfse(){
 }
 
 async function desvincularNfse(nfseId){
-  if (!await Aviso.confirmar('Soltar esta nota do contrato?\n\nA nota segue emitida e a cobrança dela continua de pé — sai apenas a ligação com este contrato.')) return;
+  if (!confirm('Soltar esta nota do contrato?\n\nA nota segue emitida e a cobrança dela continua de pé — sai apenas a ligação com este contrato.')) return;
   const r = await fetch(`/api/contratos/${id}/vincular-nfse/${nfseId}`, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -1249,7 +1247,7 @@ async function suspender(){
 }
 
 async function reativar(){
-  if (!await Aviso.confirmar('Reativar este contrato?')) return;
+  if (!confirm('Reativar este contrato?')) return;
   const r = await fetch(`/api/contratos/${id}/reativar`, { method:'POST' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');

@@ -446,7 +446,7 @@ async function lancar(idItem, real, fechado) {
   const valor = Number(bruto.replace(/\./g, '').replace(',', '.'));
   if (!isFinite(valor) || valor <= 0) return alerta('Valor de lance inválido: ' + escapeHtml(bruto), 'warn');
 
-  if (real && !await Aviso.confirmar((fechado ? 'Enviar LANCE FECHADO de R$ ' : 'Enviar lance de R$ ') +
+  if (real && !confirm((fechado ? 'Enviar LANCE FECHADO de R$ ' : 'Enviar lance de R$ ') +
       valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) +
       ' no item ' + idItem + '?\n\nO lance é IRREVERSÍVEL e vinculante.' +
       (fechado ? '\nNa fase fechada o portal aceita UM lance por item.' : ''))) return;

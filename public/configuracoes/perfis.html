@@ -114,7 +114,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('perfis');</script>
@@ -252,7 +251,7 @@ async function salvar(){
   if(id) body.ativo = document.getElementById('fAtivo').checked ? 1 : 0;
   if(!body.nome) return showAlert('Informe o nome do perfil','error');
   if(!body.slug) return showAlert('Informe o identificador','error');
-  if(!body.paginas.length && !await Aviso.confirmar('Nenhuma página marcada: quem usar este perfil não abre nada além do início. Salvar assim?')) return;
+  if(!body.paginas.length && !confirm('Nenhuma página marcada: quem usar este perfil não abre nada além do início. Salvar assim?')) return;
   try{
     const r=await fetch(id?'/api/perfis/'+id:'/api/perfis',
       { method:id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
@@ -265,7 +264,7 @@ async function salvar(){
 }
 
 async function excluir(id, slug){
-  if(!await Aviso.confirmar(`Excluir o perfil "${slug}"?`)) return;
+  if(!confirm(`Excluir o perfil "${slug}"?`)) return;
   const d=await fetch('/api/perfis/'+id,{method:'DELETE'}).then(r=>r.json());
   if(!d.success) return showAlert(d.error,'error');
   showAlert('Perfil excluído');

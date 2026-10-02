@@ -91,7 +91,6 @@
 <div id="toasts"></div>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('os-notificacoes');</script>
@@ -225,7 +224,7 @@ async function alternar(id){
 
 async function remover(id){
   const c=REGRAS.find(x=>x.id===id); if(!c) return;
-  if(!await Aviso.confirmar(`Remover a regra de "${rotuloEvento(c.evento)}" por ${rotuloCanal(c.canal)}?`)) return;
+  if(!confirm(`Remover a regra de "${rotuloEvento(c.evento)}" por ${rotuloCanal(c.canal)}?`)) return;
   const d=await fetch('/api/os/notificacoes-config/'+id,{method:'DELETE'}).then(r=>r.json());
   if(!d.success) return showAlert(d.error,'error');
   carregar();

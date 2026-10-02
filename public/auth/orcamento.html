@@ -250,7 +250,7 @@
     async function aprovar() {
       const assinanteNome = document.getElementById('assinante').value.trim();
       if (!assinanteNome || assinanteNome.length < 3) return showMsg('error', 'Informe seu nome completo para aprovar.');
-      if (!await Aviso.confirmar('Confirma aprovação do orçamento? Esta ação é definitiva.')) return;
+      if (!confirm('Confirma aprovação do orçamento? Esta ação é definitiva.')) return;
       try {
         const r = await fetch('/api/orcamento/' + encodeURIComponent(token) + '/aprovar', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },

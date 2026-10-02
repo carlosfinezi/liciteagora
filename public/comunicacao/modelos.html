@@ -85,7 +85,6 @@
 </div>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('comunicacao-modelos');</script>
 <script src="/js/comunicacao-comum.js"></script>
 <script>
@@ -184,7 +183,7 @@ async function removerModelo(id){
   const uso = t?.emUso
     ? `\n\n${t.emUso} campanha(s) usam este modelo. O texto delas já foi gravado no envio e não muda.`
     : '';
-  if (!await Aviso.confirmar('Remover este modelo?\n\nCampanhas já enviadas não são afetadas.' + uso)) return;
+  if (!confirm('Remover este modelo?\n\nCampanhas já enviadas não são afetadas.' + uso)) return;
   const d = await fetch('/api/comm/templates/'+id, { method:'DELETE' }).then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');
   carregarModelos();

@@ -48,7 +48,6 @@
 </main></div>
 <div id="toasts"></div>
 <script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('fiscal-ibscbs');</script>
@@ -70,7 +69,7 @@ async function salvarCfg(){
     pIBSUF:Number(document.getElementById('cIBSUF').value),
     pIBSMun:Number(document.getElementById('cIBSMun').value),
     pCBS:Number(document.getElementById('cCBS').value)};
-  if(body.ibsCbsAtivo&&!await Aviso.confirmar('Ativar o grupo IBS/CBS nas próximas NF-e? Teste primeiro em homologação.'))return;
+  if(body.ibsCbsAtivo&&!confirm('Ativar o grupo IBS/CBS nas próximas NF-e? Teste primeiro em homologação.'))return;
   const r=await fetch('/api/fiscal/ibscbs/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const d=await r.json();if(!d.success)return showAlert(d.error,'error');
   showAlert('Configuração salva');carregarCfg();

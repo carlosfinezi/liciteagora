@@ -720,7 +720,7 @@ async function vincularOportunidade(conversaId){
 }
 
 async function desvincularOportunidade(conversaId){
-  if (!await Aviso.confirmar('Desvincular a conversa desta oportunidade?\n\nA oportunidade continua no CRM.')) return;
+  if (!confirm('Desvincular a conversa desta oportunidade?\n\nA oportunidade continua no CRM.')) return;
   const d = await fetch(`/api/conversas/${conversaId}/oportunidade`, { method:'DELETE' }).then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');
   carregarOportunidade(conversaId);

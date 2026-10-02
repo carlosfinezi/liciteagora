@@ -519,7 +519,7 @@
 
     async function excluirGrupo(id) {
       const grupo = [...gruposPesquisa, ...gruposExclusao].find(g => g.id === id);
-      if (!grupo || !await Aviso.confirmar(`Excluir o grupo "${grupo.nome}"?`)) return;
+      if (!grupo || !confirm(`Excluir o grupo "${grupo.nome}"?`)) return;
 
       try {
         const res = await fetch(`${API_URL}/api/grupos-palavras/${id}`, { method: 'DELETE' });

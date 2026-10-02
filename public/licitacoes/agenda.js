@@ -394,7 +394,7 @@ async function concluirAgend() {
         fecharModalAgend();
         carregarEventos();
     } catch (e) {
-        Aviso.erro(Aviso.mensagemDeErro(e));
+        alert('Erro ao concluir: ' + e.message);
     }
 }
 function verOportunidadeAgend() {

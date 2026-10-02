@@ -99,7 +99,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('estoque-serial');</script>
@@ -210,7 +209,7 @@ async function salvar(){
 }
 
 async function excluir(id){
-  if(!await Aviso.confirmar('Excluir este serial?')) return;
+  if(!confirm('Excluir este serial?')) return;
   const r=await fetch('/api/serial/'+id, { method:'DELETE' });
   const d=await r.json();
   if(!d.success) return showAlert(d.error,'error');

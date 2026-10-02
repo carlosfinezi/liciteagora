@@ -120,7 +120,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('integracao-tipos');</script>
 <script>
@@ -245,7 +244,7 @@ async function salvar(){
 }
 
 async function excluir(slug){
-  if (!await Aviso.confirmar('Excluir este tipo?')) return;
+  if (!confirm('Excluir este tipo?')) return;
   const r = await fetch('/api/integracao-tipos/'+slug, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');

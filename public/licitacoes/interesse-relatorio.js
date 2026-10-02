@@ -405,7 +405,7 @@ function relFecharModal() {
 function relPreparar() {
     const rel = relMontar(relNivelEscolhido(), relIdiomaEscolhido());
     if (rel.linhas.length === 0) {
-        Aviso.erro('Nada para gerar — o filtro atual não tem nenhuma licitação.');
+        alert('Nada para gerar — o filtro atual não tem nenhuma licitação.');
         return null;
     }
     return rel;
@@ -454,7 +454,7 @@ function relGerarPDF() {
 
     const jspdf = window.jspdf;
     if (!jspdf || !jspdf.jsPDF) {
-        Aviso.erro('A biblioteca de PDF não carregou (ela vem de CDN e precisa de internet).\n\nUse "Baixar CSV" ou "Imprimir" — a impressão do navegador também salva em PDF.');
+        alert('A biblioteca de PDF não carregou (ela vem de CDN e precisa de internet).\n\nUse "Baixar CSV" ou "Imprimir" — a impressão do navegador também salva em PDF.');
         return;
     }
 
@@ -463,7 +463,7 @@ function relGerarPDF() {
     return relCarregarEmpresa().then(empresa => {
         const doc = new jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
         if (typeof doc.autoTable !== 'function') {
-            Aviso.erro('O plugin de tabelas do PDF não carregou. Use "Baixar CSV" ou "Imprimir".');
+            alert('O plugin de tabelas do PDF não carregou. Use "Baixar CSV" ou "Imprimir".');
             return;
         }
 
@@ -521,7 +521,7 @@ function relImprimir() {
         // para o papel.
         const janela = window.open('', '_blank');
         if (!janela) {
-            Aviso.erro('O navegador bloqueou a janela de impressão. Libere os pop-ups deste site e tente de novo — ou use "Gerar PDF".');
+            alert('O navegador bloqueou a janela de impressão. Libere os pop-ups deste site e tente de novo — ou use "Gerar PDF".');
             return;
         }
 

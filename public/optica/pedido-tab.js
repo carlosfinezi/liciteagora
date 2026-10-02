@@ -221,7 +221,7 @@
     if (typeof window.showAlert === 'function') {
       window.showAlert(erros ? `Salvo com ${erros} erro(s)` : 'Receitas salvas', erros ? 'error' : 'success');
     } else {
-      Aviso.info(erros ? `Salvo com ${erros} erro(s)` : 'Receitas salvas');
+      alert(erros ? `Salvo com ${erros} erro(s)` : 'Receitas salvas');
     }
     await recarregar();
   }
@@ -235,7 +235,7 @@
   }
 
   async function gerarOM() {
-    if (!await Aviso.confirmar('Gerar Ordem de Montagem para este pedido? O laboratório usará esse documento.')) return;
+    if (!confirm('Gerar Ordem de Montagem para este pedido? O laboratório usará esse documento.')) return;
     try {
       const r = await fetch('/api/optica/ordens-montagem', {
         method: 'POST', headers: {'Content-Type':'application/json'},
@@ -243,7 +243,7 @@
       });
       const d = await r.json();
       if (!d.success) {
-        if (d.omId && await Aviso.confirmar('Já existe OM ativa. Abrir o PDF?')) {
+        if (d.omId && confirm('Já existe OM ativa. Abrir o PDF?')) {
           window.open(`/api/optica/ordens-montagem/${d.omId}/pdf`, '_blank');
           return;
         }
@@ -254,7 +254,7 @@
       await recarregar();
     } catch (e) {
       if (typeof window.showAlert === 'function') window.showAlert('Erro: ' + e.message, 'error');
-      else Aviso.erro(Aviso.mensagemDeErro(e));
+      else alert('Erro: ' + e.message);
     }
   }
 

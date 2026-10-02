@@ -141,7 +141,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('habilitacao-certidoes');</script>
@@ -280,7 +279,7 @@ async function salvar(){
 }
 
 async function excluir(id){
-  if (!await Aviso.confirmar('Excluir este documento e seu arquivo?')) return;
+  if (!confirm('Excluir este documento e seu arquivo?')) return;
   const r = await fetch('/api/habilitacao/'+id, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');

@@ -1641,21 +1641,21 @@ function formatarValor(valor) {
 }
 
 async function excluirTodosInteresses() {
-    if (!await Aviso.confirmar('Tem certeza que deseja EXCLUIR TODOS os interesses?\n\nEsta ação não pode ser desfeita!')) return;
+    if (!confirm('Tem certeza que deseja EXCLUIR TODOS os interesses?\n\nEsta ação não pode ser desfeita!')) return;
 
     try {
         const response = await fetch('/api/interesse', { method: 'DELETE' });
         const result = await response.json();
 
         if (result.success) {
-            Aviso.ok(`${result.removidos} interesse(s) removido(s) com sucesso!`);
+            alert(`${result.removidos} interesse(s) removido(s) com sucesso!`);
             carregarInteresses();
         } else {
-            Aviso.erro(Aviso.mensagemDeErro(result));
+            alert('Erro ao excluir interesses: ' + result.error);
         }
     } catch (error) {
         console.error('Erro:', error);
-        Aviso.erro('Erro ao excluir interesses');
+        alert('Erro ao excluir interesses');
     }
 }
 
@@ -1729,7 +1729,7 @@ function updateSelectionUI() {
 async function excluirSelecionados() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
-    if (!await Aviso.confirmar(`Excluir ${ids.length} interesse${ids.length > 1 ? 's' : ''} selecionado${ids.length > 1 ? 's' : ''}?\n\nEsta ação não pode ser desfeita.`)) return;
+    if (!confirm(`Excluir ${ids.length} interesse${ids.length > 1 ? 's' : ''} selecionado${ids.length > 1 ? 's' : ''}?\n\nEsta ação não pode ser desfeita.`)) return;
     try {
         const r = await fetch('/api/interesse/bulk-delete', {
             method: 'POST',
@@ -1739,14 +1739,14 @@ async function excluirSelecionados() {
         const result = await r.json();
         if (result.success) {
             selectedIds.clear();
-            Aviso.ok(`${result.removidos} interesse(s) removido(s).`);
+            alert(`${result.removidos} interesse(s) removido(s).`);
             carregarInteresses();
         } else {
-            Aviso.erro(Aviso.mensagemDeErro((result.error || 'desconhecido')));
+            alert('Erro ao excluir: ' + (result.error || 'desconhecido'));
         }
     } catch (e) {
         console.error(e);
-        Aviso.erro('Erro ao excluir selecionados.');
+        alert('Erro ao excluir selecionados.');
     }
 }
 

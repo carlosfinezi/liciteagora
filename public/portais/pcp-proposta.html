@@ -77,7 +77,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('pcp-proposta');</script>
 <script>
@@ -354,7 +353,7 @@ async function enviar() {
   const itens = coletarItens();
   const invalidos = itens.some((v) => !(parseFloat((v.valorUnitario || '').replace(/\./g, '').replace(',', '.')) > 0));
   if (invalidos) return alerta('Informe um valor válido (> 0) para todos os itens.', 'warn');
-  if (!await Aviso.confirmar('ENVIAR proposta ao Portal de Compras Públicas agora?\n\nItens: ' + itens.length +
+  if (!confirm('ENVIAR proposta ao Portal de Compras Públicas agora?\n\nItens: ' + itens.length +
     '\nSerão salvas as declarações (ME/EPP=' + (currentPrefs.epp ? 'Sim' : 'Não') + ', validade ' + currentPrefs.validade + ' dias) e cada item.' +
     '\n\nEsta ação é REAL.')) return;
   const btn = document.getElementById('btnEnviar');

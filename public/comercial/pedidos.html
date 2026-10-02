@@ -166,7 +166,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-    <script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>
@@ -381,7 +380,7 @@ async function aplicarAcaoMassa(){
   }
   const aviso = acao === 'excluir-rascunho' ? '\n\nApaga em definitivo. Não há como desfazer.'
     : acao === 'confirmar' ? '\n\nCria reserva de estoque para cada item.' : '';
-  if (!await Aviso.confirmar(`${rotulo}\n\nAplicar a ${SELECIONADOS.size} pedido(s)?${aviso}`)) return;
+  if (!confirm(`${rotulo}\n\nAplicar a ${SELECIONADOS.size} pedido(s)?${aviso}`)) return;
 
   try {
     const d = await fetch('/api/pedidos/acao-massa', {
@@ -396,7 +395,7 @@ async function aplicarAcaoMassa(){
     if (d.falhas && d.falhas.length) {
       const lista = d.falhas.slice(0, 10).map(f => `• ${f.numero || '#'+f.id}: ${f.erro}`).join('\n');
       const resto = d.falhas.length > 10 ? `\n… e mais ${d.falhas.length - 10}` : '';
-      Aviso.erro(`${d.aplicados} de ${d.total} aplicado(s).\n\nNão foi possível em ${d.falhas.length}:\n${lista}${resto}`);
+      alert(`${d.aplicados} de ${d.total} aplicado(s).\n\nNão foi possível em ${d.falhas.length}:\n${lista}${resto}`);
     } else {
       showAlert(`${d.aplicados} de ${d.total} aplicado(s).`);
     }

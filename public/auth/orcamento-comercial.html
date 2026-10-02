@@ -108,7 +108,6 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 <body>
 <div id="alvo"><div class="carregando">Carregando orçamento…</div></div>
 
-<script src="/js/aviso-sistema.js"></script>
 <script>
 /* O token vem da query string. Não há id sequencial na URL — ver a nota em
    `pedidos-routes.js`, seção de compartilhamento público. */
@@ -192,7 +191,7 @@ async function baixarPdf(btn){
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function(){ URL.revokeObjectURL(url); }, 30000);
   } catch (e) {
-    Aviso.erro(/load failed|failed to fetch/i.test(String(e.message))
+    alert(/load failed|failed to fetch/i.test(String(e.message))
       ? 'Não foi possível falar com o servidor. Verifique sua conexão e tente de novo.'
       : e.message);
   } finally { btn.disabled = false; btn.textContent = rot; }

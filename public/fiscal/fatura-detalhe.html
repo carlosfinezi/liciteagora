@@ -29,7 +29,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('notas-fiscais');</script>
 <script>
 function showAlert(m, t='success'){
@@ -270,7 +269,7 @@ async function cancelarFatura(){
     if (motivo === null) return;
     mensagemSucesso = 'Fatura e NF-e canceladas';
   } else {
-    if (!await Aviso.confirmar('Cancelar fatura? A conta a receber também será cancelada e o pedido voltará para "rascunho".')) return;
+    if (!confirm('Cancelar fatura? A conta a receber também será cancelada e o pedido voltará para "rascunho".')) return;
   }
 
   if (motivo !== null && motivo.trim().length < 15) {

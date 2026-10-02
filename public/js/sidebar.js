@@ -1763,10 +1763,10 @@ async function trocarEstabelecimento(id) {
             body: JSON.stringify({ id: Number(id) })
         });
         const j = await r.json();
-        if (!j.success) { Aviso.erro(j.error || 'Não foi possível trocar de estabelecimento.'); return; }
+        if (!j.success) { alert(j.error || 'Não foi possível trocar de estabelecimento.'); return; }
         location.reload();
     } catch (_) {
-        Aviso.erro('Falha ao trocar de estabelecimento.');
+        alert('Falha ao trocar de estabelecimento.');
     }
 }
 

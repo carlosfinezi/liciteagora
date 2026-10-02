@@ -53,7 +53,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('ctb-balancete');</script>
@@ -99,7 +98,7 @@ async function carregar(){
 
 async function periodo(acao){
   const comp = document.getElementById('competencia').value;
-  if (acao==='fechar' && !await Aviso.confirmar(`Fechar a competência ${comp}? Novos lançamentos nela serão rejeitados.`)) return;
+  if (acao==='fechar' && !confirm(`Fechar a competência ${comp}? Novos lançamentos nela serão rejeitados.`)) return;
   const r = await fetch(`/api/contabilidade/periodos/${comp}/${acao}`, { method:'POST' });
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');

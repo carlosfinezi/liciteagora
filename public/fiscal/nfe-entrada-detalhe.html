@@ -77,7 +77,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-    <script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('manifestador');</script>
 <script>
 function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -97,9 +96,9 @@ async function salvarMarkup(valor){
       body: JSON.stringify({ markupPct: pct })
     });
     const d = await r.json();
-    if (!d.success) { Aviso.erro(Aviso.mensagemDeErro(d)); return; }
+    if (!d.success) { alert('Erro: '+d.error); return; }
     MARKUP_PCT = d.markupPct;
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro ao salvar markup: '+e.message); }
 }
 
 async function carregar(){
@@ -219,57 +218,57 @@ function render(){
 
 async function vincularTodos(){
   const semVinc = DADOS.itens.filter(i => !i.produtoId).length;
-  if (!await Aviso.confirmar(`Criar/vincular produto para ${semVinc} item(ns) sem vínculo?\n\nItens que casarem com produtos existentes (código do fornecedor, EAN ou código do produto) são apenas vinculados; os demais ganham um produto novo com os dados da NF-e.`)) return;
+  if (!confirm(`Criar/vincular produto para ${semVinc} item(ns) sem vínculo?\n\nItens que casarem com produtos existentes (código do fornecedor, EAN ou código do produto) são apenas vinculados; os demais ganham um produto novo com os dados da NF-e.`)) return;
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/vincular-todos', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error||'erro');
-    Aviso.ok(`Concluído.\n\nVinculados a produtos existentes: ${d.vinculadosExistente}\nProdutos novos criados: ${d.criados}` + (d.semVinculo>0 ? `\n\n⚠ ${d.semVinculo} ainda sem vínculo.` : ''));
+    alert(`Concluído.\n\nVinculados a produtos existentes: ${d.vinculadosExistente}\nProdutos novos criados: ${d.criados}` + (d.semVinculo>0 ? `\n\n⚠ ${d.semVinculo} ainda sem vínculo.` : ''));
     await carregar();
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 async function aplicarEstoque(){
-  if (!await Aviso.confirmar('Aplicar entrada no estoque?\n\nIsso cria movimentações e recalcula o preço de custo (média ponderada) dos produtos.')) return;
+  if (!confirm('Aplicar entrada no estoque?\n\nIsso cria movimentações e recalcula o preço de custo (média ponderada) dos produtos.')) return;
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/aplicar-estoque', { method:'POST' });
     const d = await r.json();
     if (!d.success) {
       if (d.itensPendentes) {
-        Aviso.erro(d.error + '\n\n' + d.itensPendentes.map(i => `• Item ${i.numero}: ${i.descricao}`).join('\n'));
+        alert(d.error + '\n\n' + d.itensPendentes.map(i => `• Item ${i.numero}: ${i.descricao}`).join('\n'));
       } else {
-        Aviso.erro(Aviso.mensagemDeErro(d));
+        alert('Erro: '+d.error);
       }
       return;
     }
-    Aviso.ok(`Entrada aplicada! ${d.movimentacoes.length} movimentação(ões) criada(s).`);
+    alert(`Entrada aplicada! ${d.movimentacoes.length} movimentação(ões) criada(s).`);
     carregar();
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 async function reverterEstoque(){
-  if (!await Aviso.confirmar('Reverter entrada de estoque?\n\nMovimentações serão removidas. Preço de custo dos produtos NÃO volta ao anterior (histórico cumulativo).')) return;
+  if (!confirm('Reverter entrada de estoque?\n\nMovimentações serão removidas. Preço de custo dos produtos NÃO volta ao anterior (histórico cumulativo).')) return;
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/reverter-estoque', { method:'POST' });
     const d = await r.json();
     if (!d.success) {
       // 409: a mercadoria já saiu — reverter deixaria saldo negativo.
       if (d.produtos) {
-        Aviso.erro(d.error + '\n\n' + d.produtos.map(p =>
+        alert(d.error + '\n\n' + d.produtos.map(p =>
           `• ${p.sku} ${p.descricao}: saldo ${p.saldoAtual} → ${p.saldoAposReversao}`).join('\n') +
           '\n\nAjuste o estoque desses produtos antes de reverter.');
         return;
       }
-      Aviso.erro(Aviso.mensagemDeErro(d)); return;
+      alert('Erro: '+d.error); return;
     }
-    Aviso.erro('Estoque revertido.' + (d.aviso ? '\n\n' + d.aviso : ''));
+    alert('Estoque revertido.' + (d.aviso ? '\n\n' + d.aviso : ''));
     carregar();
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 async function gerarContasPagar(opts){
   const o = opts || {};
-  if (!opts && !await Aviso.confirmar('Gerar contas a pagar a partir das duplicatas da NF-e?')) return;
+  if (!opts && !confirm('Gerar contas a pagar a partir das duplicatas da NF-e?')) return;
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/gerar-contas-pagar', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -283,35 +282,35 @@ async function gerarContasPagar(opts){
     // 409: o prazo contado da emissão cai no passado — a conta nasceria vencida.
     if (r.status === 409 && d.vencimentoRetroativo) {
       const v = d.vencimentoRetroativo;
-      const usarEntrada = await Aviso.confirmar(
+      const usarEntrada = confirm(
         `${d.error}.\n\n` +
         `Contando da emissão (${v.dataEmissao}): ${v.vencimentosPorEmissao.join(', ')}\n` +
         `Contando da entrada (${v.dataEntrada||'—'}): ${v.vencimentosPorEntrada.join(', ')}\n\n` +
         `OK = contar da entrada da mercadoria\nCancelar = escolher manter as datas retroativas`);
       if (usarEntrada) return gerarContasPagar({ ...o, baseVencimento: 'entrada' });
-      if (!await Aviso.confirmar('Gerar com as datas retroativas, já vencidas?')) return;
+      if (!confirm('Gerar com as datas retroativas, já vencidas?')) return;
       return gerarContasPagar({ ...o, confirmarVencimentoRetroativo: true });
     }
     // 409: as duplicatas não somam o total da nota — gerar assim esconde passivo.
     if (r.status === 409 && d.divergencia) {
-      if (!await Aviso.confirmar(d.error + '\n\nGerar mesmo assim, só com o que veio nas duplicatas?')) return;
+      if (!confirm(d.error + '\n\nGerar mesmo assim, só com o que veio nas duplicatas?')) return;
       return gerarContasPagar({ ...o, confirmarDivergencia: true });
     }
-    if (!d.success) { Aviso.erro(Aviso.mensagemDeErro(d)); return; }
-    Aviso.ok(`${d.contas.length} conta(s) a pagar gerada(s).`);
+    if (!d.success) { alert('Erro: '+d.error); return; }
+    alert(`${d.contas.length} conta(s) a pagar gerada(s).`);
     carregar();
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 async function reverterContasPagar(){
-  if (!await Aviso.confirmar('Reverter contas a pagar? Só funciona se nenhuma estiver paga/cancelada.')) return;
+  if (!confirm('Reverter contas a pagar? Só funciona se nenhuma estiver paga/cancelada.')) return;
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/reverter-contas-pagar', { method:'POST' });
     const d = await r.json();
-    if (!d.success) { Aviso.erro(Aviso.mensagemDeErro(d)); return; }
-    Aviso.erro('Contas a pagar revertidas.');
+    if (!d.success) { alert('Erro: '+d.error); return; }
+    alert('Contas a pagar revertidas.');
     carregar();
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 // ===== Observação interna e exclusão do lançamento =====
@@ -334,7 +333,7 @@ async function salvarObs(){
     if (!d.success) throw new Error(d.error||'erro');
     fecharObs();
     carregar();
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 function abrirExcluir(){
@@ -345,7 +344,7 @@ function fecharExcluir(){ document.getElementById('modalExcluir').classList.remo
 
 async function confirmarExcluir(){
   const motivo = document.getElementById('excluirMotivo').value.trim();
-  if (!motivo) { Aviso.erro('Motivo obrigatório.'); return; }
+  if (!motivo) { alert('Motivo obrigatório.'); return; }
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/excluir', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -355,18 +354,18 @@ async function confirmarExcluir(){
     if (!d.success) throw new Error(d.error||'erro');
     fecharExcluir();
     carregar();
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 async function restaurarLancamento(){
-  if (!await Aviso.confirmar('Restaurar este lançamento? Estoque e contas não são reaplicados automaticamente.')) return;
+  if (!confirm('Restaurar este lançamento? Estoque e contas não são reaplicados automaticamente.')) return;
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/restaurar', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error||'erro');
-    if (d.aviso) Aviso.erro(d.aviso);
+    if (d.aviso) alert(d.aviso);
     carregar();
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 document.getElementById('modalObs').addEventListener('click', e => {
@@ -437,26 +436,26 @@ async function vincularExistente(produtoId){
       body: JSON.stringify({ produtoId })
     });
     const d = await r.json();
-    if (!d.success) { Aviso.erro(Aviso.mensagemDeErro(d)); return; }
+    if (!d.success) { alert('Erro: '+d.error); return; }
     fecharModal();
     carregar();
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 async function criarNovoProduto(){
   if (!ITEM_ATUAL) return;
-  if (!await Aviso.confirmar('Criar novo produto com os dados da NF-e e vincular ao item?')) return;
+  if (!confirm('Criar novo produto com os dados da NF-e e vincular ao item?')) return;
   try {
     const r = await fetch('/api/nfe-entrada/itens/'+ITEM_ATUAL.id+'/vincular', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ novoProduto: true })
     });
     const d = await r.json();
-    if (!d.success) { Aviso.erro(Aviso.mensagemDeErro(d)); return; }
-    Aviso.ok(`Produto criado: ${d.produto.sku} · ${d.produto.descricao}`);
+    if (!d.success) { alert('Erro: '+d.error); return; }
+    alert(`Produto criado: ${d.produto.sku} · ${d.produto.descricao}`);
     fecharModal();
     carregar();
-  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 document.getElementById('modalVincular').addEventListener('click', e => {
@@ -572,13 +571,13 @@ async function emitirDevolucao(){
     const qtd = parseFloat((document.querySelector('.dev-qtd[data-idx="'+idx+'"]')||{}).value) || 0;
     if (chk && chk.checked && qtd > 0) sel.push({ nfeEntradaItemId: it.nfeEntradaItemId, quantidade: qtd });
   });
-  if (!sel.length) { Aviso.erro('Selecione ao menos 1 item com quantidade a devolver.'); return; }
+  if (!sel.length) { alert('Selecione ao menos 1 item com quantidade a devolver.'); return; }
   // Total = todos os itens no saldo cheio.
   const todos = sel.length === DEV.itens.length && DEV.itens.every((it, idx) => {
     const q = parseFloat((document.querySelector('.dev-qtd[data-idx="'+idx+'"]')||{}).value) || 0;
     return q >= it.saldoDisponivel;
   });
-  if (!await Aviso.confirmar(`Emitir NF-e de devolução ao fornecedor (${sel.length} item(ns))?\n\nEmite a nota na SEFAZ, dá saída no estoque e abate a conta a pagar da entrada. Só se desfaz cancelando a NF-e.`)) return;
+  if (!confirm(`Emitir NF-e de devolução ao fornecedor (${sel.length} item(ns))?\n\nEmite a nota na SEFAZ, dá saída no estoque e abate a conta a pagar da entrada. Só se desfaz cancelando a NF-e.`)) return;
   const btn = document.getElementById('btnEmitirDev');
   btn.disabled = true; btn.textContent = 'Emitindo…';
   try {
@@ -591,15 +590,15 @@ async function emitirDevolucao(){
       const ef = d.efeitos || {};
       const est = ef.estoque ? `${ef.estoque.length} saída(s) de estoque` : '';
       const fin = ef.financeiro && ef.financeiro.abatidos ? `abatido em ${ef.financeiro.abatidos.length} conta(s) a pagar` : '';
-      Aviso.erro(`✅ NF-e de devolução AUTORIZADA!\n\nNúmero: ${d.numero}\nChave: ${d.chaveAcesso}\nValor: R$ ${d.valorTotal}` +
+      alert(`✅ NF-e de devolução AUTORIZADA!\n\nNúmero: ${d.numero}\nChave: ${d.chaveAcesso}\nValor: R$ ${d.valorTotal}` +
         (est||fin ? `\n\n${[est,fin].filter(Boolean).join(' · ')}` : ''));
       fecharDevolucao(); carregar();
     } else {
-      Aviso.erro(`Não autorizada.\n\nStatus: ${d.statusSefaz||'-'}\nMotivo: ${d.motivo || d.error || '—'}`);
+      alert(`Não autorizada.\n\nStatus: ${d.statusSefaz||'-'}\nMotivo: ${d.motivo || d.error || '—'}`);
       btn.disabled = false; btn.textContent = 'Emitir NF-e de devolução';
     }
   } catch(e){
-    Aviso.erro(Aviso.mensagemDeErro(e));
+    alert('Erro: '+e.message);
     btn.disabled = false; btn.textContent = 'Emitir NF-e de devolução';
   }
 }

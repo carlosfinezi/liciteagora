@@ -927,7 +927,7 @@ function fecharModal() {
 
 async function salvarInteresse() {
     if (itensSelecionados.size === 0) {
-        Aviso.erro('Selecione pelo menos um item para salvar.');
+        alert('Selecione pelo menos um item para salvar.');
         return;
     }
 
@@ -964,7 +964,7 @@ async function salvarInteresse() {
 
             // Perguntar se quer adicionar ao Google Calendar
             if (currentLicitacao.dataEncerramentoProposta) {
-                const adicionarCalendario = await Aviso.confirmar(
+                const adicionarCalendario = confirm(
                     itensSelecionados.size + ' item(s) salvos com sucesso!\n\n' +
                     'Deseja adicionar esta licitação ao Google Calendar?'
                 );
@@ -973,7 +973,7 @@ async function salvarInteresse() {
                     abrirGoogleCalendar(currentLicitacao);
                 }
             } else {
-                Aviso.ok(itensSelecionados.size + ' item(s) salvos com sucesso!');
+                alert(itensSelecionados.size + ' item(s) salvos com sucesso!');
             }
             fecharModal();
         } else {
@@ -981,7 +981,7 @@ async function salvarInteresse() {
         }
     } catch (error) {
         console.error('Erro ao salvar interesse:', error);
-        Aviso.erro('Erro ao salvar interesse. Tente novamente.');
+        alert('Erro ao salvar interesse. Tente novamente.');
     }
 }
 
@@ -1443,14 +1443,14 @@ async function analisarLicitacao(cnpj, ano, seq, btn) {
             analisesIA[key] = data.analise;
             atualizarBadgesIA();
         } else {
-            Aviso.erro(data.error || 'Erro na análise IA');
+            alert(data.error || 'Erro na análise IA');
             if (btn) {
                 btn.disabled = false;
                 btn.textContent = 'IA';
             }
         }
     } catch (e) {
-        Aviso.erro('Erro ao conectar com API de análise');
+        alert('Erro ao conectar com API de análise');
         if (btn) {
             btn.disabled = false;
             btn.textContent = 'IA';
@@ -1730,7 +1730,7 @@ async function registrarInteresseIA(cnpj, ano, seq) {
         const itens = data.itens || data.data || [];
 
         if (itens.length === 0) {
-            Aviso.erro('Nenhum item encontrado para registrar interesse.');
+            alert('Nenhum item encontrado para registrar interesse.');
             return;
         }
 
@@ -1757,7 +1757,7 @@ async function registrarInteresseIA(cnpj, ano, seq) {
         document.getElementById('modal-analise-ia').style.display = 'none';
 
     } catch(e) {
-        Aviso.erro(Aviso.mensagemDeErro(e));
+        alert('Erro ao registrar interesse: ' + e.message);
     }
 }
 

@@ -178,8 +178,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
-    <script src="/js/campo-formato.js"></script>
 <script>initSidebar('contas-financeiras');</script>
 <script>
 let contasCache = [];
@@ -470,7 +468,7 @@ async function bpTestar(){
 async function excluirConta(){
   const id = val('mcId');
   if (!id) return;
-  if (!await Aviso.confirmar('Desativar esta conta? (movimentações existentes serão preservadas)')) return;
+  if (!confirm('Desativar esta conta? (movimentações existentes serão preservadas)')) return;
   try {
     const r = await fetch('/api/contas-financeiras/'+id,{method:'DELETE'});
     const d = await r.json();

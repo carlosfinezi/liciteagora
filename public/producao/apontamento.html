@@ -87,7 +87,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/producao-vocab.js"></script>
 <script>initSidebar('producao-apontamento');</script>
@@ -250,7 +249,7 @@ function desenharLista(linhas) {
 }
 
 async function remover(id) {
-  if (!await Aviso.confirmar('Remover este apontamento?')) return;
+  if (!confirm('Remover este apontamento?')) return;
   const r = await api('DELETE', '/api/producao/apontamentos/' + id);
   if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
   const ap = await api('GET', '/api/producao/apontamentos');

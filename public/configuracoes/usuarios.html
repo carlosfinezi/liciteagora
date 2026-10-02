@@ -151,8 +151,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
-    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('usuarios');</script>
@@ -369,7 +367,7 @@ async function desativar(id, username){
     }
   } catch { /* segue com a confirmação simples */ }
 
-  if(!await Aviso.confirmar(`Desativar ${username}? O usuário não conseguirá mais acessar o sistema.${aviso}`)) return;
+  if(!confirm(`Desativar ${username}? O usuário não conseguirá mais acessar o sistema.${aviso}`)) return;
   const r=await fetch('/api/usuarios/'+id, { method:'DELETE' });
   const d=await r.json();
   if(!d.success) return showAlert(d.error,'error');

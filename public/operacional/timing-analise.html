@@ -86,7 +86,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-    <script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('timing-analise');</script>
 <script>
 const API = '';
@@ -120,7 +119,7 @@ async function carregar() {
     try {
         const r = await fetch(url);
         const d = await r.json();
-        if (!d.success) { Aviso.erro(Aviso.mensagemDeErro((d.error||'desconhecido'))); return; }
+        if (!d.success) { alert('Erro: ' + (d.error||'desconhecido')); return; }
         renderKpis(d.agregados);
         renderSugestoes(d.sugestoes);
         renderTabela(d.amostras);

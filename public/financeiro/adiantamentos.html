@@ -104,8 +104,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
-    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('fin-adiantamentos');</script>
@@ -210,7 +208,7 @@ async function confirmarUsar(){
 }
 
 async function devolver(id, saldo){
-  if (!await Aviso.confirmar(`Devolver R$ ${fmt(saldo)} ao cliente/fornecedor? O valor sai/entra no caixa.`)) return;
+  if (!confirm(`Devolver R$ ${fmt(saldo)} ao cliente/fornecedor? O valor sai/entra no caixa.`)) return;
   const r = await fetch(`/api/adiantamentos/${id}/devolver`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');

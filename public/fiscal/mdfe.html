@@ -128,8 +128,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-    <script src="/js/aviso-sistema.js"></script>
-    <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('mdfe');</script>
@@ -211,7 +209,7 @@ function fecharModal(){ document.getElementById('modal').classList.remove('open'
 
 function addNfe(){
   const chave = document.getElementById('fNfeChave').value.trim();
-  if (chave.length !== 44) return Aviso.erro('Chave de NF-e deve ter 44 dígitos');
+  if (chave.length !== 44) return alert('Chave de NF-e deve ter 44 dígitos');
   nfesBuffer.push({
     chaveNfe: chave,
     numeroNfe: document.getElementById('fNfeNum').value || null,
@@ -263,7 +261,7 @@ async function salvar(){
 }
 
 async function preparar(id){
-  if (!await Aviso.confirmar('Gerar XML não-assinado e marcar como preparado?')) return;
+  if (!confirm('Gerar XML não-assinado e marcar como preparado?')) return;
   const r = await fetch('/api/mdfe/'+id+'/preparar', { method:'POST' });
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   showAlert('XML gerado. Baixe e use seu emissor para transmitir à SEFAZ. Volte aqui para registrar a chave.');
@@ -284,7 +282,7 @@ async function confirmarTransmitido(){
   showAlert('Marcado como transmitido'); carregar();
 }
 async function encerrar(id){
-  if (!await Aviso.confirmar('Encerrar este MDF-e? (a viagem foi concluída)')) return;
+  if (!confirm('Encerrar este MDF-e? (a viagem foi concluída)')) return;
   const r = await fetch(`/api/mdfe/${id}/encerrar`, { method:'POST' });
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   carregar();

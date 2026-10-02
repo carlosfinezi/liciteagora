@@ -134,7 +134,6 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('receitas-opticas');</script>
@@ -307,7 +306,7 @@ async function salvar(){
 async function inativar(){
   const id = document.getElementById('fId').value;
   if (!id) return;
-  if (!await Aviso.confirmar('Inativar esta receita?')) return;
+  if (!confirm('Inativar esta receita?')) return;
   try {
     const r = await fetch('/api/optica/receitas/'+id, { method:'DELETE' });
     const d = await r.json();
