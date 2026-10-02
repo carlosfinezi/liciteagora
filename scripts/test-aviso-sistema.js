@@ -109,6 +109,23 @@ const PAGINA = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
     });
     checa('aviso vazio não aparece', vazio === 0, `apareceram ${vazio}`);
 
+    /* O relógio para com o mouse em cima: aviso que some enquanto se lê obriga
+       a repetir a ação só para ver o que ele dizia, e o X não adianta se a
+       caixa sumir antes de a mão chegar nele. Um segundo de vida, meio segundo
+       sob o mouse, e ele tem de continuar ali. */
+    const sobOMouse = await page.evaluate(async () => {
+      document.querySelectorAll('#toasts .toast').forEach((e) => e.remove());
+      const el = Aviso.ok('fica enquanto se lê', 1);
+      el.dispatchEvent(new MouseEvent('mouseenter'));
+      await new Promise((r) => setTimeout(r, 1400));
+      const ficou = document.body.contains(el);
+      el.dispatchEvent(new MouseEvent('mouseleave'));
+      await new Promise((r) => setTimeout(r, 1400));
+      return { ficou, saiuDepois: !document.body.contains(el) };
+    });
+    checa('o aviso não some com o mouse em cima', sobOMouse.ficou);
+    checa('e some de novo quando o mouse sai', sobOMouse.saiuDepois);
+
     console.log('\nC. a confirmação é a caixa do sistema, e devolve a resposta');
     const sim = await page.evaluate(async () => {
       const p = Aviso.confirmar({ texto: 'Excluir o pedido 123?', botao: 'Excluir', perigo: true });

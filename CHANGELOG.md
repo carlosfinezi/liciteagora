@@ -4,6 +4,65 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-02, a tela de Conversas: o composer que flutua e a data que gruda
+
+Seis pedidos sobre a mesma tela, e dois deles eram defeito de corte, não de
+gosto.
+
+**O composer flutua, e a caixa atrás dele era o rodapé.** Ele parecia uma
+pílula dentro de um retângulo, e as duas tentativas anteriores erraram o alvo:
+mexeram no fundo e no contorno da pílula, quando a caixa era o `.responder` —
+um bloco no fluxo, da largura inteira da coluna, com fundo próprio. Ter o mesmo
+fundo das mensagens não desfazia a faixa. Agora ele é `absolute` sobre a
+conversa, sem fundo, com `pointer-events: none` no vão (o clique cai na
+conversa) e `auto` em cada peça. O espaço da última mensagem vem de um
+`ResizeObserver` que escreve o `padding-bottom` do `.msgs` com a altura MEDIDA
+da barra: ela muda com a citação, o anexo, o painel de emoji e o campo crescido,
+e um número fixo escondia a mensagem em todos esses casos. É o desenho do
+`composer-moldura` do biturion.
+
+**O contorno das marcas do card não fechava, e não era só o da IA.** A linha da
+prévia tem altura fixa de 20px com `overflow: hidden` — é o que mantém todo card
+igual —, e a pílula media 22px: 12px de fonte por 1,5 de entrelinha, mais 2 de
+respiro e 2 de borda. Os 2px que sobravam eram exatamente a borda de cima e a de
+baixo, cortadas. Medido na sabotagem: `folgaTopo: -1, folgaPe: -1` nas sete
+marcas da lista, "pendente" e o nome do dono inclusive. A entrelinha de 1,2 faz
+caber.
+
+**A IA no card virou sigla com cor**: verde responde, amarelo em pausa, cinza
+desligada. "IA desligada" ocupava metade da linha da prévia para dizer o que a
+cor diz. No cabeçalho da conversa, as mesmas três cores, e a largura fixa ficou
+só na pausa, que é onde o texto se reescreve sozinho — ligada e desligada medem
+o tamanho da sigla, e não sobra meia caixa vazia.
+
+**A data gruda no topo enquanto o dia passa**, como no WhatsApp. O `sticky`
+tinha saído em 01/10 porque todos os chips grudavam no mesmo ponto e se
+empilhavam (24 datas sobrepostas, na conversa do Funprev). A causa era estarem
+soltos no mesmo container: cada dia virou um `.grupo-dia` com o chip dentro, e
+aí o sticky é limitado pelo pai e o dia seguinte empurra o anterior.
+
+**"certo" e "corrigir" saíram da linha do balão.** Eram dois links em cada
+resposta da IA, repetidos conversa abaixo. Agora o selo "IA" é o botão e abre o
+mesmo menu do botão direito; o que já foi avaliado aparece pela cor do selo.
+
+**Apagar para todos respeita as 60 horas do WhatsApp**, na tela e na rota — o
+item era oferecido em mensagem de qualquer idade, e o clique dava erro cru da
+Evolution depois de ela já ter sumido da nossa tela. Editar já respeitava os 15
+minutos.
+
+**O aviso do sistema virou toast, e o relógio para com o mouse em cima.** A
+faixa acima da lista empurrava a caixa inteira para baixo a cada erro; agora é o
+toast do `aviso-sistema.js`, no topo ao centro, com X e 3 segundos. O X não
+adianta nada se a caixa sumir antes de a mão chegar nele, então o `mouseenter`
+para a contagem e o `mouseleave` a recomeça inteira — isso vale para as 25 telas
+que usam a peça.
+
+Os seletores do cabeçalho passaram a medir o texto escolhido
+(`field-sizing: content` — o `<select>` nativo se dimensiona pela opção MAIS
+larga), a lista de opções deixou de sair clara no tema escuro (`color-scheme`,
+que é o único jeito de alcançar o popup que o navegador desenha), e os ícones
+acima da busca ganharam o balão que o `data-dica` já prometia e nada desenhava.
+
 ## 2026-10-02, o fim do roteiro, e a IA que pausa quando promete gente
 
 Três frentes da conversa do WhatsApp, todas sobre o mesmo problema: a IA

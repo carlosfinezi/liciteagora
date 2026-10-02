@@ -117,7 +117,13 @@
     el.addEventListener('click', () => el.remove());
     area().appendChild(el);
     const ms = (segundos || (tom === 'erro' ? 7 : 4)) * 1000;
-    setTimeout(() => el.remove(), ms);
+    // O RELÓGIO PARA COM O MOUSE EM CIMA. Aviso que some enquanto se lê obriga
+    // a repetir a ação só para ver o que ele dizia — e o X, que já existe, não
+    // adianta nada se a caixa sumir antes de a mão chegar nele. Ao sair, a
+    // contagem recomeça inteira: quem tirou o mouse acabou de ler.
+    let relogio = setTimeout(() => el.remove(), ms);
+    el.addEventListener('mouseenter', () => clearTimeout(relogio));
+    el.addEventListener('mouseleave', () => { relogio = setTimeout(() => el.remove(), ms); });
     return el;
   }
 
