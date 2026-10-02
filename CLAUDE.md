@@ -239,10 +239,9 @@ Reiniciar o `liciteagora.service` com um demo ACTIVE arma os jobs dele: o
 distingue demo. Não suspenda o demo de outra sessão para isso. Antes do
 restart, confira que ele não tem robô do PCP ligado, campanha agendada ou em
 `enviando`, canal de WhatsApp nem recorrência a vencer; havendo, combine com o
-usuário. O `backups/sandbox-video-2026-09-23/reiniciar-com-sandbox-suspenso.sh`
-é da gravação de 23/09 e não vale com dois demos: conhece só o `sandbox`,
-suspende um tenant que pode ser de outra sessão e o deixa parecendo livre
-durante o boot.
+usuário. Não use o `reiniciar-com-sandbox-suspenso.sh` de
+`backups/sandbox-video-2026-09-23/`: ele conhece só o `sandbox` e suspende um
+tenant que pode ser de outra sessão.
 
 ### A loja pública e o static do login
 
@@ -574,10 +573,33 @@ que muda. **Mantenha a lista atualizada a cada edição de `.js` da raiz**, e
 esvazie a parte do serviço que foi reiniciado.
 
 **Servidor web (`consulta-licitacoes.service`): nada pendente** desde o boot de
-02/10 às 17:25:35, que levou o que havia. O `scheduler.js` não foi reiniciado.
+02/10 às 18:40:30. O `scheduler.js` não é reiniciado desde 30/09 às 15:01:09.
 
 As seções abaixo são as REGRAS que cada frente deixou. Elas já estão no ar; o
 que cada boot pôs em vigor está em `docs/boots.md`.
+
+### Segmento legado e nicho do funil são DOIS campos, e nenhum manda no outro
+
+O **segmento** (`pessoas.segmentoId`, tabela `segmentos`) é o da campanha legado
+e fala do ramo do comércio; o **nicho** (`pessoas.nichoFunilId`,
+`nicho-funil.js`) é o funil do CRM e fala de para quem ela vende: a empresa de
+estética é "Beleza (L)" e "Outros e fora do perfil".
+
+- **Os nove legados têm "(L)" no nome e o id de sempre.** A marca é posta pela
+  migração, pela `chave` (`segmentos.marcarLegado`), então todo tenant se ajusta
+  no boot e quem aponta para eles continua apontando. O Genérico se acha pela
+  chave, não pelo nome.
+- **`segmentoPorNome` aceita o nome SEM a marca**, porque a coluna Segmento das
+  planilhas diz "mercado". Tirar isso manda o contato ao Genérico calado.
+- **A fonte dos nichos é `crm_funis`, só os ATIVOS**, e nada é copiado para
+  `segmentos`. Funil excluído (soft) não é oferecido nem gravado.
+- **O mapa de ramo para nicho é LIDO dos cards** (`Setor:` e `Ramo:` na
+  descrição): o agrupamento dos 39 setores em 10 funis foi feito à mão em 24/09
+  e não existe escrito. `mapaDeNicho` não tem cache de propósito — em rota o
+  `db` é o proxy do tenant, e um mapa por banco serviria um tenant a outro.
+- **Gravar um não pode zerar o outro**: a tela manda um campo por vez, e o PUT
+  do membro só atualiza o que veio. `scripts/preencher-nicho-funil.js` grava só
+  onde o nicho está vazio, com de-para em `~/nicho-funil/` e `--desfazer`.
 
 ### A pausa que o sistema pede, e o fim do roteiro
 
@@ -778,45 +800,9 @@ da verdade, não as cópias do repo.
 ### O ambiente do root é cópia do do carlosfinezi
 
 As sessões daqui rodam como root, e o root só carrega o que está em
-`/root/.claude`. Em 29/09/2026 ele recebeu o mesmo conjunto do carlosfinezi,
-tudo de posse do root e sem nada executando arquivo da home dele. Nada disso
-se atualiza sozinho. Atualizou lá, o root refaz aqui:
-
-- **Skills** `impeccable`, `motion-design` e `graphify` em
-  `/root/.claude/skills/`: recopiar com `cp -r`, `chown -R root:root` e
-  `chmod 755` no `impeccable/scripts/impeccable`, que vem sem o bit. Duas
-  diferenças a recolocar depois da cópia: o `craft-floor.md` do Impeccable
-  leva cinco regras que só a variante do Codex (`~/.agents`) tinha, e o
-  `SKILL.md` do graphify leva no topo a seção "LiciteAgora: consultar, nunca
-  construir".
-- **Binário do Impeccable**: o launcher baixa sozinho para
-  `/root/.impeccable/bin/<versão>` a versão do `scripts/VERSION`.
-- **Ponytail 4.9.0**, com os ganchos: marketplace de diretório em
-  `/root/.claude/plugin-sources/ponytail`, um clone do
-  `DietrichGebert/ponytail` parado no `356918e`, o mesmo commit do
-  carlosfinezi. O marketplace do GitHub não fixa commit, e o `main` já está na
-  4.10.0. Para atualizar: `git -C` no clone com `fetch` e `checkout` da nova
-  referência, depois `claude plugin marketplace update ponytail` e
-  `claude plugin update ponytail@ponytail`.
-- **Graphify**: o programa fica na venv `/root/.local/share/graphifyy`
-  (`graphifyy[sql]==0.9.56`) e se atualiza com
-  `python3 -m pip --python /root/.local/share/graphifyy/bin/python install "graphifyy[sql]==<versão>"`.
-  A consulta é pelo `graphify-liciteagora` (`/root/.local/bin`), que só lê o
-  grafo do carlosfinezi. O grafo continua sendo reconstruído por ele, pelo
-  `su - carlosfinezi`.
-- **CLAUDE.md global**: `/root/.claude/CLAUDE.md` é cópia do
-  `/home/carlosfinezi/.claude/CLAUDE.md`, a recopiar quando aquele mudar. O
-  anterior, o Karpathy Guidelines, está em
-  `/root/.claude/CLAUDE.md.karpathy-antes-2026-09-29`.
-- **Gancho do Impeccable: LIGADO**, na chave `hooks` do
-  `/root/.claude/settings.json` (cópia do bloco em
-  `/root/.claude/impeccable-hook.json`). Ele roda depois de cada Edit ou Write
-  e no fim do turno, só sobre arquivo dentro da pasta da sessão, e avisa no
-  contexto o que achou, sem bloquear. O cache vai para fora do projeto
-  (`IMPECCABLE_CACHE_ROOT=/root/.impeccable/hook-cache`). O que ele grava no
-  repositório é um bloco `# impeccable-hook-ignore-start`, uma vez só, no
-  `.git/info/exclude`. Esse arquivo não é versionado e não aparece no
-  `git status`, e o bloco foi aceito em 29/09.
+`/root/.claude`: skills, plugin, Impeccable, graphify e o CLAUDE.md global são
+CÓPIAS, e nenhuma se atualiza sozinha. Atualizou do lado do carlosfinezi, o root
+refaz aqui, pelo `docs/ambiente-do-root.md`.
 
 Nesta árvore, não rode sem perguntar `impeccable hooks ignore-*`, `init`,
 `document` nem o modo `live`: eles gravam `.impeccable/`, `PRODUCT.md` ou

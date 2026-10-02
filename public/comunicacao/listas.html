@@ -89,8 +89,8 @@
       <div id="ltVerificacao" style="font-size:var(--text-xs);color:var(--text-2);margin:-4px 0 8px;"></div>
       <div class="tbl-wrap" style="max-height:240px;overflow-y:auto;">
         <table>
-          <thead><tr><th>Nome</th><th>Telefone</th><th>Segmento</th><th>Ficha</th><th></th></tr></thead>
-          <tbody id="tbMembros"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+          <thead><tr><th>Nome</th><th>Telefone</th><th>Nicho</th><th>Segmento (L)</th><th>Ficha</th><th></th></tr></thead>
+          <tbody id="tbMembros"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
         </table>
       </div>
       <div id="ltPaginacao" style="display:flex;gap:8px;align-items:center;margin-top:8px;"></div>
@@ -108,11 +108,26 @@
 <script>initSidebar('comunicacao-listas');</script>
 <script src="/js/comunicacao-comum.js"></script>
 <script>
-let PUBLICO = [], LISTAS = [], SEGMENTOS = [];
+let PUBLICO = [], LISTAS = [], SEGMENTOS = [], NICHOS = [];
 
 async function carregarSegmentos(){
   const d = await fetch('/api/comm/segmentos').then(r=>r.json()).catch(()=>null);
   SEGMENTOS = d?.segmentos || [];
+  NICHOS = d?.nichos || [];
+}
+
+// Os dois vocabulários do mesmo contato: o nicho é o funil do CRM, e o
+// segmento "(L)" é o da campanha legado. Um filtro é por vez, e o valor diz de
+// qual grupo veio ('n:6' ou 's:4') para o servidor receber o parâmetro certo.
+function grupoDeOpcoes(rotulo, itens, marca, qtd){
+  const linhas = itens.filter(g => !qtd || qtd.get(g.id)).map(g =>
+    `<option value="${marca}:${g.id}">${esc(g.nome)}${qtd ? ` (${numBR(qtd.get(g.id))})` : ''}</option>`).join('');
+  return linhas ? `<optgroup label="${rotulo}">${linhas}</optgroup>` : '';
+}
+/** `{ segmento, nicho }` do valor escolhido, para a query. */
+function recorteEscolhido(valor){
+  const [marca, id] = String(valor || '').split(':');
+  return { segmento: marca === 's' ? id : '', nicho: marca === 'n' ? id : '' };
 }
 
 // ---------- listas ----------
@@ -171,8 +186,9 @@ async function abrirLista(id){
 
   if (id) carregarMembros();
   const selPub = document.getElementById('ltSegmentoPublico');
-  selPub.innerHTML = '<option value="">Todos os segmentos</option>'
-    + SEGMENTOS.map(g => `<option value="${g.id}">${esc(g.nome)}</option>`).join('');
+  selPub.innerHTML = '<option value="">Todos</option>'
+    + grupoDeOpcoes('Nichos do funil', NICHOS, 'n')
+    + grupoDeOpcoes('Segmentos (L)', SEGMENTOS, 's');
   carregarPublico();
 }
 
@@ -185,8 +201,9 @@ function buscarPublico(){
 }
 async function carregarPublico(){
   const q = document.getElementById('ltBusca').value.trim();
-  const segmento = document.getElementById('ltSegmentoPublico').value;
-  const p = await fetch(`/api/conversas/publico?q=${encodeURIComponent(q)}&segmento=${encodeURIComponent(segmento)}`)
+  const { segmento, nicho } = recorteEscolhido(document.getElementById('ltSegmentoPublico').value);
+  const p = await fetch(`/api/conversas/publico?q=${encodeURIComponent(q)}`
+    + `&segmento=${encodeURIComponent(segmento)}&nicho=${encodeURIComponent(nicho)}`)
     .then(r=>r.json()).catch(()=>null);
   PUBLICO = p?.pessoas || [];
   PUBLICO_TOTAL = p?.total || 0;
@@ -207,9 +224,11 @@ async function carregarMembros(){
   const tb = document.getElementById('tbMembros');
   tb.innerHTML = '<tr><td colspan="4" class="empty">Carregando…</td></tr>';
   const selSeg = document.getElementById('ltSegmento');
-  const segmento = selSeg.value;
+  const escolhido = selSeg.value;
+  const { segmento, nicho } = recorteEscolhido(escolhido);
   const d = await fetch(`/api/comm/listas/${EDIT_LISTA}?pagina=${PG_MEMBROS}`
-    + `&q=${encodeURIComponent(BUSCA_MEMBRO)}&segmento=${encodeURIComponent(segmento)}`).then(r=>r.json()).catch(()=>null);
+    + `&q=${encodeURIComponent(BUSCA_MEMBRO)}&segmento=${encodeURIComponent(segmento)}`
+    + `&nicho=${encodeURIComponent(nicho)}`).then(r=>r.json()).catch(()=>null);
   if (!d?.success) {
     tb.innerHTML = `<tr><td colspan="4" class="empty">${esc(d?.error || 'Não foi possível carregar')}</td></tr>`;
     return;
@@ -221,32 +240,39 @@ async function carregarMembros(){
     document.getElementById('ltDesc').value = d.lista.descricao || '';
     document.getElementById('listaSub').textContent = d.lista.descricao || '';
   }
-  // O filtro mostra quantos da lista há em cada segmento.
+  // O filtro mostra quantos da lista há em cada nicho e em cada segmento.
   const qtd = new Map((d.porSegmento || []).map(x => [x.segmentoId, x.n]));
-  selSeg.innerHTML = '<option value="">Todos os segmentos</option>'
-    + SEGMENTOS.filter(g => qtd.get(g.id)).map(g => `<option value="${g.id}">${esc(g.nome)} (${numBR(qtd.get(g.id))})</option>`).join('');
-  selSeg.value = segmento;
-  if (selSeg.value !== segmento) selSeg.value = '';
-  document.getElementById('ltTotal').textContent = ((BUSCA_MEMBRO || segmento)
+  const qtdNicho = new Map((d.porNicho || []).map(x => [x.nichoFunilId, x.n]));
+  selSeg.innerHTML = '<option value="">Todos</option>'
+    + grupoDeOpcoes('Nichos do funil', NICHOS, 'n', qtdNicho)
+    + grupoDeOpcoes('Segmentos (L)', SEGMENTOS, 's', qtd);
+  selSeg.value = escolhido;
+  if (selSeg.value !== escolhido) selSeg.value = '';
+  document.getElementById('ltTotal').textContent = ((BUSCA_MEMBRO || escolhido)
     ? `${numBR(d.total)} encontrado(s)` : `${numBR(d.total)} na lista`)
     + (d.semWhatsapp ? `, ${numBR(d.semWhatsapp)} sem WhatsApp` : '');
   pintarVerificacao(d.verificacao);
 
   const membros = d.membros || [];
+  // Cada contato tem os DOIS, então cada um tem o seu seletor: um select só
+  // mostraria um valor e esconderia o outro.
+  const seletor = (m, campo, itens, atual) => `<select data-id="${m.id}" data-campo="${campo}"
+      onchange="salvarClassificacao(this)" style="width:100%;font-size:var(--text-xs);">
+      ${atual ? '' : '<option value="">—</option>'}
+      ${itens.map(g => `<option value="${g.id}" ${g.id === atual ? 'selected' : ''}>${esc(g.nome)}</option>`).join('')}
+    </select>`;
   tb.innerHTML = membros.length ? membros.map(m=>`<tr>
     <td>${esc(m.nome || '—')}</td>
     <td>${esc(m.telefone || '—')}</td>
-    <td><select data-id="${m.id}" onchange="salvarSegmento(this)" style="width:100%;font-size:var(--text-xs);">
-      ${m.segmentoId ? '' : '<option value="">—</option>'}
-      ${SEGMENTOS.map(g => `<option value="${g.id}" ${g.id === m.segmentoId ? 'selected' : ''}>${esc(g.nome)}</option>`).join('')}
-    </select></td>
+    <td>${seletor(m, 'nichoFunilId', NICHOS, m.nichoFunilId)}</td>
+    <td>${seletor(m, 'segmentoId', SEGMENTOS, m.segmentoId)}</td>
     <td>${!m.pessoaId ? '<span class="badge inativo">sem ficha</span>'
         : m.categorias === '["lead"]' ? '<span class="badge inativo">lead</span>'
         : '<span class="badge ativo">cliente</span>'}${m.semWhatsapp ? ' <span class="badge inativo">sem WhatsApp</span>' : ''}</td>
     <td style="text-align:right;"><button class="btn btn-ghost btn-sm" style="color:var(--danger);"
       onclick="removerMembro(${m.id})">Remover</button></td>
   </tr>`).join('')
-    : `<tr><td colspan="5" class="empty">${BUSCA_MEMBRO ? 'Ninguém com esse nome ou telefone' : 'Lista vazia'}</td></tr>`;
+    : `<tr><td colspan="6" class="empty">${BUSCA_MEMBRO ? 'Ninguém com esse nome ou telefone' : 'Lista vazia'}</td></tr>`;
 
   const paginas = Math.max(Math.ceil((d.total || 0) / (d.porPagina || 100)), 1);
   document.getElementById('ltPaginacao').innerHTML = paginas > 1
@@ -293,12 +319,19 @@ async function verificarWhatsapp(){
   pintarVerificacao(d.verificacao);
 }
 
-/** O segmento fica na ficha da pessoa: vale para todas as listas em que ela está. */
-async function salvarSegmento(sel){
+/**
+ * O nicho e o segmento ficam na ficha da pessoa: valem para todas as listas em
+ * que ela está. Vai só o campo que mudou, para o outro ficar como está.
+ */
+async function salvarClassificacao(sel){
   const id = Number(sel.dataset.id);
+  const campo = sel.dataset.campo;
   const d = await fetch('/api/comm/listas/membros/'+id, { method:'PUT', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ segmentoId: Number(sel.value) }) }).then(r=>r.json()).catch(()=>null);
-  if (!d?.success) return showAlert(d?.error || 'Não foi possível salvar o segmento','error');
+    body: JSON.stringify({ [campo]: Number(sel.value) }) }).then(r=>r.json()).catch(()=>null);
+  if (!d?.success) {
+    return showAlert(d?.error || (campo === 'nichoFunilId'
+      ? 'Não foi possível salvar o nicho' : 'Não foi possível salvar o segmento'), 'error');
+  }
   carregarMembros();
 }
 

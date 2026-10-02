@@ -4,6 +4,72 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-02, o nicho do funil ao lado do segmento legado nas listas
+
+As listas de contatos passaram a falar os dois vocabulários do mesmo contato.
+O segmento que estava lá é o da campanha legado de WhatsApp e fala do ramo do
+comércio (Bebidas, Vestuário, Beleza); o **nicho** é o funil do CRM, que veio
+do agrupamento dos 39 setores da planilha de propensão em 10 funis, em 24/09, e
+fala de para quem a empresa vende. Os dois estão certos e medem coisas
+diferentes: uma empresa de estética é "Beleza (L)" num e "Outros e fora do
+perfil" no outro. **Nenhum substitui o outro** — cada contato guarda os dois,
+em campos separados.
+
+**Os nove legados ganharam "(L)" no nome, com o MESMO id.** A marca entra pela
+própria migração (`segmentos.marcarLegado`, pela `chave`, idempotente), então
+todo tenant se ajusta no boot, e quem já aponta para eles continua apontando: a
+ficha da pessoa, os `segmentos` gravados nas campanhas 3 a 6 do 1bit e o nicho
+que a tela de Conversas mostra, que agora sai dito "Alimentação (L)". As
+campanhas legadas não foram tocadas e continuam recortando pelo segmento.
+
+**A busca por nome aceita o nome SEM a marca** (`segmentoPorNome`), e isso não é
+enfeite: a coluna Segmento das planilhas que já circulam diz "mercado", e sem
+isso ela passaria a cair em "segmento desconhecido", mandando o contato para o
+Genérico calado.
+
+**O nicho é `pessoas.nichoFunilId`, e a fonte da verdade é `crm_funis`**, só os
+funis ATIVOS — nada foi copiado para a tabela `segmentos`. O funil excluído
+(soft), como o "Ligação Licitações", não é oferecido em tela nenhuma nem grava
+na ficha.
+
+**O mapa de ramo para nicho não existia escrito em lugar nenhum.** O
+agrupamento dos 39 setores foi feito à mão em 24/09, e o que restou dele são as
+descrições dos 63.274 cards, que guardam o `Setor:` e o `Ramo:` de cada
+empresa. O `mapaDeNicho` reconstrói o agrupamento lendo os cards, e por isso
+não há de-para escrito à mão: card da própria ficha, card do telefone, ramo
+igual, ramo como começo do ramo do card (a importação truncou o texto na
+vírgula, e `"Lanchonetes` é o começo de `Lanchonetes, casas de chá…`) e, por
+fim, o nicho padrão.
+
+**27.773 contatos do 1bit receberam nicho**, pelo
+`scripts/preencher-nicho-funil.js`: 25.998 pelo card da própria ficha, 317 pelo
+card do telefone, 1.445 pelo ramo e 13 no padrão. Dá Comércio 11.124,
+Construção e engenharia 3.755, Veículos, máquinas e equipamentos 3.381, Outros
+e fora do perfil 2.934, Alimentação 2.691, Transporte e logística 1.996, Saúde e
+educação 597, Serviços gerais 535, Indústria 518, Comunicação e tecnologia 241 e
+Contabilidade 1. O script simula sem `--aplicar`, grava só onde o nicho está
+vazio (rodar de novo não mexe em nada, e escolha feita à mão não é
+sobrescrita), guarda o de-para num CSV fora da árvore e volta com `--desfazer`.
+
+O de-para mostra o que a troca de vocabulário faz, e é por isso que os dois
+convivem: Vestuário (L) → Comércio (3.817), Beleza (L) → Outros e fora do
+perfil (2.827), Mercado (L), Bebidas (L), Cosméticos (L) e Atacado (L) também →
+Comércio. Onde havia cinco recortes de comércio, o funil tem um.
+
+**Na tela de Listas**, os três seletores trazem os dois grupos (`Nichos do
+funil` e `Segmentos (L)`), o filtro de quem está na lista só oferece quem tem
+gente, com a contagem, e cada linha tem um seletor para cada vocabulário — um
+select só mostraria um valor e esconderia o outro. Gravar o nicho não manda o
+segmento, e é isso que a etapa B3d guarda. Em Pessoas, a ficha ganhou o campo
+Nicho ao lado de Segmento (L).
+
+Provas: a suíte 177 (`test-nicho-funil`, 11 etapas) e a 22 etapas da
+`test-listas-membros`, que mede a tela em Chrome. Sabotadas (o PUT gravando os
+dois campos de uma vez, o mapa aceitando card de funil fechado, a busca por
+nome exigindo o sufixo, a contagem por nicho contando o segmento), reprovou nas
+quatro — a terceira derrubou 10 das 19 etapas da `test-segmentos` junto. A tela
+antiga, sem os grupos, reprovava em 5 etapas da `test-listas-membros`.
+
 ## 2026-10-02, a peça onde ela é usada, o modal que se anuncia e o rótulo ligado ao campo
 
 Rodada de lógica e acessibilidade, saída da revisão de telas fechada no

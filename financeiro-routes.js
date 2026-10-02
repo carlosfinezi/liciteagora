@@ -372,9 +372,11 @@ function registrarRotasFinanceiro(app, db) {
 
   // ==================== PESSOAS ====================
 
-  // Cadastro de segmentos (segmentos.js). Antes de /api/pessoas/:id, senão o
-  // Express leria "segmentos" como o id de uma pessoa.
+  // Cadastro de segmentos (segmentos.js) e os nichos do funil (nicho-funil.js).
+  // Antes de /api/pessoas/:id, senão o Express leria "segmentos" e "nichos"
+  // como o id de uma pessoa.
   require('./segmentos').registrarRotasSegmentos(app, db);
+  require('./nicho-funil').registrarRotasNicho(app, db);
 
   // Lead: contato vindo das listas de WhatsApp, com ficha desde 28/09 (~27 mil
   // no 1bit, contra ~180 clientes). A listagem inteira os deixa de fora por
@@ -533,7 +535,7 @@ function registrarRotasFinanceiro(app, db) {
     'rg', 'rgOrgaoEmissor', 'rgDataExpedicao', 'dataNascimento',
     'sexo', 'estadoCivil', 'profissao', 'nomeMae', 'nomePai', 'nacionalidade',
     // Comercial
-    'categorias', 'origem', 'vendedorId', 'tabelaPrecoId', 'segmentoId',
+    'categorias', 'origem', 'vendedorId', 'tabelaPrecoId', 'segmentoId', 'nichoFunilId',
     'limiteCredito', 'prazoMedioDias', 'condicaoPagamentoPadrao',
     'meiosPagamentoPermitidos', 'tags',
     // Prazo e meios saíram da ficha em 2026-08-21 e viraram Política de Prazo;
@@ -634,7 +636,13 @@ function registrarRotasFinanceiro(app, db) {
         // nunca acharia a pessoa, sem erro nenhum.
         || (b.segmentoId != null && b.segmentoId !== ''
               && !db.prepare('SELECT 1 FROM segmentos WHERE id = ?').get(Number(b.segmentoId))
-              ? 'Segmento não encontrado' : null);
+              ? 'Segmento não encontrado' : null)
+        // O nicho é um funil do CRM, e só ATIVO: funil excluído (soft) não é
+        // mais oferecido em tela nenhuma, e gravá-lo deixaria a ficha com um
+        // nicho que ninguém vê.
+        || (b.nichoFunilId != null && b.nichoFunilId !== ''
+              && !require('./nicho-funil').nichoValido(db, b.nichoFunilId)
+              ? 'Nicho não encontrado' : null);
   }
 
   /**

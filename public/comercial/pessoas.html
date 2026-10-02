@@ -582,7 +582,11 @@
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Segmento</label>
+                        <label for="nichoFunilId">Nicho</label>
+                        <select id="nichoFunilId"><option value="">—</option></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Segmento (L)</label>
                         <div style="display:flex; gap:6px;">
                             <select id="segmentoId" style="flex:1;"><option value="">—</option></select>
                             <button type="button" class="btn btn-ghost btn-sm" onclick="abrirSegmentos()">Segmentos…</button>
@@ -1375,7 +1379,7 @@
         'rg','rgOrgaoEmissor','rgDataExpedicao','dataNascimento',
         'sexo','estadoCivil','profissao','nomeMae','nomePai','nacionalidade',
         // Comercial / financeiro
-        'origem','vendedorId','tabelaPrecoId','limiteCredito','politicaPrazoId','segmentoId',
+        'origem','vendedorId','tabelaPrecoId','limiteCredito','politicaPrazoId','segmentoId','nichoFunilId',
         // Contato (vieram do cadastro de fornecedor na unificação de 2026-08-20)
         'celular','emailFinanceiro','site',
         // Fornecedor
@@ -2581,6 +2585,25 @@
         campo.value = vCampo;
         renderListaSegmentos();
     }
+
+    // ==================== NICHOS DO FUNIL ====================
+    // O nicho é o funil do CRM da pessoa, e não se cadastra aqui: quem cria
+    // funil é o CRM. A ficha só escolhe, e os dois campos convivem — o segmento
+    // "(L)" fala do ramo do comércio, o nicho fala de para quem ela vende.
+    let nichosCache = [];
+    async function carregarNichos() {
+        try {
+            const d = await (await fetch('/api/pessoas/nichos')).json();
+            if (!d.success) throw new Error(d.error);
+            nichosCache = d.nichos || [];
+        } catch (err) { showAlert('Erro ao carregar nichos: ' + err.message, 'error'); return; }
+        const campo = document.getElementById('nichoFunilId');
+        const atual = campo.value;
+        campo.innerHTML = '<option value="">—</option>'
+            + nichosCache.map(n => `<option value="${n.id}">${esc(n.nome)}</option>`).join('');
+        campo.value = atual;
+        if (campo.value !== atual) campo.value = '';
+    }
     function renderListaSegmentos() {
         const el = document.getElementById('listaSegmentos');
         if (!el) return;
@@ -2645,15 +2668,15 @@
     loadPrefs();
     renderHeader();
     // Antes de carregarPessoas: a coluna "Política" da grade lê do cache.
-    // O deep-link abaixo espera os segmentos: sem as <option>, o campo da
-    // ficha perderia o valor da pessoa.
-    const _segmentosProntos = carregarSegmentos();
-    Promise.all([carregarPoliticas(), _segmentosProntos]).then(carregarPessoas);
+    // O deep-link abaixo espera os segmentos e os nichos: sem as <option>, os
+    // dois campos perderiam o valor da pessoa.
+    const _cadastrosProntos = Promise.all([carregarSegmentos(), carregarNichos()]);
+    Promise.all([carregarPoliticas(), _cadastrosProntos]).then(carregarPessoas);
     carregarCanaisIntegracao();
     // Deep-link: /comercial/pessoas.html?id=123 abre direto o cadastro do cliente
     // (usado pelo botão "👤 Cliente" da página da oportunidade).
     const _pessoaIdUrl = _params.get('id');
-    if (_pessoaIdUrl) _segmentosProntos.then(() => editarPessoa(_pessoaIdUrl));
+    if (_pessoaIdUrl) _cadastrosProntos.then(() => editarPessoa(_pessoaIdUrl));
     </script>
 </body>
 </html>

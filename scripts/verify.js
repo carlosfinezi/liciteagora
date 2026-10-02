@@ -865,6 +865,12 @@ const suites = [
   // 14px e letras de 2,3px. Nenhuma medicao de font-size pega isso; o que
   // denuncia e a matriz do elemento (getScreenCTM).
   ['176. grafico de estoque legivel a 360px (test-grafico-estoque)', 'test-grafico-estoque.js'],
+  // O nicho do contato, que e o funil do CRM dele (02/10). Os nove segmentos
+  // da campanha legado ganharam "(L)" e o nicho entrou num campo NOVO: o risco
+  // e um apagar o outro. Sabotadas (o PUT gravando os dois campos, o mapa
+  // aceitando card de funil fechado, a busca por nome exigindo o sufixo, a
+  // contagem por nicho contando o segmento), reprovou nas quatro.
+  ['177. nicho do funil ao lado do segmento (test-nicho-funil)', 'test-nicho-funil.js'],
 ];
 // ==================== modo rápido: quais suítes ====================
 /**

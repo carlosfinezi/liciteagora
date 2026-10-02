@@ -64,21 +64,25 @@ function fichaUnicaDoTelefone(indice, destino) {
  * com a ficha criada, para a próxima linha igual achá-la.
  * Devolve { pessoaId, criada, ambigua }.
  */
-function fichaDoContato(db, indice, { destino, nome, segmentoId, fonte }) {
+function fichaDoContato(db, indice, { destino, nome, segmentoId, nichoFunilId, fonte }) {
   const achadas = fichasDe(indice, destino, nome);
   if (achadas.length) {
     const pessoaId = achadas[0];
     if (segmentoId) db.prepare('UPDATE pessoas SET segmentoId = ? WHERE id = ? AND segmentoId IS NULL').run(segmentoId, pessoaId);
+    // O nicho segue a mesma regra do segmento: completa o que está vazio e
+    // nunca sobrescreve o que alguém já escolheu na ficha.
+    if (nichoFunilId) db.prepare('UPDATE pessoas SET nichoFunilId = ? WHERE id = ? AND nichoFunilId IS NULL').run(nichoFunilId, pessoaId);
     return { pessoaId, criada: false, ambigua: achadas.length > 1 };
   }
   const razao = String(nome || '').trim() || destino;
   // O nome do lead vai também para o fantasia, que é de onde saem o
   // {{primeiroNome}} e o nome mostrado nas telas.
   const pessoaId = Number(db.prepare(`INSERT INTO pessoas
-      (cpfCnpj, tipo, razaoSocial, nomeFantasia, telefone, ativo, semDocumento, categorias, segmentoId,
+      (cpfCnpj, tipo, razaoSocial, nomeFantasia, telefone, ativo, semDocumento, categorias, segmentoId, nichoFunilId,
        aceitaWhatsappMarketing, lgpdFonte)
-    VALUES (?, 'PF', ?, ?, ?, 1, 1, '["lead"]', ?, 1, ?)`)
-    .run(gerarIdentificadorSemDocumento(), razao, razao, destino, segmentoId || null, fonte || null).lastInsertRowid);
+    VALUES (?, 'PF', ?, ?, ?, 1, 1, '["lead"]', ?, ?, 1, ?)`)
+    .run(gerarIdentificadorSemDocumento(), razao, razao, destino, segmentoId || null, nichoFunilId || null,
+      fonte || null).lastInsertRowid);
   if (!indice.has(destino)) indice.set(destino, []);
   indice.get(destino).push({ id: pessoaId, nomes: [chaveNome(razao)] });
   return { pessoaId, criada: true, ambigua: false };

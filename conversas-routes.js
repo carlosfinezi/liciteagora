@@ -685,6 +685,7 @@ function registrarRotasConversas(app, db) {
         compraram: String(req.query.compraram || ''),      // '1' com pedido | '0' sem pedido
         tag: String(req.query.tag || '').trim().toLowerCase(),
         segmento: Number(req.query.segmento) || 0,
+        nicho: Number(req.query.nicho) || 0,
       };
       // Os filtros vão no SQL, ANTES do limite. Filtrados depois dele, como
       // eram até 28/09, eles só enxergavam os 2.000 primeiros em ordem
@@ -709,9 +710,12 @@ function registrarRotasConversas(app, db) {
         args.tag = `%${f.tag}%`;
       }
       if (f.segmento) { onde.push('segmentoId = @segmento'); args.segmento = f.segmento; }
+      // Nicho do funil (nicho-funil.js): o outro recorte do mesmo cadastro, e
+      // o que a tela de Listas manda quando a escolha é do grupo dos funis.
+      if (f.nicho) { onde.push('nichoFunilId = @nicho'); args.nicho = f.nicho; }
       const where = onde.join(' AND ');
       const total = db.prepare(`SELECT COUNT(*) n FROM pessoas WHERE ${where}`).get(args).n;
-      const linhas = db.prepare(`SELECT id, razaoSocial, nomeFantasia, telefone, cidade, uf, segmentoId,
+      const linhas = db.prepare(`SELECT id, razaoSocial, nomeFantasia, telefone, cidade, uf, segmentoId, nichoFunilId,
              COALESCE(categorias,'') AS categorias, COALESCE(tags,'') AS tags,
              COALESCE(aceitaWhatsappMarketing, 0) AS aceitaMarketing,
              (SELECT COUNT(*) FROM pedidos ped WHERE ped.clienteId = pessoas.id) AS pedidos

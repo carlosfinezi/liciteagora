@@ -25,6 +25,7 @@ const canais = require('./whatsapp-canais');
 const { localDate } = require('./wa-m1-utils');
 const dest = require('./comm-destinos');
 const segmentos = require('./segmentos');
+const nichos = require('./nicho-funil');
 const leadFicha = require('./lead-ficha');
 const numerosWa = require('./wa-numeros');
 const { dentroDoExpediente } = require('./atendimento-horario');
@@ -110,6 +111,9 @@ function adicionarContatos(db, lista, linhas) {
   }
   const indice = leadFicha.indiceDeTelefones(db);
   const fonte = `Importação da lista ${lista.nome}`;
+  // O mapa dos cards do CRM, montado UMA vez para a planilha inteira: dentro do
+  // laço ele custaria uma leitura dos 63 mil cards por linha.
+  const mapaNicho = nichos.mapaDeNicho(db);
   const stmt = db.prepare(`INSERT OR IGNORE INTO comm_lista_membros (listaId, pessoaId, destinoManual, nomeManual, ramo)
     VALUES (?, ?, ?, ?, ?)`);
   let adicionados = 0, fichasNovas = 0;
@@ -119,7 +123,12 @@ function adicionarContatos(db, lista, linhas) {
       let segmentoId = v.segmento ? segmentos.segmentoPorNome(db, v.segmento) : null;
       if (v.segmento && !segmentoId) desconhecidos.add(v.segmento);
       if (!segmentoId) segmentoId = segmentos.segmentoDoRamo(db, v.ramo);
-      const f = leadFicha.fichaDoContato(db, indice, { destino: v.destino, nome: v.nome, segmentoId, fonte });
+      // O nicho vem do mesmo mapa setor/ramo do funil; sem casar, do padrão
+      // ("Outros e fora do perfil"). A coluna Segmento da planilha não o
+      // escolhe: são vocabulários diferentes.
+      const { nichoId } = mapaNicho.nichoDe({ telefone: v.destino, ramo: v.ramo });
+      const f = leadFicha.fichaDoContato(db, indice,
+        { destino: v.destino, nome: v.nome, segmentoId, nichoFunilId: nichoId, fonte });
       if (f.criada) fichasNovas++;
       if (stmt.run(lista.id, f.pessoaId, v.destino, v.nome, v.ramo).changes) adicionados++;
     }
@@ -619,9 +628,14 @@ function registrarRotasComm(app, db) {
 
   // Os segmentos do cadastro de pessoas, só para leitura: as telas de
   // comunicação filtram por eles, e o RBAC não lhes dá /api/pessoas.
+  //
+  // Vão juntos os NICHOS (os funis do CRM, `nicho-funil.js`), que são o outro
+  // vocabulário do mesmo contato: a tela de Listas mostra os dois grupos no
+  // mesmo seletor, os legados com "(L)" e os nichos com o nome do funil.
   app.get('/api/comm/segmentos', (req, res) => {
-    try { res.json({ success: true, segmentos: segmentos.listarSegmentos(db) }); }
-    catch (err) { res.status(500).json({ success: false, error: err.message }); }
+    try {
+      res.json({ success: true, segmentos: segmentos.listarSegmentos(db), nichos: nichos.listarNichos(db) });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
   app.get('/api/comm/listas', (req, res) => {
@@ -662,13 +676,17 @@ function registrarRotasComm(app, db) {
              OR COALESCE(p.telefone, m.destinoManual, '') LIKE @q)`
         : '';
       if (req.query.segmento) filtro += ' AND p.segmentoId = @segmento';
-      const args = { listaId: lista.id, q: `%${q}%`, segmento: Number(req.query.segmento) || 0 };
+      // O nicho do funil é o outro recorte da mesma lista, e os dois podem vir
+      // juntos: "quem é Alimentação (L) e está no funil de Comércio".
+      if (req.query.nicho) filtro += ' AND p.nichoFunilId = @nicho';
+      const args = { listaId: lista.id, q: `%${q}%`, segmento: Number(req.query.segmento) || 0,
+        nicho: Number(req.query.nicho) || 0 };
       const total = db.prepare(`SELECT COUNT(*) n FROM comm_lista_membros m
         LEFT JOIN pessoas p ON p.id = m.pessoaId
         WHERE m.listaId = @listaId ${filtro}`).get(args).n;
 
       const membros = db.prepare(`
-        SELECT m.id, m.pessoaId, p.segmentoId, p.categorias,
+        SELECT m.id, m.pessoaId, p.segmentoId, p.nichoFunilId, p.categorias,
                COALESCE(${leadFicha.nomeExibido('p')}, m.nomeManual) AS nome,
                COALESCE(p.telefone, m.destinoManual) AS telefone,
                p.cpfCnpj, p.email,
@@ -685,6 +703,10 @@ function registrarRotasComm(app, db) {
       const porSegmento = db.prepare(`SELECT p.segmentoId, COUNT(*) n FROM comm_lista_membros m
         LEFT JOIN pessoas p ON p.id = m.pessoaId
         WHERE m.listaId = ? GROUP BY p.segmentoId`).all(lista.id);
+      // O mesmo por nicho do funil, que é o outro grupo do seletor.
+      const porNicho = db.prepare(`SELECT p.nichoFunilId, COUNT(*) n FROM comm_lista_membros m
+        LEFT JOIN pessoas p ON p.id = m.pessoaId
+        WHERE m.listaId = ? GROUP BY p.nichoFunilId`).all(lista.id);
 
       // Sem WhatsApp (wa-numeros.js): a marca é do número, então sai pelo
       // telefone normalizado de cada contato, e o total conta a lista inteira.
@@ -700,7 +722,8 @@ function registrarRotasComm(app, db) {
       } catch (_) { /* sem a tabela ainda */ }
       const verificacao = numerosWa.situacao(db, lista.id);
 
-      res.json({ success: true, lista, membros, total, pagina, porPagina, porSegmento, semWhatsapp, verificacao });
+      res.json({ success: true, lista, membros, total, pagina, porPagina, porSegmento, porNicho,
+        semWhatsapp, verificacao });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
@@ -798,30 +821,46 @@ function registrarRotasComm(app, db) {
   });
 
   /**
-   * O segmento de um contato da lista. Grava na FICHA da pessoa, e não no
-   * membro: o mesmo contato em duas listas tem um segmento só. Contato ainda
-   * sem ficha (avulso de antes da migração) ganha a dele aqui.
+   * O segmento legado e o nicho do funil de um contato da lista. Gravam na
+   * FICHA da pessoa, e não no membro: o mesmo contato em duas listas tem um
+   * segmento só. Contato ainda sem ficha (avulso de antes da migração) ganha a
+   * dele aqui.
+   *
+   * Os dois campos são independentes e vêm um por vez, como a tela manda — a
+   * linha tem um seletor para cada. Mandar só o nicho NÃO apaga o segmento, e
+   * é essa a razão de haver dois UPDATE em vez de um.
    */
   app.put('/api/comm/listas/membros/:id', (req, res) => {
     try {
       const m = db.prepare(`SELECT m.id, m.pessoaId, m.destinoManual, m.nomeManual, l.nome AS listaNome
         FROM comm_lista_membros m JOIN comm_listas l ON l.id = m.listaId WHERE m.id = ?`).get(req.params.id);
       if (!m) return res.status(404).json({ success: false, error: 'Contato não encontrado na lista' });
-      const segmentoId = Number(req.body?.segmentoId);
-      if (!segmentoId || !db.prepare('SELECT 1 FROM segmentos WHERE id = ?').get(segmentoId)) {
+      const pediuSegmento = req.body?.segmentoId !== undefined;
+      const pediuNicho = req.body?.nichoFunilId !== undefined;
+      const segmentoId = Number(req.body?.segmentoId) || 0;
+      const nichoFunilId = Number(req.body?.nichoFunilId) || 0;
+      if (!pediuSegmento && !pediuNicho) {
+        return res.status(400).json({ success: false, error: 'Escolha um segmento ou um nicho' });
+      }
+      if (pediuSegmento && (!segmentoId || !db.prepare('SELECT 1 FROM segmentos WHERE id = ?').get(segmentoId))) {
         return res.status(400).json({ success: false, error: 'Escolha um segmento do cadastro' });
+      }
+      if (pediuNicho && !nichos.nichoValido(db, nichoFunilId)) {
+        return res.status(400).json({ success: false, error: 'Escolha um nicho do funil' });
       }
       const pessoaId = db.transaction(() => {
         let id = m.pessoaId;
         if (!id) {
           id = leadFicha.fichaDoContato(db, leadFicha.indiceDeTelefones(db),
-            { destino: m.destinoManual, nome: m.nomeManual, segmentoId, fonte: `Importação da lista ${m.listaNome}` }).pessoaId;
+            { destino: m.destinoManual, nome: m.nomeManual, segmentoId: segmentoId || null,
+              nichoFunilId: nichoFunilId || null, fonte: `Importação da lista ${m.listaNome}` }).pessoaId;
           db.prepare('UPDATE comm_lista_membros SET pessoaId = ? WHERE id = ?').run(id, m.id);
         }
-        db.prepare('UPDATE pessoas SET segmentoId = ? WHERE id = ?').run(segmentoId, id);
+        if (pediuSegmento) db.prepare('UPDATE pessoas SET segmentoId = ? WHERE id = ?').run(segmentoId, id);
+        if (pediuNicho) db.prepare('UPDATE pessoas SET nichoFunilId = ? WHERE id = ?').run(nichoFunilId, id);
         return id;
       })();
-      res.json({ success: true, pessoaId, segmentoId });
+      res.json({ success: true, pessoaId, segmentoId: segmentoId || null, nichoFunilId: nichoFunilId || null });
     } catch (err) { res.status(400).json({ success: false, error: err.message }); }
   });
 

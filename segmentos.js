@@ -22,11 +22,18 @@
 
 // Os 9 de antes, na ordem em que o cálculo os testa: a primeira palavra que
 // casa decide ("distribuidora de bebidas" é Bebidas, e não Atacado).
+//
+// O sufixo "(L)" é de LEGADO, e entrou em 02/10/2026: desde então cada contato
+// guarda também o NICHO do funil do CRM (`nicho-funil.js`), e os dois
+// vocabulários aparecem no mesmo seletor. Sem a marca não se sabe qual
+// "Alimentação" é qual, e o nome é UNIQUE: as duas não caberiam na tabela se um
+// dia alguém copiasse o nicho para cá.
+const SUFIXO_LEGADO = ' (L)';
 const SEMENTE = [
   ['Bebidas', 'bebidas'], ['Vestuário', 'vestuario'], ['Material de construção', 'material de construcao'],
   ['Alimentação', 'alimentacao'], ['Beleza', 'beleza'], ['Cosméticos', 'cosmeticos'],
   ['Mercado', 'mercado'], ['Atacado', 'atacado'], ['Genérico', 'generico'],
-];
+].map(([nome, chave]) => [nome + SUFIXO_LEGADO, chave]);
 const CHAVE_GENERICO = 'generico';
 
 const normalizar = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -58,6 +65,20 @@ function migrarSegmentos(db) {
     const ins = db.prepare('INSERT INTO segmentos (nome, chave, palavras, ordem) VALUES (?, ?, ?, ?)');
     SEMENTE.forEach(([nome, chave], i) => ins.run(nome, chave, JSON.stringify(palavrasDe[chave] || []), i + 1));
   }
+  marcarLegado(db);
+}
+
+/**
+ * O sufixo "(L)" nos nove semeados, pela CHAVE: segmento criado na tela nasce
+ * sem chave e não é legado. Roda em todo boot e não repete a marca; o id não
+ * muda, e por isso quem já aponta para eles (a ficha da pessoa, os segmentos
+ * gravados numa campanha, o nicho que Conversas mostra) continua apontando.
+ */
+function marcarLegado(db) {
+  const chaves = SEMENTE.map(([, chave]) => chave);
+  db.prepare(`UPDATE segmentos SET nome = nome || ?
+    WHERE chave IN (${chaves.map(() => '?').join(',')}) AND nome NOT LIKE ?`)
+    .run(SUFIXO_LEGADO, ...chaves, '%' + SUFIXO_LEGADO);
 }
 
 const lerPalavras = (t) => { try { const p = JSON.parse(t || '[]'); return Array.isArray(p) ? p : []; } catch { return []; } };
@@ -70,9 +91,11 @@ function listarSegmentos(db) {
   } catch { return []; }
 }
 
+// A busca é pela CHAVE; o nome é só a rede de quem perdeu a chave, e aceita os
+// dois jeitos porque o "(L)" entrou depois.
 function segmentoGenerico(db) {
   return db.prepare('SELECT id, nome FROM segmentos WHERE chave = ?').get(CHAVE_GENERICO)
-    || db.prepare("SELECT id, nome FROM segmentos WHERE nome = 'Genérico'").get() || null;
+    || db.prepare("SELECT id, nome FROM segmentos WHERE nome IN ('Genérico', 'Genérico (L)')").get() || null;
 }
 
 /**
@@ -91,11 +114,22 @@ function segmentoDoRamo(db, ramo) {
   return g ? g.id : null;
 }
 
-/** O id de um segmento pelo nome, sem acento nem caixa; null se não existir. */
+/**
+ * O id de um segmento pelo nome, sem acento nem caixa; null se não existir.
+ *
+ * Aceita o nome SEM o sufixo "(L)", que entrou em 02/10: a coluna Segmento das
+ * planilhas que já circulam diz "mercado", e sem isto ela passaria a cair em
+ * "segmento desconhecido" e o contato iria para o Genérico. O nome exato vem
+ * primeiro, para um segmento criado à mão vencer a marca do legado.
+ */
 function segmentoPorNome(db, nome) {
   const alvo = normalizar(nome).trim();
   if (!alvo) return null;
-  const s = db.prepare('SELECT id, nome FROM segmentos').all().find(x => normalizar(x.nome).trim() === alvo);
+  const todos = db.prepare('SELECT id, nome FROM segmentos').all();
+  const chaveDe = (x) => normalizar(x.nome).trim();
+  const semMarca = normalizar(SUFIXO_LEGADO).trim();
+  const s = todos.find(x => chaveDe(x) === alvo)
+    || todos.find(x => chaveDe(x) === `${alvo} ${semMarca}`);
   return s ? s.id : null;
 }
 
