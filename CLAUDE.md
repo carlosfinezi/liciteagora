@@ -72,10 +72,9 @@ O instalador mostra o diff contra a cópia em uso, copia, passa a regra pelo
 arquivo do projeto. Leia o diff antes de confiar: é conteúdo que vai rodar
 como root.
 
-Até 2026-09-24 a regra apontava para o arquivo do projeto, que é do
-carlosfinezi. Qualquer processo desse usuário podia reescrevê-lo e rodar o
-que quisesse como root, sem senha. **Nunca volte a apontar sudo para arquivo
-desta árvore.** Mesmo desenho do `trajeta-publicar`.
+**Nunca volte a apontar sudo para arquivo desta árvore**, que é do
+carlosfinezi: qualquer processo desse usuário o reescreve e roda o que quiser
+como root, sem senha. Mesmo desenho do `trajeta-publicar`.
 
 ### Criar tenant fora do painel: `scripts/criar-tenant.js`
 
@@ -97,23 +96,11 @@ suspendem o tenant sozinhos.
 
 ### Trocar o slug de um tenant: não há rota, e a ordem importa
 
-Feito uma vez, em 29/09/2026 (`floricultura` → `cantinhoverde`, depois de
-apagar um `cantinhoverde` de teste). O slug é o endereço, o nome da pasta
-em `data/tenants/` e a chave do pool de conexões dos dois processos:
-
-1. backup;
-2. no `control.db`, `UPDATE tenants SET slug, db_path` e uma linha em
-   `tenant_audit` (`RENAME_SLUG`). Apagar tenant é `DELETE FROM tenants` com
-   `PRAGMA foreign_keys=ON`, que leva módulos e cobrança pelo `CASCADE`;
-3. `mv` da pasta em `data/tenants/`;
-4. **restart dos dois serviços na hora.** O pool guarda a conexão pelo slug:
-   sem o restart, o slug reaproveitado continuaria servindo o banco antigo;
-5. `v-delete-web-domain carlosfinezi <antigo>.liciteagora.app yes` e
-   `/usr/local/sbin/liciteagora-provision-vhost <novo>`;
-6. resselar o FIM com os arquivos de `/etc/nginx/conf.d/domains/` que mudaram.
-
-As imagens da loja guardam o slug antigo no nome do arquivo
-(`logo-floricultura-…`). Isso é só nome, e continua servindo.
+O slug é o endereço, a pasta em `data/tenants/` e a chave do pool de conexões
+dos dois processos, então a sequência não tem variante. Os seis passos, com o
+porquê de cada um, estão em `docs/trocar-slug-de-tenant.md`. Leia antes de
+começar: sem o restart na hora, o slug reaproveitado continua servindo o banco
+antigo.
 
 ### Tenants de demonstração: um por sessão, e a posse se anuncia
 
@@ -134,18 +121,15 @@ de boleto e sem integração nenhuma, e **é assim que ficam**: quem monta um
 retrato semeia o banco direto, nunca por rota de emissão. O banco de
 referência e o nome original de cada um vivem em `backups/<slug>/`.
 
-**O terceiro nasceu em 01/10/2026**, e a receita está em
-`backups/video-tecnologia/criar-demo3.sh`: `scripts/criar-tenant.js` com
-`--plano-id 4`, o tier `enterprise` por UPDATE no `control.db` (o script de
-criação não tem opção para ele), o vhost pela cópia root
-(`/usr/local/sbin/liciteagora-provision-vhost demo3`, que emite o SSL — o DNS
-é wildcard e já resolve), e por fim `backups/demo3/` com o
-`demo3-pncp-base.db` e o `nome-base.txt`, que é o que faz o
-`encerrar-demo.sh` reconhecê-lo. **A feature `whatsapp` não entra em
-`--features`**: ela existe em `FEATURE_KEYS` (`features-routes.js`) e não na
-lista `FEATURES` do control-plane, então o `ligarFeature` a recusa com
-"feature inválida" e mata o script no meio; ela é gravada direto na `config`
-do tenant, que é onde o `lerFeatures` a procura.
+Para criar um quarto, a receita inteira está em
+`backups/video-tecnologia/criar-demo3.sh`, que foi como o `demo3` nasceu. Duas
+coisas dela não se deduzem: o tier `enterprise` sai por UPDATE no `control.db`,
+porque o script de criação não tem opção para ele, e **a feature `whatsapp` não
+entra em `--features`** (ela existe em `FEATURE_KEYS`, do
+`features-routes.js`, e não na lista `FEATURES` do control-plane, então o
+`ligarFeature` a recusa com "feature inválida" e mata o script no meio). O
+`whatsapp` é gravado direto na `config` do tenant, que é onde o `lerFeatures`
+o procura.
 
 **Pegue um que esteja SUSPENDED, e só esse.** Isto não é etiqueta: duas sessões
 já montaram retrato no mesmo demo com quatro horas de diferença, e a segunda só
@@ -274,11 +258,10 @@ tail /var/lib/liciteagora-verify/rodando.log      # a rodada em curso
 **O verify inteiro roda pelo serviço, e quem dispara não espera**: volta depois
 e lê o `ultimo.json` (`estado`, `commit`, arquivos sujos, tempo de cada etapa,
 falhas com `conhecida: true|false` e `falhasNovas`). O serviço usa 4
-trabalhadores (`--paralelo 4`) e leva perto de meia hora: 173 etapas em 1.626 s
-na rodada de 02/10/2026. Isso é o normal, não mate o processo. O
-`npm run verify` roda em sequência (sem `--paralelo`) e levava de 57 a 67 min já
-com 136 etapas. O verify morreu duas vezes junto com a sessão que o rodava, e é
-por isso que o serviço existe.
+trabalhadores (`--paralelo 4`) e leva perto de meia hora. Isso é o normal, não
+mate o processo. O `npm run verify` roda em sequência e passa de uma hora. O
+verify morreu duas vezes junto com a sessão que o rodava, e é por isso que o
+serviço existe.
 
 - As etapas 1 a 3 são sintaxe: `vm.Script` em todo .js da raiz, de `scripts/`
   e de `public/`, mais o JavaScript embutido nas telas. O resto são suítes
@@ -290,10 +273,9 @@ por isso que o serviço existe.
   caminho tocado continua manual.
 - **Falha conhecida é a que está em `FALHAS_CONHECIDAS`, no `verify.js`.** Ela
   reprova igual, mas sai marcada, e o fim da saída separa as conhecidas das
-  novas. Hoje é só a `test-catalogo-online-ux`, nas quatro larguras: o menu
-  ⚙️ Configurações do Catálogo Online tem 8 opções e a suíte espera 6
-  (`test-catalogo-online-ux.js:634`). Quando a suíte for atualizada, tire a
-  entrada de lá.
+  novas. Hoje é só a `test-catalogo-online-ux`, nas quatro larguras, porque o
+  menu de Configurações do Catálogo Online cresceu e a suíte espera o tamanho
+  antigo. Atualizada a suíte, tire a entrada de lá.
 - As falhas da vitrine em obra (`test-catalogo-publico-49`, `fase50` e
   `fase51`) saem como NOVAS de propósito: marcá-las esconderia regressão de
   verdade. Para provar que uma frente não causou uma falha, compare item a item
@@ -479,15 +461,15 @@ e já carrega 420 arquivos sujos; não é lugar para artefato de ferramenta.
   `nopecha-ext/`, os dois `cndfed-perfil*` e o `/CHANGELOG.md`. Sem ele a
   varredura cospe 59 avisos de permissão e o grafo passa a se descrever a si
   mesmo.
-- **Toda rodada custa ~1min10 e ~0,72 GB de pico.** Não existe rodada barata: o
-  cache AST do graphify ignora `.js` por construção, e os 717 arquivos são
-  re-extraídos mesmo com o disco intocado.
-- **Ele NÃO ignora documento**: 90 arquivos-documento entram, o `CLAUDE.md` e os
-  `docs/` entre eles. A extração é AST, sem LLM, e o coalescedor apaga as chaves
+- **Não existe rodada barata**, e cada uma custa perto de um minuto: o cache AST
+  do graphify ignora `.js` por construção, e a árvore toda é re-extraída mesmo
+  com o disco intocado.
+- **Ele NÃO ignora documento**: o `CLAUDE.md` e os `docs/` entram junto com o
+  código. A extração é AST, sem LLM, e o coalescedor apaga as chaves
   de IA do ambiente do filho de propósito — custo zero em token. Quem passa por
   LLM é o `graphify label`, que nomeia as comunidades e o coalescedor não chama.
-- **O `CHANGELOG.md` é a exceção, e saiu por escolha.** Ele ocupava 91 nós e 15
-  comunidades, 14 delas puramente de data, que nada dizem sobre como o sistema é
+- **O `CHANGELOG.md` é a exceção, e saiu por escolha.** Ele enchia o grafo de
+  comunidades puramente de data, que nada dizem sobre como o sistema é
   organizado e empurram para fora as que dizem. Continua sendo escrito como
   sempre; só não entra no grafo.
 
@@ -572,8 +554,10 @@ o processo vivo segue com a versão que leu no boot. Antes de reiniciar, leia o
 que muda. **Mantenha a lista atualizada a cada edição de `.js` da raiz**, e
 esvazie a parte do serviço que foi reiniciado.
 
-**Servidor web (`consulta-licitacoes.service`): nada pendente** desde o boot de
-03/10 às 14:06:39. O `scheduler.js` não é reiniciado desde 30/09 às 15:01:09, e
+**Servidor web (`consulta-licitacoes.service`): o boot é de 03/10 às 14:06:39, e
+depois dele o `conversas-routes.js` ganhou o `DELETE /api/ia/avaliacao/:id`**
+(14:11:59, de outra frente), que só vale no próximo restart. O `scheduler.js`
+não é reiniciado desde 30/09 às 15:01:09, e
 para ele fica pendente o `db-schema.js`: os índices novos de `whatsapp_messages`
 já existem em todo tenant, criados pelo boot do servidor web, então a pendência
 só valeria para tenant criado por ele.
