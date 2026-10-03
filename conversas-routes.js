@@ -409,8 +409,23 @@ function registrarMensagem(db, { jid, texto, deMim, nome = null, canalId = 0 }) 
   } catch { return null; }
 }
 
-// Sincroniza conversas a partir das mensagens que já existem. Roda uma vez por
-// abertura de tela e é barato: só olha o que entrou depois da última conversa.
+// Sincroniza conversas a partir das mensagens que já existem.
+//
+// INCREMENTAL pelo id da mensagem (03/10/2026). O cursor fica em
+// `config.conv_sync_ultima_msg` e diz até onde já se olhou; a varredura começa
+// dali. Até então o comentário daqui dizia "só olha o que entrou depois da
+// última conversa" e o código reagrupava `whatsapp_messages` INTEIRA em cada
+// carregamento da caixa: 143 ms dos 250 ms do `GET /api/conversas` no 1bit, com
+// 42 mil mensagens, em cada ação do atendente e a cada polling de 30 s de cada
+// aba aberta. A primeira passada depois de subir faz o trabalho completo, uma
+// vez só.
+//
+// As subconsultas de `ultimo` e `nome` continuam olhando o histórico TODO do
+// contato, e isso é de propósito: a última mensagem com texto e o último
+// push_name recebido podem estar atrás do cursor.
+//
+// Conversa apagada à mão não renasce enquanto o cursor estiver à frente dela.
+// Para reconstruir: `DELETE FROM config WHERE chave = 'conv_sync_ultima_msg'`.
 //
 // Agrupa por contato E instância: cada número tem as suas conversas. Mensagem
 // de instância que não é número cadastrado fica com o padrão.
@@ -420,7 +435,13 @@ function sincronizar(db) {
   const porInstancia = new Map(canais.listarCanais(db, { incluirInativos: true }).map(c => [c.instance, c.id]));
   const padrao = canais.canalPadrao(db);
   let grupos = [];
+  let cursor = 0;
+  let ate = 0;
   try {
+    cursor = Number(db.prepare("SELECT valor FROM config WHERE chave = 'conv_sync_ultima_msg'").get()?.valor) || 0;
+    ate = db.prepare('SELECT MAX(id) m FROM whatsapp_messages').get().m || 0;
+    // Nada entrou desde a última passada: é o caso comum, e custa uma consulta.
+    if (ate <= cursor) return 0;
     grupos = db.prepare(`SELECT remote_jid jid, instance,
         MAX(timestamp) ts,
         (SELECT texto FROM whatsapp_messages x WHERE x.remote_jid = m.remote_jid AND x.instance IS m.instance
@@ -430,14 +451,14 @@ function sincronizar(db) {
         (SELECT push_name FROM whatsapp_messages x WHERE x.remote_jid = m.remote_jid AND x.instance IS m.instance
            AND x.from_me = 0 AND push_name IS NOT NULL ORDER BY id DESC LIMIT 1) nome
       FROM whatsapp_messages m WHERE remote_jid IS NOT NULL AND remote_jid <> 'status@broadcast'
-        AND remote_jid NOT LIKE '%@g.us'
+        AND remote_jid NOT LIKE '%@g.us' AND m.id > ?
       GROUP BY remote_jid, instance
       -- Conversa nasce de quem ESCREVEU. Desde 30/09 o que o sistema envia
       -- também é gravado (para a tela e a IA verem o que foi oferecido), e sem
       -- este filtro uma campanha de 27 mil contatos viraria 27 mil conversas na
       -- primeira vez que alguém abrisse a tela. Quem só recebeu fica com a
       -- mensagem guardada, e a conversa aparece inteira quando ele responder.
-      HAVING SUM(CASE WHEN m.from_me = 0 THEN 1 ELSE 0 END) > 0`).all();
+      HAVING SUM(CASE WHEN m.from_me = 0 THEN 1 ELSE 0 END) > 0`).all(cursor);
   } catch { return 0; }
 
   let novas = 0;
@@ -453,6 +474,10 @@ function sincronizar(db) {
       novas++;
     }
   }
+  // O cursor avança DEPOIS do laço: erro no meio tem de reprocessar a janela na
+  // próxima passada, e não saltá-la deixando conversa sem nascer.
+  db.prepare(`INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao)
+    VALUES ('conv_sync_ultima_msg', ?, CURRENT_TIMESTAMP)`).run(String(ate));
   return novas;
 }
 

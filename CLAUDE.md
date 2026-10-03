@@ -573,7 +573,10 @@ que muda. **Mantenha a lista atualizada a cada edição de `.js` da raiz**, e
 esvazie a parte do serviço que foi reiniciado.
 
 **Servidor web (`consulta-licitacoes.service`): nada pendente** desde o boot de
-02/10 às 18:50:23. O `scheduler.js` não é reiniciado desde 30/09 às 15:01:09.
+03/10 às 14:06:39. O `scheduler.js` não é reiniciado desde 30/09 às 15:01:09, e
+para ele fica pendente o `db-schema.js`: os índices novos de `whatsapp_messages`
+já existem em todo tenant, criados pelo boot do servidor web, então a pendência
+só valeria para tenant criado por ele.
 
 As seções abaixo são as REGRAS que cada frente deixou. Elas já estão no ar; o
 que cada boot pôs em vigor está em `docs/boots.md`.
@@ -675,7 +678,15 @@ Regras que não se deduzem do código, e que custaram número errado em produç�
    botões, enquete, álbum e `secretEncryptedMessage` chegam sem texto e cada um
    diz o que é, na tela e na prévia da lista (`ROTULO_TIPO`, `ROTULO`).
 
-7. **A IA fica calada por DOIS motivos, e os dois precisam aparecer**: alguém a
+7. **Subconsulta na lista de mensagens roda por BALÃO, e na contagem de
+   campanha roda por ENVIO.** Foi o que deixou a tela lenta em toda ação até
+   03/10: a das reações varria as 42 mil mensagens 400 vezes para abrir uma
+   conversa. Os dois índices que seguram isso estão no `db-schema.js`
+   (`idx_wa_msg_cita` e `idx_wa_msg_tel8`), e o segundo é de EXPRESSÃO: casar
+   telefone por `substr(replace(remote_jid, …), -8)` só usa índice se a
+   expressão estiver escrita IGUAL à da consulta. Mudar a expressão de um lado
+   derruba o desempenho sem erro nenhum.
+8. **A IA fica calada por DOIS motivos, e os dois precisam aparecer**: alguém a
    desligou nesta conversa (`iaAtiva = 0`) ou a pausa de 4 h está correndo
    porque alguém respondeu à mão (`SQL_IA_PAUSADA` na lista, `pausaDaIA` na
    conversa). As duas leituras têm de concordar, e é isso que a etapa A13 da

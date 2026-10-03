@@ -4,6 +4,67 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-03, a tela de Conversas parou de varrer a tabela de mensagens
+
+A caixa de Conversas estava lenta em toda ação, e a causa eram três varreduras
+da `whatsapp_messages` inteira (42 mil linhas no 1bit), nenhuma delas com
+índice. Cada clique na tela faz `abrir()` e depois `carregar()`, então o custo
+das três se somava a cada ação, e ainda a cada polling de 30 s de cada aba
+aberta. Como o `better-sqlite3` é síncrono, enquanto uma dessas consultas rodava
+o servidor inteiro ficava parado, de todos os tenants.
+
+Medido no 1bit, antes e depois:
+
+| | antes | depois |
+|---|---|---|
+| `GET /api/conversas` | 1,10 s | 0,075 s |
+| abrir a conversa mais longa (5.745 mensagens) | 3,2 s | 0,10 s |
+| abrir conversa comum | 0,63 s | 0,012 s |
+
+**As reações varriam a tabela por BALÃO.** A subconsulta que junta as reações de
+uma mensagem (`conversas-routes.js`, `r.citaWaId = m.wa_message_id`) roda uma vez
+por balão devolvido, e são 400. Sem índice em `citaWaId`, abrir a conversa mais
+longa custava 3,2 s; com ele, 3,6 ms na mesma consulta.
+
+**A contagem de "Responderam" varria a tabela por ENVIO.** Ela casa o envio da
+campanha com a resposta do lead pelos últimos 8 dígitos do telefone
+(`sqlDaCampanha`), e isso não é coluna, é expressão. O índice novo é de
+EXPRESSÃO, com a expressão escrita igual à da consulta, que é a condição para o
+planejador usá-lo. Eram 886 ms dos 1,10 s, e a contagem é calculada em todo
+carregamento, com o filtro de campanha ligado ou não.
+
+Os dois índices ficam no `db-schema.js`, que é o ponto que alcança tenant
+existente, e nascem no boot de cada tenant. São parciais: só a linha que o
+filtro da consulta já exige.
+
+**O `sincronizar()` virou incremental.** O comentário dele dizia "só olha o que
+entrou depois da última conversa" e o código reagrupava a tabela toda, 143 ms
+por carregamento. Agora o cursor `config.conv_sync_ultima_msg` guarda o id da
+última mensagem olhada, e a passada sem novidade custa 1 ms. A primeira depois
+de subir faz o trabalho completo, uma vez. Conversa apagada à mão não renasce
+enquanto o cursor estiver à frente dela, e o conserto é apagar a chave.
+
+Provado por execução, não por leitura: numa cópia do banco do 1bit, as mesmas
+consultas devolveram bytes idênticos com e sem os índices, incluindo as oito
+conversas que têm reação; na produção, as onze contagens da caixa e a ordem dos
+300 ids ficaram iguais depois do restart. O `sincronizar` passou por seis
+passadas seguidas, e as que importam são a mensagem recebida de contato novo,
+que faz a conversa nascer com nome e texto certos, e a mensagem só nossa, que
+continua sem criar conversa — é o filtro que impede uma campanha de 27 mil
+contatos de virar 27 mil conversas.
+
+**O `db-schema.js` fica fora deste commit, e por isso os dois índices não
+entram no git agora.** O arquivo da árvore tem cerca de 200 linhas de outra
+frente que ainda não commitou (os campos novos da análise de IA, e o próprio
+`ALTER` de `citaWaId`, de 01/10), e no HEAD não existe nem a coluna que um dos
+índices usa. Commitar o arquivo inteiro levaria o trabalho dela; commitar só o
+meu hunk gravaria um índice sobre coluna que o HEAD não cria. Os índices estão
+em produção, onde é o que vale aqui, e entram no histórico junto da frente
+dona do resto do arquivo. O `CLAUDE.md` entra parcial pelo mesmo motivo, com
+os dois trechos desta rodada e nada do que é dela.
+
+Sem verify nesta rodada, a pedido do usuário.
+
 ## 2026-10-02, as três telas que a concorrência tinha deixado de fora
 
 O fechamento anterior reaplicou o aviso do sistema em 205 arquivos e declarou
