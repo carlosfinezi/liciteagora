@@ -9,11 +9,11 @@ produção**. Não há deploy separado, staging nem build. Para código carregad
 pelo Node, a mudança só entra em vigor no restart do processo; para arquivos
 em `public/` (estáticos), a mudança fica no ar imediatamente ao salvar.
 
-**O que está no ar se descobre pelo relógio, e não por anotação.** Antes de
-dizer se uma mudança está em vigor, compare o `mtime` do arquivo com o
-`ExecMainStartTimestamp` da unit que o carrega
-(`systemctl show -p ExecMainStartTimestamp <unit>`): arquivo mais novo que o
-boot ainda não está no ar. A lista escrita à mão errou esse estado várias vezes.
+**O que está no ar se descobre pelo relógio, e não por anotação.**
+`node scripts/pendencia-de-restart.js` responde isso por serviço: ele compara o
+`mtime` de cada arquivo que a unit carrega com o `ExecMainStartTimestamp` dela,
+e arquivo mais novo que o boot ainda não está no ar. A lista escrita à mão errou
+esse estado várias vezes.
 
 ## Serviços vivos INTOCÁVEIS (nunca reiniciar sem perguntar)
 
@@ -549,18 +549,9 @@ do modo de planejamento é decisão do usuário.
 
 ### O que passa a valer no próximo restart
 
-Esta lista existe porque aqui a edição de um `.js` não entra em vigor sozinha:
-o processo vivo segue com a versão que leu no boot. Antes de reiniciar, leia o
-que muda. **Mantenha a lista atualizada a cada edição de `.js` da raiz**, e
-esvazie a parte do serviço que foi reiniciado.
-
-**Servidor web (`consulta-licitacoes.service`): o boot é de 03/10 às 14:06:39, e
-depois dele o `conversas-routes.js` ganhou o `DELETE /api/ia/avaliacao/:id`**
-(14:11:59, de outra frente), que só vale no próximo restart. O `scheduler.js`
-não é reiniciado desde 30/09 às 15:01:09, e
-para ele fica pendente o `db-schema.js`: os índices novos de `whatsapp_messages`
-já existem em todo tenant, criados pelo boot do servidor web, então a pendência
-só valeria para tenant criado por ele.
+Aqui a edição de um `.js` não entra em vigor sozinha, e o processo vivo segue
+com a versão que leu no boot. Antes de reiniciar, rode
+`node scripts/pendencia-de-restart.js` para ver o que vai entrar no ar.
 
 As seções abaixo são as REGRAS que cada frente deixou. Elas já estão no ar; o
 que cada boot pôs em vigor está em `docs/boots.md`.

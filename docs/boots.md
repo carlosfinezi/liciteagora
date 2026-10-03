@@ -17,6 +17,32 @@ Correções feitas na mudança:
 - o comentário da remoção do `cicloAvisoAlcadas` está hoje em
   `scheduler.js:500`, e não na linha 462 citada.
 
+### 03/10/2026: o quadro de pendência de restart sai do CLAUDE.md
+
+O último retrato que a seção "O que passa a valer no próximo restart" registrou
+à mão, preservado aqui porque é o que ela tinha quando foi aposentada:
+
+> **Servidor web (`consulta-licitacoes.service`): nada pendente** desde o boot
+> de 03/10 às 14:36:43, que pôs no ar os ticks do WhatsApp (o `messages.update`
+> no `whatsapp-webhook.js` e a coluna `status`). O `scheduler.js` não é
+> reiniciado desde 30/09 às 15:01:09, e para ele ficam pendentes o
+> `db-schema.js` e o `whatsapp-adapter.js`: as colunas e os índices novos de
+> `whatsapp_messages` já existem em todo tenant, criados pelo boot do servidor
+> web, e o `MESSAGES_UPDATE` do `setWebhook` só vale ao criar canal novo —
+> então a pendência só valeria para tenant criado por ele.
+
+Ela saiu porque virou quadro de recados entre sessões, mantido à mão a cada
+edição de `.js`, e errava o estado que existia para informar: em 03/10 ela
+afirmava o boot de 02/10 às 23:17:10 com os dois serviços já reiniciados naquele
+dia, às 14:19:33 e às 10:32:39. Quem a mantinha atualizada eram várias sessões
+ao mesmo tempo, no mesmo parágrafo.
+
+No lugar dela, `node scripts/pendencia-de-restart.js` calcula a pendência de
+cada serviço: lê o entrypoint da unit instalada, segue os `require` e os
+`import()` de caminho relativo a partir dele e compara o `mtime` de cada
+arquivo carregado com o `ExecMainStartTimestamp` da unit. A autoria sai do git
+quando o arquivo está limpo, e do dono do arquivo quando não está.
+
 ### Em vigor desde o boot de 2026-10-02 17:25:35: a tela de Conversas, e o resto que estava pendente
 
 A pedido, no fechamento. Boot limpo (`NRestarts=0`, HTTP 302, journal sem erro
