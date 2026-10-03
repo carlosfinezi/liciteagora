@@ -486,13 +486,14 @@ descrição`, títulos sem acento.
 
 ## Permissões (`.claude/settings.json` e `.claude/settings.local.json`)
 
-Os dois arquivos valem para quem abre sessão nesta pasta, root inclusive. O que
-o `/root/.claude/settings.json` acrescenta não está conferido aqui: ele não é
-legível pelo carlosfinezi.
+Os dois arquivos valem para quem abre sessão nesta pasta, root inclusive. O
+`/root/.claude/settings.json`, que é do usuário da máquina e não deste projeto,
+acrescenta deny para `rm -rf` (com e sem `sudo`) e para
+`systemctl stop`/`disable`/`mask`.
 
 O `settings.json` traz `defaultMode: acceptEdits`, allow exato para `restart` e
 `stop` das duas units comuns (`consulta-licitacoes.service` e
-`liciteagora.service`, com e sem `sudo`) e deny para `rm`, `stop` dos
+`liciteagora.service`, com e sem `sudo`) e deny para o `stop` dos
 session-services, do `govbr-bearer` e da infraestrutura (`postgresql`, `redis`,
 `nginx`, `bind9`/`named`), `disable`/`mask`/`kill` de serviço,
 `pkill`/`killall`, `git stash`/`reset --hard`/`clean`/`push --force`,
@@ -510,16 +511,27 @@ de qualquer arquivo.
   sufixo `.service`, com e sem `sudo`;
 - escrita em banco de `data/` por `sqlite3` ou por `node` passa sem prompt. O
   deny de `data/` cobre só a ferramenta Edit;
-- continuam barrados o `rm`, `disable`/`mask`/`kill`, `pkill`/`killall`, o git
+- continuam barrados o `disable`/`mask`/`kill`, `pkill`/`killall`, o git
   destrutivo, o `npm install` e o `.env`.
 
 Por isso as regras de "Nunca faça sem perguntar" e a exceção dos
 session-services valem pela conduta de quem trabalha aqui, e nenhum settings as
 garante.
 
-Como `rm` está negado por inteiro, rascunho e arquivo temporário vão para
-`/tmp`, não para a árvore. `ExitPlanMode` está fora do allow de propósito: sair
-do modo de planejamento é decisão do usuário.
+**Apagar é decidido pelo hook `.claude/hooks/trava-remocao.js`**, no
+`PreToolUse` de Bash: passa em `/tmp` e `/var/tmp` com o caminho absoluto
+escrito, e é recusado dentro desta árvore, por `rm`, `find -delete`, `unlink`,
+`shred` ou `truncate`. Caminho relativo é recusado mesmo depois de um
+`cd /tmp`, porque pelo texto ele não se resolve, e aqui o palpite errado apaga
+produção. Por isso rascunho e arquivo temporário continuam indo para `/tmp`, e
+com o caminho inteiro. O `rm -rf` segue negado em qualquer lugar, pelo settings
+do usuário da máquina.
+
+A trava depende do hook RODAR: `disableAllHooks`, ou um settings que não
+carregue, a desliga, e aí só o `rm -rf` continua barrado.
+
+`ExitPlanMode` está fora do allow de propósito: sair do modo de planejamento é
+decisão do usuário.
 
 ## Pendências conhecidas
 
