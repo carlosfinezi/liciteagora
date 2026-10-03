@@ -17,6 +17,7 @@ const express = require(BASE + '/node_modules/express');
 const Database = require(BASE + '/node_modules/better-sqlite3');
 const { copiaDoTenant } = require('./banco-de-teste');
 const P = require(BASE + '/fiscal-apuracao-piscofins');
+const { esperarFrame } = require('./frame-de-teste');
 
 const PORTA = 34131;
 const db = new Database(copiaDoTenant('labfiscal'));
@@ -282,7 +283,7 @@ const post = (p, b) => req('POST', p, b || {});
     page.on('console', m => { if (m.type() === 'error') errosJS.push('console: ' + m.text()); });
 
     await page.goto('http://127.0.0.1:34133/__wrapper', { waitUntil: 'networkidle0' });
-    const frame = page.frames().find(f => f.url().includes('apuracao-piscofins.html'));
+    const frame = await esperarFrame(page, f => f.url().includes('apuracao-piscofins.html'));
     assert(!!frame, 'iframe carregou');
 
     async function irPara(comp) {

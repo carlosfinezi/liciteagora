@@ -77,6 +77,7 @@ require(BASE + '/ssl-certificados-routes').migrarDB(db);
 // ssl-certificados-routes guardou a referência do módulo, não das funções.
 const nicsrs = require(BASE + '/nicsrs-client');
 const { prepararAvisos } = require('./aviso-de-teste');
+const { esperarFrame } = require('./frame-de-teste');
 let chamadasCancel = [];
 let proximoErroNicsrs = null;
 nicsrs.cancel = async (token, { certId, reason }) => {
@@ -174,7 +175,7 @@ const server = app.listen(PORTA);
   /** Recarrega a tela e devolve o frame da página. */
   async function abrirTela() {
     await page.goto(`http://127.0.0.1:${PORTA}/__wrapper`, { waitUntil: 'networkidle0' });
-    const frame = page.frames().find(f => f.url().includes('certificados.html'));
+    const frame = await esperarFrame(page, f => f.url().includes('certificados.html'));
     if (!frame) throw new Error('iframe da tela não carregou');
     await frame.waitForFunction(
       () => document.querySelectorAll('#tb tr').length > 0 && !/Carregando/.test(document.getElementById('tb').textContent),

@@ -35,6 +35,7 @@ const t = (nome, fn) => {
 const assert = (c, m) => { if (!c) throw new Error(m); };
 
 const { CONFIG } = require('./semear-roteiro-visita');
+const { esperarFrame } = require('./frame-de-teste');
 
 function bancoDeTeste() {
   const Database = require(path.join(RAIZ, 'node_modules/better-sqlite3'));
@@ -352,7 +353,7 @@ function bancoDeTeste() {
   page.on('pageerror', e => erros.push(String(e.message)));
   page.on('response', r => { if (r.status() >= 400) erros.push(`${r.status()} em ${r.url()}`); });
   await page.goto(url('/__wrapper/comercial/visita'), { waitUntil: 'networkidle0' });
-  let frame = page.frames().find(f => f.url().includes('visita.html'));
+  let frame = await esperarFrame(page, f => f.url().includes('visita.html'));
   if (!frame) { console.log('FALHA a tela não carregou'); process.exit(1); }
   const esperar = (ms) => new Promise(r => setTimeout(r, ms));
   await frame.waitForSelector('#fEmpresa', { timeout: 8000 });
@@ -369,7 +370,7 @@ function bancoDeTeste() {
     await page.goto(url('/__wrapper/comercial/visita'), { waitUntil: 'networkidle0' });
     // O goto solta o frame anterior: sem reatribuir, as checagens seguintes
     // falhariam com "detached Frame" e o motivo pareceria outro.
-    frame = page.frames().find(x => x.url().includes('visita.html'));
+    frame = await esperarFrame(page, x => x.url().includes('visita.html'));
     await frame.waitForSelector('#fEmpresa', { timeout: 8000 });
     await esperar(400);
     const depois = db.prepare('SELECT COUNT(*) n FROM roteiro_visitas').get().n;

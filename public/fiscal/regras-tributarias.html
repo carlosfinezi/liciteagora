@@ -579,7 +579,7 @@ async function duplicar(id) {
 }
 
 async function excluir(id) {
-  if (!confirm('Excluir esta regra?')) return;
+  if (!await Aviso.confirmar('Excluir esta regra?')) return;
   try {
     const r = await fetch('/api/fiscal-regras/' + id + '/excluir', { method: 'POST' });
     const d = await r.json();
@@ -753,6 +753,7 @@ carregar();
 </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
     <script>initSidebar('regras-tributarias');</script>
 </body>
 </html>

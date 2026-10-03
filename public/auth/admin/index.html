@@ -889,17 +889,17 @@
         closePlanoModal();
         loadPlanos();
         loadTenants(); // refresca cache de planos no select de criação
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     });
 
     async function desativarPlano(id) {
-      if (!confirm('Desativar este plano?')) return;
+      if (!await Aviso.confirmar('Desativar este plano?')) return;
       try { await api('DELETE', '/api/admin/planos/' + id); loadPlanos(); loadTenants(); }
-      catch (err) { alert('Erro: ' + err.message); }
+      catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
     async function reativarPlano(id) {
       try { await api('PATCH', '/api/admin/planos/' + id, { ativo: 1 }); loadPlanos(); loadTenants(); }
-      catch (err) { alert('Erro: ' + err.message); }
+      catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
 
     // ========== Trocar plano / Renovar / Estender ==========
@@ -930,15 +930,15 @@
         await api('PATCH', `/api/admin/tenants/${encodeURIComponent(_trocarPlanoSlug)}/plano`, body);
         closeTrocarPlano();
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     });
 
     async function renovar(slug) {
-      if (!confirm(`Renovar ${slug} pelo plano atual?`)) return;
+      if (!await Aviso.confirmar(`Renovar ${slug} pelo plano atual?`)) return;
       try {
         await api('POST', `/api/admin/tenants/${encodeURIComponent(slug)}/renovar`);
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
 
     let _vencimentoSlug = null;
@@ -962,7 +962,7 @@
         await api('PATCH', `/api/admin/tenants/${encodeURIComponent(_vencimentoSlug)}/vencimento`, { periodoTerminaEm: ts });
         closeVencimentoModal();
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     });
 
     document.getElementById('splitPercentual').addEventListener('input', atualizarMinimoSplit);
@@ -977,7 +977,7 @@
       if (modo === 'proprio') {
         percentual = Number(document.getElementById('splitTenantPct').value);
         if (!Number.isFinite(percentual) || percentual <= 0 || percentual >= 100) {
-          alert('Percentual inválido — informe um número maior que 0 e menor que 100.');
+          Aviso.erro('Percentual inválido — informe um número maior que 0 e menor que 100.');
           return;
         }
       }
@@ -985,7 +985,7 @@
         await api('PATCH', `/api/admin/tenants/${encodeURIComponent(_splitTenantSlug)}/split`, { modo, percentual });
         closeSplitTenant();
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     });
 
     document.getElementById('splitForm').addEventListener('submit', async (e) => {
@@ -1000,8 +1000,8 @@
         await api('PUT', '/api/admin/split-asaas', body);
         await loadSplit();
         loadTenants(); // badges da aba Tenants mostram o percentual global
-        alert('Split atualizado — vale já na próxima cobrança emitida.');
-      } catch (err) { alert('Erro: ' + err.message); }
+        Aviso.ok('Split atualizado — vale já na próxima cobrança emitida.');
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     });
 
     async function rodarExpiryCheck() {
@@ -1010,9 +1010,9 @@
         const msg = r.transitions.length
           ? r.transitions.length + ' transição(ões):\n' + r.transitions.map(t => `${t.slug}: ${t.from} → ${t.to}`).join('\n')
           : 'Nenhuma transição (todos dentro do prazo ou já no estado correto).';
-        alert(msg);
+        Aviso.erro(Aviso.mensagemDeErro(msg));
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
 
     let _featuresSlug = null;
@@ -1076,7 +1076,7 @@
         if (label) label.title = `${enabled ? 'Desativar' : 'Ativar'} ${item ? item.querySelector('.label-name').textContent : ''}`.trim();
       } catch (err) {
         input.checked = !enabled;
-        alert('Erro: ' + err.message);
+        Aviso.erro(Aviso.mensagemDeErro(err));
       } finally {
         input.disabled = false;
       }
@@ -1091,7 +1091,7 @@
         select.dataset.anterior = modo;
       } catch (err) {
         select.value = anterior;
-        alert('Erro: ' + err.message);
+        Aviso.erro(Aviso.mensagemDeErro(err));
       } finally {
         select.disabled = false;
       }
@@ -1188,35 +1188,35 @@
         btn.textContent = 'OK — fechar';
         btn.onclick = closeCreate;
       } catch (err) {
-        alert('Erro: ' + err.message);
+        Aviso.erro(Aviso.mensagemDeErro(err));
         btn.disabled = false;
         btn.textContent = 'Criar';
       }
     });
 
     async function setStatus(slug, status) {
-      if (!confirm(`Confirma marcar ${slug} como ${status}?`)) return;
+      if (!await Aviso.confirmar(`Confirma marcar ${slug} como ${status}?`)) return;
       try {
         await api('PATCH', `/api/admin/tenants/${encodeURIComponent(slug)}/status`, { status });
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
 
     async function resetPassword(slug) {
-      if (!confirm(`Gerar nova senha admin para ${slug}?`)) return;
+      if (!await Aviso.confirmar(`Gerar nova senha admin para ${slug}?`)) return;
       try {
         const data = await api('POST', `/api/admin/tenants/${encodeURIComponent(slug)}/reset-password`);
-        alert(`Nova senha para ${slug}:\n\nUsuário: ${data.username}\nSenha: ${data.password}\n\nEntregue essas credenciais ao cliente e peça para trocar na primeira entrada.`);
-      } catch (err) { alert('Erro: ' + err.message); }
+        Aviso.erro(`Nova senha para ${slug}:\n\nUsuário: ${data.username}\nSenha: ${data.password}\n\nEntregue essas credenciais ao cliente e peça para trocar na primeira entrada.`);
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
 
     async function reprovision(slug) {
-      if (!confirm(`Re-disparar provisionamento de vhost/SSL para ${slug}?`)) return;
+      if (!await Aviso.confirmar(`Re-disparar provisionamento de vhost/SSL para ${slug}?`)) return;
       try {
         await api('POST', `/api/admin/tenants/${encodeURIComponent(slug)}/reprovision`);
-        alert('Provisionamento iniciado em background. Atualize a página em ~60s para ver o status.');
+        Aviso.erro('Provisionamento iniciado em background. Atualize a página em ~60s para ver o status.');
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
 
     async function registerPayment(slug) {
@@ -1230,7 +1230,7 @@
         if (next) body.nextDueAt = new Date(next + 'T12:00:00').getTime();
         await api('POST', `/api/admin/tenants/${encodeURIComponent(slug)}/billing/paid`, body);
         loadTenants();
-      } catch (err) { alert('Erro: ' + err.message); }
+      } catch (err) { Aviso.erro(Aviso.mensagemDeErro(err)); }
     }
 
     document.getElementById('logoutBtn').addEventListener('click', async (e) => {

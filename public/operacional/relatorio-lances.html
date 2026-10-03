@@ -101,6 +101,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('relatorio-lances');</script>
@@ -128,13 +129,13 @@ async function carregar() {
     try {
         var r = await fetch('/api/relatorio-lances?' + params.toString());
         var d = await r.json();
-        if (!d.success) { alert(d.error); return; }
+        if (!d.success) { Aviso.erro(Aviso.mensagemDeErro(d)); return; }
         lancesData = d.lances || [];
         renderResumo(d.resumo);
         renderTabela(lancesData);
         renderAnalise(lancesData);
     } catch (e) {
-        alert('Erro: ' + e.message);
+        Aviso.erro(Aviso.mensagemDeErro(e));
     }
 }
 

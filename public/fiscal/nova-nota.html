@@ -628,7 +628,7 @@ function renderMemoria(res) {
 async function emitir() {
   if (!notaId && !(await salvar())) return;
   if (statusAtual !== 'rascunho') { alerta('Esta nota já foi emitida.', 'error'); return; }
-  if (!confirm('Emitir a NF-e? Depois disso o documento não pode mais ser editado.')) return;
+  if (!await Aviso.confirmar('Emitir a NF-e? Depois disso o documento não pode mais ser editado.')) return;
 
   $('btnEmitir').disabled = true;
   alerta('Emitindo… isso pode levar alguns segundos.', 'info');
@@ -646,7 +646,7 @@ async function emitir() {
 }
 
 async function descartar() {
-  if (!notaId || !confirm('Descartar este rascunho? Ele some junto com os itens.')) return;
+  if (!notaId || !await Aviso.confirmar('Descartar este rascunho? Ele some junto com os itens.')) return;
   try {
     const r = await fetch('/api/nf-avulsa/' + notaId + '/excluir', { method: 'POST' });
     const j = await r.json();
@@ -666,6 +666,7 @@ init();
 </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
     <script src="/js/campo-formato.js"></script>
     <script>initSidebar('nova-nota');</script>
 </body>

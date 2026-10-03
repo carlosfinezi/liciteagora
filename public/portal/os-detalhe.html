@@ -103,6 +103,7 @@
   </div>
 </main>
 <script src="/portal/portal-common.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>
 const id = new URLSearchParams(location.search).get('id');
 function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
@@ -110,7 +111,7 @@ function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&am
 
 async function carregar(){
   if (!await initMe()) return;
-  if (!id) return alert('ID inválido');
+  if (!id) return Aviso.erro('ID inválido');
   const r = await fetch('/portal/api/os/'+id).then(r=>r.json());
   if (!r.success) { document.getElementById('titulo').textContent = 'Erro: '+r.error; return; }
   render(r);
@@ -219,13 +220,13 @@ function limparSig() { const c = document.getElementById('sig'); c.getContext('2
 async function salvarSig() {
   const c = document.getElementById('sig');
   const dataUrl = c.toDataURL('image/png');
-  if (dataUrl.length < 1200) return alert('Desenhe a assinatura primeiro');
+  if (dataUrl.length < 1200) return Aviso.erro('Desenhe a assinatura primeiro');
   const r = await fetch('/portal/api/os/'+id+'/assinar', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ dataUrl })
   });
   const d = await r.json();
-  if (!d.success) return alert('Erro: ' + d.error);
+  if (!d.success) return Aviso.erro(Aviso.mensagemDeErro(d));
   document.getElementById('sigStatus').textContent = '✓ Assinatura enviada!';
   setTimeout(carregar, 500);
 }

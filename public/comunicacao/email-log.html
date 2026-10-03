@@ -260,7 +260,7 @@
         async function reenviar(id) {
             const l = logsCache.find(x => x.id === id);
             if (!l) return;
-            if (!confirm(`Reenviar para ${l.destinatario}?\n\nO anexo original não foi guardado — o reenvio vai sem ele.`)) return;
+            if (!await Aviso.confirmar(`Reenviar para ${l.destinatario}?\n\nO anexo original não foi guardado — o reenvio vai sem ele.`)) return;
             try {
                 const resp = await fetch(`/api/emails/log/${id}/reenviar`, { method: 'POST' });
                 const d = await resp.json();
@@ -351,6 +351,7 @@
     </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
     <script>initSidebar('email-log');</script>
 </body>
 </html>

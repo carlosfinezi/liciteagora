@@ -624,7 +624,7 @@ function copiarResumo() {
     });
 
     navigator.clipboard.writeText(texto).then(() => {
-        alert('Resumo copiado para a área de transferência!');
+        Aviso.ok('Resumo copiado para a área de transferência!');
     });
 }
 
@@ -655,7 +655,7 @@ async function gerarPDF(assinar = false) {
     });
 
     if (licitacoesParaPDF.length === 0) {
-        alert('Selecione ao menos um item com valor definido para gerar o PDF.');
+        Aviso.erro('Selecione ao menos um item com valor definido para gerar o PDF.');
         return;
     }
 
@@ -923,13 +923,13 @@ async function gerarPDF(assinar = false) {
                         console.warn('Aviso de assinatura:', result.aviso);
                     }
                 } else {
-                    alert('Erro ao assinar: ' + result.error);
+                    Aviso.erro(Aviso.mensagemDeErro(result));
                     // Fazer download do PDF sem assinatura
                     doc.save(nomeArquivo.replace('_assinado', ''));
                 }
             } catch (error) {
                 console.error('Erro ao assinar PDF:', error);
-                alert('Erro ao assinar PDF. Gerando versão sem assinatura.');
+                Aviso.erro('Erro ao assinar PDF. Gerando versão sem assinatura.');
                 doc.save(nomeArquivo.replace('_assinado', ''));
             }
         } else {
@@ -939,9 +939,9 @@ async function gerarPDF(assinar = false) {
     }
 
     if (licitacoesParaPDF.length === 1) {
-        alert(assinar ? 'PDF assinado gerado com sucesso!' : 'PDF gerado com sucesso!');
+        Aviso.ok(assinar ? 'PDF assinado gerado com sucesso!' : 'PDF gerado com sucesso!');
     } else {
-        alert(`${licitacoesParaPDF.length} PDFs ${assinar ? 'assinados ' : ''}gerados com sucesso!`);
+        Aviso.ok(`${licitacoesParaPDF.length} PDFs ${assinar ? 'assinados ' : ''}gerados com sucesso!`);
     }
 }
 
@@ -1180,18 +1180,18 @@ async function gerarPDFIndividual(licitacao, assinar = false) {
                 link.download = nomeArquivo;
                 link.click();
             } else {
-                alert('Erro ao assinar: ' + result.error);
+                Aviso.erro(Aviso.mensagemDeErro(result));
                 doc.save(nomeArquivo.replace('_assinado', ''));
             }
         } catch (error) {
-            alert('Erro ao assinar PDF. Gerando versão sem assinatura.');
+            Aviso.erro('Erro ao assinar PDF. Gerando versão sem assinatura.');
             doc.save(nomeArquivo.replace('_assinado', ''));
         }
     } else {
         doc.save(nomeArquivo);
     }
 
-    alert(assinar ? 'PDF assinado gerado com sucesso!' : 'PDF gerado com sucesso!');
+    Aviso.ok(assinar ? 'PDF assinado gerado com sucesso!' : 'PDF gerado com sucesso!');
 }
 
 function exportarCSV() {
@@ -1231,7 +1231,7 @@ function exportarCSVLicitacao(licitacaoKey) {
 
     const itensSelecionados = licitacao.itens.filter(item => valoresProposta[item.id].selecionado);
     if (itensSelecionados.length === 0) {
-        alert('Selecione ao menos um item desta licitação para exportar.');
+        Aviso.erro('Selecione ao menos um item desta licitação para exportar.');
         return;
     }
 
@@ -1267,7 +1267,7 @@ async function gerarPDFLicitacao(licitacaoKey, assinar = false) {
     );
 
     if (itensSelecionados.length === 0) {
-        alert('Selecione ao menos um item desta licitação para gerar o PDF.');
+        Aviso.erro('Selecione ao menos um item desta licitação para gerar o PDF.');
         return;
     }
 
@@ -1296,7 +1296,7 @@ function abrirModalEnvioLicitacao(licitacaoKey) {
     const itensSelecionados = licitacao.itens.filter(item => valoresProposta[item.id].selecionado);
 
     if (itensSelecionados.length === 0) {
-        alert('Selecione ao menos um item desta licitação para enviar.');
+        Aviso.erro('Selecione ao menos um item desta licitação para enviar.');
         return;
     }
 
@@ -1372,7 +1372,7 @@ async function salvarCredenciais() {
     const senha = document.getElementById('inputSenha').value;
 
     if (!usuario || !senha) {
-        alert('Preencha usuário e senha');
+        Aviso.erro('Preencha usuário e senha');
         return;
     }
 
@@ -1386,14 +1386,14 @@ async function salvarCredenciais() {
         const result = await response.json();
 
         if (result.success) {
-            alert('Credenciais salvas com sucesso!');
+            Aviso.ok('Credenciais salvas com sucesso!');
             fecharModalCredenciais();
             verificarCredenciais();
         } else {
-            alert('Erro ao salvar: ' + result.error);
+            Aviso.erro(Aviso.mensagemDeErro(result));
         }
     } catch (error) {
-        alert('Erro ao salvar credenciais');
+        Aviso.erro('Erro ao salvar credenciais');
         console.error(error);
     }
 }
@@ -1426,7 +1426,7 @@ function abrirModalEnvio() {
     });
 
     if (!licitacaoSelecionada) {
-        alert('Selecione ao menos um item para enviar.');
+        Aviso.erro('Selecione ao menos um item para enviar.');
         return;
     }
 

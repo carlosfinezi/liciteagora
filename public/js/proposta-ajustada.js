@@ -41,16 +41,16 @@
   async function sincronizarArrematados(compraId) {
     let itens;
     try { itens = await itensSelecionados(compraId); }
-    catch (e) { alert('Não consegui ler os itens da proposta: ' + e.message); return; }
+    catch (e) { Aviso.erro('Não consegui ler os itens da proposta: ' + e.message); return; }
 
     if (!itens.length) {
-      alert('Nenhum item selecionado nesta compra.\nMarque os itens em Propostas antes de sincronizar.');
+      Aviso.erro('Nenhum item selecionado nesta compra.\nMarque os itens em Propostas antes de sincronizar.');
       return;
     }
 
     // O portal devolve 429 sem intervalo; o servidor espaça as chamadas em 4s.
     const segundos = Math.max(1, (itens.length - 1) * 4);
-    if (!confirm(`Buscar no Comprasnet o valor arrematado de ${itens.length} item(ns)?\nLeva cerca de ${segundos}s.`)) return;
+    if (!await Aviso.confirmar(`Buscar no Comprasnet o valor arrematado de ${itens.length} item(ns)?\nLeva cerca de ${segundos}s.`)) return;
 
     try {
       const r = await fetch('/api/comprasnet/resultado-item/sincronizar', {
@@ -60,15 +60,15 @@
         body: JSON.stringify({ compra: compraId, itens: itens.map((i) => i.numero) }),
       });
       const j = await r.json();
-      if (!j.success) { alert('Falha: ' + (j.error || r.status)); return; }
+      if (!j.success) { Aviso.erro('Falha: ' + (j.error || r.status)); return; }
       const linhas = (j.itens || []).map((i) =>
         `item ${i.numeroItem}: ${i.valorArrematado != null ? money(i.valorArrematado) : '(sem valor)'}` +
         (i.ganhamos === 1 ? ' — ganhamos' : i.ganhamos === 0 ? ' — não ganhamos' : '')
       );
       const falhas = (j.falhas || []).map((f) => `item ${f.item}: ${f.status || f.erro}`);
-      alert(`Arrematados sincronizados (${j.gravados}):\n${linhas.join('\n')}` +
+      Aviso.erro(`Arrematados sincronizados (${j.gravados}):\n${linhas.join('\n')}` +
             (falhas.length ? `\n\nFalhas:\n${falhas.join('\n')}` : ''));
-    } catch (e) { alert('Erro: ' + e.message); }
+    } catch (e) { Aviso.erro(Aviso.mensagemDeErro(e)); }
   }
 
   // ── Montagem do PDF ────────────────────────────────────────────────────────
@@ -175,13 +175,13 @@
   // ── Gerar + assinar + anexar ───────────────────────────────────────────────
   async function gerarPropostaAjustada(compraId, opts) {
     opts = opts || {};
-    if (!window.jspdf) { alert('Biblioteca de PDF não carregou. Recarregue a página.'); return; }
+    if (!window.jspdf) { Aviso.erro('Biblioteca de PDF não carregou. Recarregue a página.'); return; }
 
     let selecionados, arrematados, catalogo, fornecedor, participacao;
     try {
       selecionados = await itensSelecionados(compraId);
       if (!selecionados.length) {
-        alert('Nenhum item selecionado nesta compra.\nMarque os itens em Propostas antes de gerar.');
+        Aviso.erro('Nenhum item selecionado nesta compra.\nMarque os itens em Propostas antes de gerar.');
         return;
       }
 
@@ -190,7 +190,7 @@
 
       const jPart = await getJSON(`/api/relatorios/participacoes?q=${encodeURIComponent(compraId)}`);
       participacao = (jPart.participacoes || []).find((x) => String(x.compraId) === String(compraId));
-      if (!participacao) { alert('Participação não encontrada para esta compra.'); return; }
+      if (!participacao) { Aviso.erro('Participação não encontrada para esta compra.'); return; }
       // compraId = {uasg:6}{modalidade:2}{numero:5}{ano:4}. A linha de participações
       // às vezes vem sem `numero`/`ano`; deriva do próprio id para o cabeçalho não
       // sair com "Pregão -/-" num documento que vai assinado.
@@ -208,7 +208,7 @@
 
       const jForn = await getJSON('/api/fornecedor');
       fornecedor = jForn.fornecedor || jForn.data || jForn;
-    } catch (e) { alert('Erro ao montar a proposta: ' + e.message); return; }
+    } catch (e) { Aviso.erro(Aviso.mensagemDeErro(e)); return; }
 
     // Trava: proposta ajustada sem valor arrematado sairia com o preço PRÉ-disputa,
     // e assinada digitalmente. Melhor não gerar do que gerar errado.
@@ -217,7 +217,7 @@
       return !a || typeof a.valorArrematado !== 'number';
     }).map((s) => s.numero);
     if (semValor.length) {
-      alert(`Sem valor arrematado para o(s) item(ns) ${semValor.join(', ')}.\n\n` +
+      Aviso.erro(`Sem valor arrematado para o(s) item(ns) ${semValor.join(', ')}.\n\n` +
             'Clique em "Sincronizar arrematados" antes de gerar — do contrário o PDF sairia ' +
             'com o valor da proposta inicial.');
       return;
@@ -237,13 +237,13 @@
     });
 
     const resumo = itens.map((i) => `item ${i.numero}: ${money(i.valorUnitario)}`).join('\n');
-    if (!confirm(`Gerar a PROPOSTA AJUSTADA assinada${opts.anexar ? ' e anexar no Comprasnet' : ''}?\n\n` +
+    if (!await Aviso.confirmar(`Gerar a PROPOSTA AJUSTADA assinada${opts.anexar ? ' e anexar no Comprasnet' : ''}?\n\n` +
                  `Compra ${compraId}\n${resumo}\n\n` +
                  (opts.anexar ? 'O envio ao portal não pode ser desfeito por aqui (só excluindo o anexo depois).' : ''))) return;
 
     let doc;
     try { doc = construirPDF({ fornecedor, participacao, itens }); }
-    catch (e) { alert('Erro ao montar o PDF: ' + e.message); return; }
+    catch (e) { Aviso.erro(Aviso.mensagemDeErro(e)); return; }
 
     const nomeArquivo = `proposta_ajustada_${participacao.numero || 'compra'}_${participacao.ano || ''}_${new Date().toISOString().slice(0, 10)}.pdf`;
     const baixar = (b64) => {
@@ -262,18 +262,18 @@
       });
       const j = await r.json();
       if (!j.success) {
-        alert('Não consegui assinar: ' + (j.error || r.status) + '\nBaixando sem assinatura.');
+        Aviso.erro('Não consegui assinar: ' + (j.error || r.status) + '\nBaixando sem assinatura.');
         doc.save(nomeArquivo.replace('.pdf', '_sem_assinatura.pdf'));
         return;
       }
       assinado = j.pdfAssinado;
     } catch (e) {
-      alert('Erro ao assinar: ' + e.message + '\nBaixando sem assinatura.');
+      Aviso.erro(Aviso.mensagemDeErro(e.message + '\nBaixando sem assinatura.'));
       doc.save(nomeArquivo.replace('.pdf', '_sem_assinatura.pdf'));
       return;
     }
 
-    if (!opts.anexar) { baixar(assinado); alert('Proposta ajustada assinada gerada.'); return; }
+    if (!opts.anexar) { baixar(assinado); Aviso.ok('Proposta ajustada assinada gerada.'); return; }
 
     // Um anexo por item — o portal indexa anexo por item, não por compra.
     const ok = []; const falhas = [];
@@ -288,9 +288,9 @@
       } catch (e) { falhas.push(`item ${i.numero}: ${e.message}`); }
     }
 
-    if (ok.length && !falhas.length) alert(`Proposta anexada no Comprasnet (item ${ok.join(', ')}).`);
-    else if (ok.length) alert(`Anexado no(s) item(ns) ${ok.join(', ')}.\nFalhou em:\n${falhas.join('\n')}`);
-    else { alert(`Não consegui anexar:\n${falhas.join('\n')}\n\nBaixando o PDF para envio manual.`); baixar(assinado); }
+    if (ok.length && !falhas.length) Aviso.erro(`Proposta anexada no Comprasnet (item ${ok.join(', ')}).`);
+    else if (ok.length) Aviso.erro(`Anexado no(s) item(ns) ${ok.join(', ')}.\nFalhou em:\n${falhas.join('\n')}`);
+    else { Aviso.erro(`Não consegui anexar:\n${falhas.join('\n')}\n\nBaixando o PDF para envio manual.`); baixar(assinado); }
   }
 
   window.sincronizarArrematados = sincronizarArrematados;

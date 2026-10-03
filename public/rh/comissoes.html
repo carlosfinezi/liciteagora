@@ -196,6 +196,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('comissoes');</script>
@@ -271,7 +272,7 @@ async function apurar(simular){
   const periodo = document.getElementById('apPeriodo').value;
   if (!periodo) return showAlert('Escolha o período','error');
   const base = document.getElementById('apBase').value;
-  if (!simular && !confirm(`Apurar comissões para ${periodo} (${base})?\nApurações pendentes serão recalculadas. Pagas serão preservadas.`)) return;
+  if (!simular && !await Aviso.confirmar(`Apurar comissões para ${periodo} (${base})?\nApurações pendentes serão recalculadas. Pagas serão preservadas.`)) return;
 
   const p = new URLSearchParams({ periodo, base });
   const v = document.getElementById('apVendedor').value; if (v) p.set('vendedorId', v);
@@ -326,7 +327,7 @@ async function pagarSelecionadas(){
 }
 
 async function estornar(id){
-  if (!confirm('Estornar pagamento desta apuração?')) return;
+  if (!await Aviso.confirmar('Estornar pagamento desta apuração?')) return;
   const r = await fetch(`/api/comissoes/apuracao/${id}/estornar`, { method:'POST' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -418,7 +419,7 @@ async function salvarRegra(){
   carregarRegras();
 }
 async function excluirRegra(id){
-  if (!confirm('Desativar esta regra?')) return;
+  if (!await Aviso.confirmar('Desativar esta regra?')) return;
   const r = await fetch('/api/comissoes/regras/'+id, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');

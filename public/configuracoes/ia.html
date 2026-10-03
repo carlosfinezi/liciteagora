@@ -641,7 +641,7 @@
 
         async function removerChaveIA(provider) {
             const nome = PROVIDERS[provider]?.nome || provider;
-            if (!confirm(`Remover a chave ${nome}?`)) return;
+            if (!await Aviso.confirmar(`Remover a chave ${nome}?`)) return;
 
             try {
                 const response = await fetch('/api/config/ia-key-remove', {
@@ -693,6 +693,7 @@
     </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
     <script>initSidebar('config-ia');</script>
 </body>
 </html>

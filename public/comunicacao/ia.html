@@ -177,12 +177,11 @@ async function alternarItemBase(id, ativo){
 }
 
 async function removerItem(id){
-  if (!confirm('Remover este item da base? A IA deixa de usá-lo.')) return;
+  if (!await Aviso.confirmar('Remover este item da base? A IA deixa de usá-lo.')) return;
   const d = await fetch('/api/ia/base/'+id, {method:'DELETE'}).then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');
   carregarBase();
 }
-
 
 carregarBase();
 </script>

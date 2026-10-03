@@ -278,6 +278,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
@@ -340,7 +341,7 @@ async function salvarInt(){
   showAlert('Canal salvo'); fechar('modalInt'); carregarIntegracoes();
 }
 async function sync(id){ const r = await fetch(`/api/marketplaces/integracoes/${id}/sync`,{method:'POST'}); const d = await r.json(); showAlert(d.mensagem||'ok'); carregarIntegracoes(); }
-async function remInt(id){ if(!confirm('Desativar?'))return; await fetch('/api/marketplaces/integracoes/'+id,{method:'DELETE'}); carregarIntegracoes(); }
+async function remInt(id){ if(!await Aviso.confirmar('Desativar?'))return; await fetch('/api/marketplaces/integracoes/'+id,{method:'DELETE'}); carregarIntegracoes(); }
 
 function abrirPed(){
   document.getElementById('pCanal').innerHTML = CANAIS.map(c=>`<option>${c}</option>`).join('');
@@ -370,7 +371,7 @@ async function salvarPed(){
   fechar('modalPed'); carregarPedidos();
 }
 async function vincular(id){
-  const modo = confirm('Criar novo pedido local automaticamente? (Cancelar = informar ID existente)');
+  const modo = await Aviso.confirmar('Criar novo pedido local automaticamente? (Cancelar = informar ID existente)');
   let body = {};
   if (modo) body.criarPedido = true;
   else { const pid = prompt('ID do pedido local:'); if (!pid) return; body.pedidoLocalId = Number(pid); }
@@ -574,7 +575,7 @@ async function gerar(produtoIds){
 }
 
 async function publicarUm(anuncioId){
-  if (!confirm('Publicar este anúncio no Mercado Livre? Ele fica visível para compradores.')) return;
+  if (!await Aviso.confirmar('Publicar este anúncio no Mercado Livre? Ele fica visível para compradores.')) return;
   const d = await fetch(`/api/marketplaces/ml/anuncios/${anuncioId}/publicar`, { method:'POST' }).then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');
   showAlert('Publicado: ' + d.mlItemId + (d.aviso ? ' — ' + d.aviso : ''), d.aviso ? 'warn' : 'success');
@@ -585,7 +586,7 @@ async function publicarSelecionados(){
   const ids = anunciosSelecionados();
   if (!ids.length) return showAlert('Selecione rascunhos já gerados','error');
   // Publicação em lote cria N ofertas públicas de uma vez: confirmação diz o número.
-  if (!confirm(`Publicar ${ids.length} anúncio(s) no Mercado Livre? Eles ficam visíveis para compradores.`)) return;
+  if (!await Aviso.confirmar(`Publicar ${ids.length} anúncio(s) no Mercado Livre? Eles ficam visíveis para compradores.`)) return;
   const d = await fetch('/api/marketplaces/ml/anuncios/publicar-lote', {
     method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids })
   }).then(r=>r.json());
@@ -766,7 +767,7 @@ async function procurarCatalogo(){
 }
 
 async function vincularCatalogo(catalogProductId){
-  if (catalogProductId === null && !confirm('Desvincular do catálogo? O anúncio volta a exigir título, fotos e — nesta categoria — código de barras.')) return;
+  if (catalogProductId === null && !await Aviso.confirmar('Desvincular do catálogo? O anúncio volta a exigir título, fotos e — nesta categoria — código de barras.')) return;
   const d = await fetch(`/api/marketplaces/ml/anuncios/${RASC.id}/catalogo`, {
     method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ catalogProductId })
   }).then(r=>r.json());
@@ -802,7 +803,7 @@ async function gtinDasNotas(){
       + (prévia.recusados.length ? ` · ${prévia.recusados.length} recusado(s) por dígito inválido` : ''), 'warn');
   }
   const lista = prévia.aplicados.map(a => `${a.sku} → ${a.ean} (NF ${a.nota||'?'}, ${a.fornecedor||'—'})`).join('\n');
-  if (!confirm(`Gravar o código de barras de ${prévia.aplicados.length} produto(s)?\n\n${lista}`)) return;
+  if (!await Aviso.confirmar(`Gravar o código de barras de ${prévia.aplicados.length} produto(s)?\n\n${lista}`)) return;
   const d = await fetch('/api/marketplaces/ml/produtos/gtin-das-notas', {
     method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})
   }).then(r=>r.json());
@@ -862,7 +863,7 @@ const AVISO_STATUS = {
 };
 
 async function mudarStatusML(novo){
-  if (!confirm(AVISO_STATUS[novo] + '\n\nConfirma?')) return;
+  if (!await Aviso.confirmar(AVISO_STATUS[novo] + '\n\nConfirma?')) return;
   const d = await fetch(`/api/marketplaces/ml/anuncios/${RASC.id}/status`, {
     method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status: novo })
   }).then(r=>r.json());
@@ -874,7 +875,7 @@ async function mudarStatusML(novo){
 }
 
 async function excluirRegistro(){
-  if (!confirm('Apagar o registro deste anúncio aqui no sistema?\n\nO anúncio no Mercado Livre não é afetado — só some desta lista, e o produto volta a poder gerar rascunho novo.')) return;
+  if (!await Aviso.confirmar('Apagar o registro deste anúncio aqui no sistema?\n\nO anúncio no Mercado Livre não é afetado — só some desta lista, e o produto volta a poder gerar rascunho novo.')) return;
   const d = await fetch('/api/marketplaces/ml/anuncios/' + RASC.id, { method:'DELETE' }).then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');
   fechar('modalRasc');
@@ -922,7 +923,7 @@ async function trocarMarca(nova){
 }
 
 async function declararSemMarca(){
-  if (!confirm(`Declarar este produto como "Genérico" no Mercado Livre?\n\n`
+  if (!await Aviso.confirmar(`Declarar este produto como "Genérico" no Mercado Livre?\n\n`
     + `O anúncio passa a validar sem código de barras, mas o campo Marca vai dizer "Genérico" `
     + `enquanto o título e a foto mostram ${RASC.produtoMarca||'a marca real'}.\n\n`
     + `O ML cruza esses dados: se considerar divergência, derruba o anúncio.`)) return;
@@ -1058,7 +1059,7 @@ async function salvarEPublicar(){
 
 async function regerarDoModal(){
   const pid = RASC?.produtoId; const id = RASC?.id; if (!pid) return;
-  if (!confirm('Regerar com IA sobrescreve título, descrição, atributos e fotos deste rascunho. Continuar?')) return;
+  if (!await Aviso.confirmar('Regerar com IA sobrescreve título, descrição, atributos e fotos deste rascunho. Continuar?')) return;
   await gerar([pid]);
   await verRascunho(id);
 }

@@ -232,7 +232,7 @@
             const conta = contasCache.find(c => c.id === contaId);
             if (!conta) return;
             const etapa = (conta.ultimaEtapa || 0) + 1;
-            if (!confirm('Disparar cobrança etapa ' + etapa + ' via ' + canalOuAmbos + ' para ' + conta.razaoSocial + '?')) return;
+            if (!await Aviso.confirmar('Disparar cobrança etapa ' + etapa + ' via ' + canalOuAmbos + ' para ' + conta.razaoSocial + '?')) return;
 
             const canais = canalOuAmbos === 'ambos' ? ['email', 'whatsapp'] : [canalOuAmbos];
             try {
@@ -256,7 +256,7 @@
 
         async function cobrarMassa(canalOuAmbos) {
             if (!selecionadas.size) return;
-            if (!confirm('Disparar cobrança via ' + canalOuAmbos + ' para ' + selecionadas.size + ' clientes?')) return;
+            if (!await Aviso.confirmar('Disparar cobrança via ' + canalOuAmbos + ' para ' + selecionadas.size + ' clientes?')) return;
 
             const canais = canalOuAmbos === 'ambos' ? ['email', 'whatsapp'] : [canalOuAmbos];
             try {
@@ -284,7 +284,7 @@
 
         async function togglePausa(pessoaId, cobrancaAtualAtiva) {
             const novaAtiva = cobrancaAtualAtiva === 1 ? false : true;
-            if (!confirm((novaAtiva ? 'Retomar' : 'Pausar') + ' cobranças automáticas para este cliente?')) return;
+            if (!await Aviso.confirmar((novaAtiva ? 'Retomar' : 'Pausar') + ' cobranças automáticas para este cliente?')) return;
             try {
                 const resp = await fetch('/api/cobrancas/pessoa/' + pessoaId + '/pausar', {
                     method: 'POST',
@@ -411,6 +411,7 @@
     </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
     <script>initSidebar('cobrancas');</script>
 </body>
 </html>

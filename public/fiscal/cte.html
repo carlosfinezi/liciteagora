@@ -92,6 +92,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
@@ -162,7 +163,7 @@ async function salvar(){
 }
 
 async function preparar(id){
-  if (!confirm('Gerar XML não-assinado?')) return;
+  if (!await Aviso.confirmar('Gerar XML não-assinado?')) return;
   const r = await fetch(`/api/cte/${id}/preparar`, { method:'POST' });
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   showAlert('XML gerado. Use seu emissor para transmitir.'); carregar();

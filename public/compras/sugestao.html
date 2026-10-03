@@ -119,6 +119,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('compras-sugestao');</script>
@@ -253,7 +254,7 @@ async function gerarPedidos(){
   const gruposArr = Object.values(grupos);
   if (!gruposArr.length) return showAlert('Nenhum item válido selecionado','error');
 
-  if (!confirm(`Gerar ${gruposArr.length} pedido(s) de compra com um total de ${checks.length} item(ns)?`)) return;
+  if (!await Aviso.confirmar(`Gerar ${gruposArr.length} pedido(s) de compra com um total de ${checks.length} item(ns)?`)) return;
 
   const criados = [];
   for (const g of gruposArr) {

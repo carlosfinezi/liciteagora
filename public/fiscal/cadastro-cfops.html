@@ -273,6 +273,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('cadastro-cfops');</script>
 <script>
 let cfopsCache = [];
@@ -529,7 +530,7 @@ async function salvarMap(){
 }
 
 async function removerMap(id){
-  if (!confirm('Remover este mapeamento?')) return;
+  if (!await Aviso.confirmar('Remover este mapeamento?')) return;
   try {
     const r = await fetch('/api/cfops-entrada-map/' + id, { method: 'DELETE' });
     const d = await r.json();

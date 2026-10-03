@@ -18,6 +18,7 @@ const path = require('path');
 const u = require('./producao-teste-util');
 const express = require(u.BASE + '/node_modules/express');
 const puppeteer = require(u.BASE + '/node_modules/puppeteer-core');
+const { esperarFrame } = require('./frame-de-teste');
 
 const CHROME = '/usr/bin/google-chrome';
 
@@ -120,7 +121,10 @@ const TELAS = [
       // O mainFrame é o wrapper e a URL dele TAMBÉM casa com o filtro (a página
       // vai no query string): excluí-lo é obrigatório, senão find() devolve o
       // pai, que não tem elemento nenhum da tela.
-      const frame = page.frames().find(f => f !== page.mainFrame() && f.url().includes(tela.arq));
+      //
+      // E o frame se ESPERA, não se supõe. O porquê está em
+      // `scripts/frame-de-teste.js`; foi aqui que o sintoma apareceu.
+      const frame = await esperarFrame(page, f => f !== page.mainFrame() && f.url().includes(tela.arq));
       assert(!!frame, `${tela.arq}: iframe carregou`);
       if (!frame) { await page.close(); continue; }
 

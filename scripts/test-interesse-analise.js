@@ -24,6 +24,7 @@ const BASE = path.resolve(__dirname, '..');
 const express = require(BASE + '/node_modules/express');
 const puppeteer = require(BASE + '/node_modules/puppeteer-core');
 const { prepararAvisos } = require('./aviso-de-teste');
+const { esperarFrame } = require('./frame-de-teste');
 
 const CHROME = '/usr/bin/google-chrome';
 
@@ -150,7 +151,11 @@ const estado = {
   // só. O padrão em si é provado no bloco logo abaixo.
   const abrirTela = async (recorte = 'ativas') => {
     await page.goto(URL_TELA, { waitUntil: 'networkidle2', timeout: 25000 });
-    const f = page.frames().find(x => x !== page.mainFrame() && x.url().includes('interesse.html'));
+    /* O frame se ESPERA, e o porquê está em `scripts/frame-de-teste.js`. Sem
+       isso, sob os quatro trabalhadores do verify, esta suíte morria em
+       "Cannot read properties of undefined (reading 'waitForSelector')". */
+    const f = await esperarFrame(page, x => x !== page.mainFrame() && x.url().includes('interesse.html'));
+    if (!f) throw new Error('o iframe de interesse.html não carregou em 5s');
     await f.waitForSelector('#interessesContainer .card', { timeout: 10000 });
     if (recorte) {
       await f.evaluate((r) => { document.getElementById('filtroPeriodo').value = r; aplicarFiltro(); }, recorte);

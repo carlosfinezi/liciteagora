@@ -688,6 +688,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/campo-formato.js"></script>
 <script src="/js/politica-prazo.js"></script>
 <script>initSidebar('pedidos');</script>
@@ -1009,7 +1010,7 @@ async function gerarParcelas(){
   const intervalo = Math.max(0, Math.min(365, parseInt(document.getElementById('parcIntervalo').value) || 30));
   const meio = meioDefault(document.getElementById('parcMeioDefault').value || pedidoAtual.meioPagamento || '15');
 
-  if (PARCELAS.length > 0 && !confirm(`Gerar ${n} parcela(s) irá substituir as parcelas atuais. Continuar?`)) return;
+  if (PARCELAS.length > 0 && !await Aviso.confirmar(`Gerar ${n} parcela(s) irá substituir as parcelas atuais. Continuar?`)) return;
 
   const parcelaBase = Math.floor((total * 100) / n) / 100; // arredonda pra baixo (centavos)
   const addDias = (iso, d) => {
@@ -1041,7 +1042,7 @@ async function gerarParcelas(){
 }
 
 async function desativarParcelamento(){
-  if (PARCELAS.length && !confirm('Descartar as parcelas e voltar ao pagamento único?')) return;
+  if (PARCELAS.length && !await Aviso.confirmar('Descartar as parcelas e voltar ao pagamento único?')) return;
   try {
     const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/parcelas', {
       method:'PUT', headers:{'Content-Type':'application/json'},
@@ -1358,7 +1359,7 @@ async function onTrocarTipoOp(){
   marcarDirty();
   // Se já tem itens, oferece re-sugerir CFOPs
   if (pedidoAtual?.itens?.length) {
-    if (confirm('Re-sugerir CFOP de todos os itens com base no novo tipo de operação?')) {
+    if (await Aviso.confirmar('Re-sugerir CFOP de todos os itens com base no novo tipo de operação?')) {
       // Salva header primeiro para o backend ler o novo tipoOperacaoId
       const okSave = await salvarHeaderSilencioso();
       if (!okSave) return;
@@ -1544,7 +1545,7 @@ async function converterModo(destino){
     if (!ok) return;
   }
   const label = destino === 'orcamento' ? 'orçamento' : 'pedido';
-  if (!confirm(`Converter para ${label}? O número do documento será regerado.`)) return;
+  if (!await Aviso.confirmar(`Converter para ${label}? O número do documento será regerado.`)) return;
   try {
     const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/converter-modo', {
       method: 'POST', headers: {'Content-Type':'application/json'},
@@ -1938,7 +1939,7 @@ async function copiarLinkPublico(btn){
 }
 
 async function regerarLinkPublico(btn){
-  if (!confirm('Gerar um link novo?\n\nO link atual para de funcionar na hora, inclusive para quem já o recebeu.')) return;
+  if (!await Aviso.confirmar('Gerar um link novo?\n\nO link atual para de funcionar na hora, inclusive para quem já o recebeu.')) return;
   const rotulo = btn ? btn.innerHTML : null;
   if (btn) { btn.disabled = true; btn.innerHTML = 'Gerando…'; }
   try {
@@ -1953,7 +1954,7 @@ async function regerarLinkPublico(btn){
 }
 
 async function revogarLinkPublico(btn){
-  if (!confirm('Revogar o link público?\n\nQuem já recebeu o endereço deixa de conseguir abrir o documento. Você pode gerar outro depois.')) return;
+  if (!await Aviso.confirmar('Revogar o link público?\n\nQuem já recebeu o endereço deixa de conseguir abrir o documento. Você pode gerar outro depois.')) return;
   const rotulo = btn ? btn.innerHTML : null;
   if (btn) { btn.disabled = true; btn.innerHTML = 'Revogando…'; }
   try {
@@ -2920,7 +2921,7 @@ async function addItem(){
   } catch(e){ showAlert('Erro: '+e.message, 'error'); }
 }
 async function removerItem(itemId){
-  if (!confirm('Remover item?')) return;
+  if (!await Aviso.confirmar('Remover item?')) return;
   try {
     const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/itens/'+itemId, { method:'DELETE' });
     const d = await r.json();
@@ -3251,7 +3252,7 @@ async function acao(a, body){
     const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/'+a, opts);
     const d = await r.json();
     if (!d.success) {
-      // 409 na confirmação = saldo insuficiente. Antes era um confirm() com uma
+      // 409 na confirmação = saldo insuficiente. Antes era um await Aviso.confirmar() com uma
       // saída só (forçar); agora o modal também deixa comprar o que falta.
       if (a === 'confirmar' && r.status === 409 && Array.isArray(d.insuficiencias) && d.insuficiencias.length) {
         await carregarFalta();
@@ -3274,7 +3275,7 @@ async function statusPara(s){
   } catch(e){ showAlert('Erro: '+e.message,'error'); }
 }
 async function excluir(){
-  if (!confirm('Excluir rascunho?')) return;
+  if (!await Aviso.confirmar('Excluir rascunho?')) return;
   try {
     const r = await fetch('/api/pedidos/'+PEDIDO_ID, { method:'DELETE' });
     const d = await r.json();
@@ -3482,7 +3483,7 @@ async function faturarAgora(){
   const msg = docInterno
     ? `Faturar pedido ${p.numero}?\n\nDocumento INTERNO — não será enviado à SEFAZ.${temParcelas ? '\nSerão criadas '+temParcelas+' contas a receber conforme o plano de parcelas.' : '\nSerá gerada fatura, conta a receber e movimentação financeira.'}`
     : `Faturar pedido ${p.numero}?\n\nSerá gerada a fatura${temParcelas ? ', as contas a receber do plano de parcelas' : ', conta a receber'} e a NF-e será emitida automaticamente na SEFAZ.`;
-  if (!confirm(msg)) return;
+  if (!await Aviso.confirmar(msg)) return;
 
   await executarFaturar({});
 }
@@ -3646,7 +3647,7 @@ async function carregarFaturaInfo(){
 }
 
 async function emitirNFe(fid){
-  if (!confirm('Emitir NF-e para SEFAZ? Esta ação reserva um número fiscal.')) return;
+  if (!await Aviso.confirmar('Emitir NF-e para SEFAZ? Esta ação reserva um número fiscal.')) return;
   showAlert('Enviando NF-e para SEFAZ… aguarde.');
   try {
     const r = await fetch('/api/faturas/'+fid+'/emitir-nfe', { method:'POST' });
@@ -3669,7 +3670,7 @@ async function cancelarFatura(fid, temNFe){
     if (motivo === null) return;
     if (motivo.trim().length < 15) { showAlert('Motivo precisa ter pelo menos 15 caracteres','error'); return; }
   } else {
-    if (!confirm('Cancelar fatura? A conta a receber também será cancelada e o pedido voltará para "rascunho".')) return;
+    if (!await Aviso.confirmar('Cancelar fatura? A conta a receber também será cancelada e o pedido voltará para "rascunho".')) return;
   }
   try {
     const r = await fetch('/api/faturas/'+fid+'/cancelar', {

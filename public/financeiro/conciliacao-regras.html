@@ -77,6 +77,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
@@ -215,7 +216,7 @@ async function reaplicar(reprocessar){
   if (!contaFinanceiraId) return showAlert('Escolha a conta','error');
   // Reprocessar desfaz o que as regras decidiram antes — inclusive devolver à
   // fila o que foi "ignorado". Conciliação feita por pessoa não é tocada.
-  if (reprocessar && !confirm('Reavaliar também o que já foi classificado por regra? A conciliação feita manualmente não é alterada.')) return;
+  if (reprocessar && !await Aviso.confirmar('Reavaliar também o que já foi classificado por regra? A conciliação feita manualmente não é alterada.')) return;
   const r = await fetch('/api/conciliacao/regras/aplicar', { method:'POST',
     headers:{'Content-Type':'application/json'}, body: JSON.stringify({ contaFinanceiraId, reprocessar: !!reprocessar }) });
   const d = await r.json();
@@ -226,7 +227,7 @@ async function reaplicar(reprocessar){
 }
 
 async function excluirRegra(id, padrao){
-  if (!confirm(`Excluir a regra "${padrao}"? As transações pendentes que ela classificou voltam a ficar sem classificação.`)) return;
+  if (!await Aviso.confirmar(`Excluir a regra "${padrao}"? As transações pendentes que ela classificou voltam a ficar sem classificação.`)) return;
   const d = await fetch('/api/conciliacao/regras/'+id, { method:'DELETE' }).then(r=>r.json());
   if(!d.success) return showAlert(d.error,'error');
   showAlert('Regra excluída'); carregar();

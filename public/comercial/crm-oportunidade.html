@@ -156,6 +156,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/campo-formato.js"></script>
 <script>initSidebar('crm-funil');</script>
 <script>
@@ -366,7 +367,7 @@ async function concluir(id){
   carregar();
 }
 async function excluirAtiv(id){
-  if (!confirm('Excluir esta atividade?')) return;
+  if (!await Aviso.confirmar('Excluir esta atividade?')) return;
   const r = await fetch('/api/crm/atividades/'+id, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -586,7 +587,7 @@ function selClienteEd(id, nome){
 }
 
 async function arquivar(){
-  if (!confirm('Arquivar esta oportunidade?')) return;
+  if (!await Aviso.confirmar('Arquivar esta oportunidade?')) return;
   const r = await fetch('/api/crm/oportunidades/'+op.id, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -596,7 +597,7 @@ async function arquivar(){
 async function gerarOS(){
   if (op.osId) { window.location.href = '/os/ordem-servico.html?id=' + op.osId; return; }
   if (!op.clienteId) return showAlert('A oportunidade precisa ter um cliente vinculado.', 'error');
-  if (!confirm(`Gerar uma Ordem de Serviço a partir desta oportunidade?\n\nCliente: ${op.clienteNome}\nValor: ${fmtBRL(op.valor)}`)) return;
+  if (!await Aviso.confirmar(`Gerar uma Ordem de Serviço a partir desta oportunidade?\n\nCliente: ${op.clienteNome}\nValor: ${fmtBRL(op.valor)}`)) return;
   const r = await fetch(`/api/crm/oportunidades/${op.id}/gerar-os`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

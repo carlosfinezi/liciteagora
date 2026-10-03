@@ -252,6 +252,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/campo-formato.js"></script>
 <script src="/js/politica-prazo.js"></script>
 <script>initSidebar('contas-a-receber');</script>
@@ -376,7 +377,7 @@ async function carregar(){
     CONTAS = r1.contas;
     renderTabela();
     renderTotalizadores(r2.resumo || {});
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 function renderTotalizadores(r){
@@ -547,9 +548,9 @@ function aplicarPrazoDoCliente(dias){
 }
 
 async function salvarNova(){
-  if (!PESSOA_SEL) { alert('Selecione um cliente'); return; }
+  if (!PESSOA_SEL) { Aviso.erro('Selecione um cliente'); return; }
   const desc = document.getElementById('nDesc').value.trim();
-  if (!desc) { alert('Descrição obrigatória'); return; }
+  if (!desc) { Aviso.erro('Descrição obrigatória'); return; }
   const body = {
     pessoaId: PESSOA_SEL.id,
     categoriaId: document.getElementById('nCategoria').value || null,
@@ -562,20 +563,20 @@ async function salvarNova(){
   if (TAB_ATIVA === 'unica') {
     body.valor = Number(document.getElementById('nValor').value);
     body.dataVencimento = document.getElementById('nVenc').value;
-    if (!body.valor || !body.dataVencimento) { alert('Valor e vencimento obrigatórios'); return; }
+    if (!body.valor || !body.dataVencimento) { Aviso.erro('Valor e vencimento obrigatórios'); return; }
   } else {
     body.valor = Number(document.getElementById('nValorTot').value);
     body.parcelas = Number(document.getElementById('nParcelas').value);
     body.intervaloMeses = Number(document.getElementById('nIntervalo').value);
     body.dataVencimento = document.getElementById('nVenc1').value;
-    if (!body.valor || !body.parcelas || body.parcelas < 2 || !body.dataVencimento) { alert('Valor, parcelas (≥2) e 1º vencimento obrigatórios'); return; }
+    if (!body.valor || !body.parcelas || body.parcelas < 2 || !body.dataVencimento) { Aviso.erro('Valor, parcelas (≥2) e 1º vencimento obrigatórios'); return; }
   }
   try {
     const r = await fetch('/api/contas-a-receber', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     fecharNova(); carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 // ===== Baixa em lote =====
@@ -671,7 +672,7 @@ function fecharLote(){ document.getElementById('modalLote').classList.remove('op
 async function confirmarLote(){
   const ids = [...SELECIONADAS];
   const vt = Number(document.getElementById('lValorTotal').value) || 0;
-  if (!vt || vt <= 0) { alert('Informe o valor total recebido'); return; }
+  if (!vt || vt <= 0) { Aviso.erro('Informe o valor total recebido'); return; }
   const body = {
     ids,
     contaFinanceiraId: Number(document.getElementById('lContaFin').value),
@@ -681,15 +682,15 @@ async function confirmarLote(){
     imputacao: document.getElementById('lQuitarArredondando').checked
       ? 'quitar-arredondando-juros' : 'cc354',
   };
-  if (!body.contaFinanceiraId) { alert('Selecione conta financeira'); return; }
+  if (!body.contaFinanceiraId) { Aviso.erro('Selecione conta financeira'); return; }
   try {
     const r = await fetch('/api/contas-a-receber/baixar-lote', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
-    alert(`${d.sucessos.length} conta(s) recebida(s).${d.falhas.length?' Falhas: '+d.falhas.length:''}`);
+    Aviso.info(`${d.sucessos.length} conta(s) recebida(s).${d.falhas.length?' Falhas: '+d.falhas.length:''}`);
     SELECIONADAS.clear();
     fecharLote(); carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 // ===== Categorias =====
@@ -726,7 +727,7 @@ async function criarCategoria(){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     abrirCategorias();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 async function mapearCategoria(id, planoContaId){
   try {
@@ -735,10 +736,10 @@ async function mapearCategoria(id, planoContaId){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     await carregarCategorias();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 async function removerCategoria(id){
-  if (!confirm('Remover esta categoria?')) return;
+  if (!await Aviso.confirmar('Remover esta categoria?')) return;
   await fetch('/api/cr-categorias/'+id, { method:'DELETE' });
   abrirCategorias(); carregarCategorias();
 }

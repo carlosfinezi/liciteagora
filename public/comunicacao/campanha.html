@@ -192,6 +192,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('comunicacao-campanhas');</script>
 <script>
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
@@ -568,7 +569,7 @@ async function enviarImagem() {
 }
 
 async function removerImagem(nome) {
-  if (!confirm('Remover esta imagem?')) return;
+  if (!await Aviso.confirmar('Remover esta imagem?')) return;
   const d = await fetch(`/api/wa-campanhas/${ID}/images/${encodeURIComponent(nome)}`, { method: 'DELETE' })
     .then(r => r.json()).catch(() => null);
   if (!d?.success) return showAlert(d?.error || 'Falha ao remover', 'error');

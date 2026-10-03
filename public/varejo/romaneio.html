@@ -57,6 +57,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('romaneios');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -136,11 +137,11 @@ async function addParada(){
 
 async function iniciar(){ await fetch(`/api/romaneios/${id}/iniciar`,{method:'POST'}); carregar(); }
 async function concluir(){ const km = prompt('KM final (opcional):'); await fetch(`/api/romaneios/${id}/concluir`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kmFinal: km?Number(km):null})}); carregar(); }
-async function cancelar(){ if(!confirm('Cancelar romaneio?'))return; await fetch(`/api/romaneios/${id}/cancelar`,{method:'POST'}); carregar(); }
+async function cancelar(){ if(!await Aviso.confirmar('Cancelar romaneio?'))return; await fetch(`/api/romaneios/${id}/cancelar`,{method:'POST'}); carregar(); }
 async function entregar(pid){ const a = prompt('Quem assinou?'); await fetch(`/api/romaneios/paradas/${pid}/entregar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({assinante: a||null})}); carregar(); }
 async function naoEntregar(pid){ const m = prompt('Motivo (mín 3 chars):'); if(!m||m.length<3)return; await fetch(`/api/romaneios/paradas/${pid}/nao-entregar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({motivo:m})}); carregar(); }
 async function mudarSeq(pid, atual){ const novo = prompt('Nova sequência:', atual); if(!novo)return; await fetch(`/api/romaneios/paradas/${pid}/sequencia`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({sequencia:Number(novo)})}); carregar(); }
-async function remParada(pid){ if(!confirm('Remover parada?'))return; await fetch(`/api/romaneios/paradas/${pid}`,{method:'DELETE'}); carregar(); }
+async function remParada(pid){ if(!await Aviso.confirmar('Remover parada?'))return; await fetch(`/api/romaneios/paradas/${pid}`,{method:'DELETE'}); carregar(); }
 
 carregar();
 </script>

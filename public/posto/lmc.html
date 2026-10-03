@@ -90,6 +90,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('posto-lmc');</script>
 <script>
@@ -207,13 +208,13 @@ async function fecharDia(forcar) {
     // Fechar sem medição é decisão do usuário, não do sistema: pergunta em vez
     // de recusar em silêncio — mas o livro guarda que faltou medição.
     if (e.corpo && e.corpo.combustiveisSemMedicao) {
-      if (confirm(`${e.message}\n\nFechar assim mesmo? O livro vai registrar o dia sem estoque físico, e sem ele não há como apurar perda.`)) {
+      if (await Aviso.confirmar(`${e.message}\n\nFechar assim mesmo? O livro vai registrar o dia sem estoque físico, e sem ele não há como apurar perda.`)) {
         return fecharDia(true);
       }
       return;
     }
     if (e.corpo && e.corpo.sugestao === 'reabrir') {
-      if (confirm(`${e.message}\n\nRecalcular e sobrescrever o fechamento?`)) return fecharDia(true);
+      if (await Aviso.confirmar(`${e.message}\n\nRecalcular e sobrescrever o fechamento?`)) return fecharDia(true);
       return;
     }
     showAlert(e.message, 'error');
@@ -223,7 +224,7 @@ async function fecharDia(forcar) {
 async function reabrirDia() {
   const data = document.getElementById('dData').value;
   if (!data) return showAlert('Escolha a data', 'error');
-  if (!confirm(`Reabrir o dia ${data}? O congelamento do livro será desfeito.`)) return;
+  if (!await Aviso.confirmar(`Reabrir o dia ${data}? O congelamento do livro será desfeito.`)) return;
   try {
     const d = await post('/api/posto/lmc/reabrir', { data });
     showAlert(`${d.reabertos} linha(s) reaberta(s)`);

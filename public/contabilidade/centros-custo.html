@@ -55,6 +55,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('centros-custo');</script>
@@ -108,7 +109,7 @@ async function salvar(){
   carregar();
 }
 async function excluir(id){
-  if (!confirm('Desativar este centro?')) return;
+  if (!await Aviso.confirmar('Desativar este centro?')) return;
   const r = await fetch('/api/centros-custo/'+id, { method:'DELETE' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');

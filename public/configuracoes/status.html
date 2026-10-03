@@ -449,19 +449,19 @@
         }
 
         async function iniciarSyncCompleta() {
-            if (!confirm('Iniciar sincronização completa? Isso pode levar vários minutos.')) return;
+            if (!await Aviso.confirmar('Iniciar sincronização completa? Isso pode levar vários minutos.')) return;
 
             try {
                 const response = await fetch('/api/sync/full', { method: 'POST' });
                 const data = await response.json();
                 if (data.success) {
-                    alert('Sincronização completa iniciada!');
+                    Aviso.erro('Sincronização completa iniciada!');
                     carregarStatus();
                 } else {
-                    alert('Erro: ' + (data.message || data.error));
+                    Aviso.erro(Aviso.mensagemDeErro((data.message || data.error)));
                 }
             } catch (error) {
-                alert('Erro ao iniciar sincronização');
+                Aviso.erro('Erro ao iniciar sincronização');
             }
         }
 
@@ -470,13 +470,13 @@
                 const response = await fetch('/api/sync/incremental', { method: 'POST' });
                 const data = await response.json();
                 if (data.success) {
-                    alert('Sincronização incremental iniciada!');
+                    Aviso.erro('Sincronização incremental iniciada!');
                     carregarStatus();
                 } else {
-                    alert('Erro: ' + (data.message || data.error));
+                    Aviso.erro(Aviso.mensagemDeErro((data.message || data.error)));
                 }
             } catch (error) {
-                alert('Erro ao iniciar sincronização');
+                Aviso.erro('Erro ao iniciar sincronização');
             }
         }
 
@@ -514,6 +514,7 @@
     </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
     <script>initSidebar('status');
 // ==================== STATUS DO NEGÓCIO ====================
 // A tela respondia "o sync rodou?" e "quantas licitações existem?". Com 935 mil

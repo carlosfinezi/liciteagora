@@ -14,6 +14,7 @@ const { copiaDoTenant } = require('./banco-de-teste');
 const puppeteer = require(BASE + '/node_modules/puppeteer-core');
 const { registrarRotasFiscalRegras } = require(BASE + '/fiscal-regras-routes');
 const { prepararAvisos } = require('./aviso-de-teste');
+const { esperarFrame } = require('./frame-de-teste');
 
 const PORTA = 34123;
 const db = new Database(copiaDoTenant('labfiscal'));
@@ -72,7 +73,7 @@ const server = app.listen(PORTA);
   page.on('console', m => { if (m.type() === 'error') errosJS.push('console: ' + m.text()); });
 
   await page.goto(`http://127.0.0.1:${PORTA}/__wrapper`, { waitUntil: 'networkidle0' });
-  const frame = page.frames().find(f => f.url().includes('regras-tributarias.html'));
+  const frame = await esperarFrame(page, f => f.url().includes('regras-tributarias.html'));
 
   secao('Carga');
   assert(!!frame, 'iframe da tela carregou');

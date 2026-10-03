@@ -122,6 +122,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/campo-formato.js"></script>
 <script>initSidebar('recorrencias');</script>
 
@@ -188,7 +189,7 @@ async function carregarRecorrencias() {
 }
 
 async function executarUma(id) {
-    if (!confirm('Executar esta recorrencia para o mes atual?')) return;
+    if (!await Aviso.confirmar('Executar esta recorrencia para o mes atual?')) return;
     try {
         showAlert('Executando...', 'info');
         const resp = await fetch(`/api/recorrencias/${id}/executar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
@@ -287,7 +288,7 @@ async function acompanharLote(estado) {
 }
 
 async function executarTodas() {
-    if (!confirm('Executar TODAS as recorrencias ativas para o mes atual?')) return;
+    if (!await Aviso.confirmar('Executar TODAS as recorrencias ativas para o mes atual?')) return;
     try {
         const { status, data } = await buscarJson('/api/recorrencias/executar', { method: 'POST' });
         if (status === 409) {
@@ -422,7 +423,7 @@ async function salvarRec() {
 // O DELETE do backend DESATIVA, nao apaga — e correto: a recorrencia tem
 // historico de emissao atras dela. O botao diz o que acontece de verdade.
 async function desativar(id, descricao) {
-    if (!confirm(`Desativar a recorrência "${descricao}"?\n\nEla para de emitir nos próximos meses. O histórico e as NFS-e já emitidas continuam.`)) return;
+    if (!await Aviso.confirmar(`Desativar a recorrência "${descricao}"?\n\nEla para de emitir nos próximos meses. O histórico e as NFS-e já emitidas continuam.`)) return;
     const d = await fetch('/api/recorrencias/' + id, { method: 'DELETE' }).then(r => r.json());
     if (!d.success) return showAlert(d.error, 'error');
     showAlert('Recorrência desativada — volta a emitir se você reativar');

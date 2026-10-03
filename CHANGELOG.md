@@ -4,6 +4,62 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-02, o aviso do sistema volta às telas de onde o revert o tirou
+
+O 72d4fa1 desfez, em 234 arquivos, o que a primeira leva da revisão tinha posto
+de aviso e de peça de campo nas telas. A decisão de hoje é a oposta, e é do
+usuário: a formatação e o aviso ficam em todas as telas. Esta leva reaplica o
+que aquele commit tirou, por cima do que as telas têm hoje, e não revertendo o
+revert: cada hunk só entrou onde o contexto atual o aceitou, de modo que nada
+do que veio depois dele foi desfeito.
+
+**534 chamadas `Aviso.*` de volta, em 205 arquivos**, e com elas saíram 297
+`alert()` e 236 `confirm()` do navegador. Mais 188 linhas de `<script>` da peça
+de aviso. O grosso é fiscal (26 telas), financeiro (17), operacional (15),
+catálogo (12) e estoque (11). Dos 234 arquivos do revert, 165 aceitaram o
+conjunto inteiro; nos outros 66 o único hunk que sobrou foi o das linhas de
+`<script>`, porque a peça de campo já tinha voltado nesta mesma data.
+
+**O revert deixou quatro telas PÚBLICAS chamando `Aviso.*` sem o arquivo**, e
+isso era `ReferenceError` em produção desde 01/10 às 21:01: `auth/agendar.html`,
+`auth/orcamento-comercial.html`, `cardapio/index.html` e `portal/cotacao.html`.
+São outras quatro além das que a rodada de lógica achou de manhã. Quem as
+mostrou foi a prova pelo avesso: a suíte 173 rodando contra a árvore de antes
+desta leva reprova em 8 checagens, exatamente essas.
+
+A regra agora é medida e não conferida de olho: **toda tela que chama `Aviso.*`
+carrega o `aviso-sistema.js`**, e a suíte 173 fecha em 529/529.
+
+**A peça entra por TAG em cada tela, nunca por injeção, e o motivo custou duas
+suítes.** O `sidebar.js` passou a chamar `Aviso.erro` no `trocarEstabelecimento`,
+e ele é carregado por 227 telas. Injetá-la de lá parecia o caminho curto, e a
+primeira versão desta leva fez isso. Resultado medido: a tela que já trazia a
+tag carregava a peça DUAS vezes, e a segunda carga reatribui `window.Aviso`,
+apagando qualquer decoração posta sobre ela. É o que o `scripts/aviso-de-teste.js`
+faz para responder "sim" à confirmação. As suítes 35 e 88 passaram a morrer em
+`Runtime.callFunctionOn timed out`, com a caixa aberta na tela, que é o sintoma
+que aquele módulo documenta no cabeçalho. A injeção saiu e as 23 telas que
+faltavam ganharam a tag, como as outras 204 já tinham.
+
+**A suíte 173 media a landing no lugar do painel.** `index.html` existe em dois
+lugares, `public/index.html` é o painel do ERP e `public/landing/index.html` é a
+landing, e em produção quem escolhe é o host: a landing só responde no apex, por
+`apexOnly`. O harness montava a pasta da landing na raiz, então a medição de
+`index.html` abria a landing, achava `window.Aviso` ausente com toda a razão (a
+landing tem o toast dela, no `landing.js`) e reprovava uma tela que não era a
+medida. Agora há rota explícita para o painel, e a landing continua medida pelo
+caminho dela.
+
+Ficaram de fora três telas, porque outra sessão as estava editando na mesma
+hora: `comercial/pessoas.html`, `comunicacao/conversas.html` e
+`operacional/grupos-palavras.html`. Juntas somam 6 chamadas que o revert tirou e
+que continuam como `alert()`/`confirm()`. Elas voltam junto da frente que as
+está mexendo.
+
+Dois `window.confirm()` do catálogo e dois do restaurante também ficam: são de
+frentes posteriores ao revert, não foram tirados por ele, e converter o que não
+se pediu não é reaplicação.
+
 ## 2026-10-02, o nicho do funil ao lado do segmento legado nas listas
 
 As listas de contatos passaram a falar os dois vocabulários do mesmo contato.

@@ -19,6 +19,7 @@ const Database = require(BASE + '/node_modules/better-sqlite3');
 const { copiaDoTenant } = require('./banco-de-teste');
 const puppeteer = require(BASE + '/node_modules/puppeteer-core');
 const { registrarRotasFiscalDiagnostico, gerarDiagnostico } = require(BASE + '/fiscal-diagnostico-routes');
+const { esperarFrame } = require('./frame-de-teste');
 
 const PORTA = 34125;
 const db = new Database(copiaDoTenant('labfiscal'));
@@ -197,7 +198,7 @@ function prepararEmpresa({ regime, comCertificado = true }) {
   page.on('console', m => { if (m.type() === 'error') errosJS.push('console: ' + m.text()); });
 
   await page.goto(`http://127.0.0.1:${PORTA}/__wrapper`, { waitUntil: 'networkidle0' });
-  const frame = page.frames().find(f => f.url().includes('diagnostico.html'));
+  const frame = await esperarFrame(page, f => f.url().includes('diagnostico.html'));
   assert(!!frame, 'iframe carregou');
 
   await frame.waitForFunction(

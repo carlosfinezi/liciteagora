@@ -17,6 +17,7 @@ const express = require(BASE + '/node_modules/express');
 const Database = require(BASE + '/node_modules/better-sqlite3');
 const { copiaDoTenant } = require('./banco-de-teste');
 const puppeteer = require(BASE + '/node_modules/puppeteer-core');
+const { esperarFrame } = require('./frame-de-teste');
 
 const PORTA = 34119;
 const DB_PATH = copiaDoTenant('labfiscal');
@@ -111,7 +112,7 @@ const server = app.listen(PORTA);
   page.on('console', m => { if (m.type() === 'error') errosJS.push('console: ' + m.text()); });
 
   await page.goto(`http://127.0.0.1:${PORTA}/__wrapper`, { waitUntil: 'networkidle0' });
-  const frame = page.frames().find(f => f.url().includes('nova-nota.html'));
+  const frame = await esperarFrame(page, f => f.url().includes('nova-nota.html'));
 
   secao('Carga da página');
   assert(!!frame, 'iframe da tela carregou');

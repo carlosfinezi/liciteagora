@@ -48,6 +48,7 @@ const t = (nome, fn) => {
 const assert = (c, m) => { if (!c) throw new Error(m); };
 
 const { chaveDoRamo, RAMOS } = require('../wa-m1-utils');
+const { esperarFrame } = require('./frame-de-teste');
 
 (async () => {
   // ==================== A. o classificador de segmento ====================
@@ -167,7 +168,7 @@ const { chaveDoRamo, RAMOS } = require('../wa-m1-utils');
   page.on('pageerror', e => erros.push(String(e.message)));
   page.on('response', r => { if (r.status() >= 400) erros.push(`${r.status()} em ${r.url()}`); });
   await page.goto(`http://127.0.0.1:${PORTA}/__wrapper/campanhas`, { waitUntil: 'networkidle0' });
-  let frame = page.frames().find(f => f.url().includes('/comunicacao/campanhas.html'));
+  let frame = await esperarFrame(page, f => f.url().includes('/comunicacao/campanhas.html'));
   if (!frame) { console.log('FALHA a tela não carregou'); process.exit(1); }
   const esperar = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -204,7 +205,7 @@ const { chaveDoRamo, RAMOS } = require('../wa-m1-utils');
   await t('B2. a lista de modelos diz quais estao em uso', async () => {
     // Modelos era subguia de Campanhas até 28/09; agora é página própria.
     await page.goto(`http://127.0.0.1:${PORTA}/__wrapper/modelos`, { waitUntil: 'networkidle0' });
-    frame = page.frames().find(f => f.url().includes('/comunicacao/modelos.html'));
+    frame = await esperarFrame(page, f => f.url().includes('/comunicacao/modelos.html'));
     assert(!!frame, 'modelos.html não carregou');
     await frame.waitForFunction(() =>
       !/Carregando/.test(document.getElementById('tbModelos').textContent), { timeout: 8000 });
@@ -243,7 +244,7 @@ const { chaveDoRamo, RAMOS } = require('../wa-m1-utils');
   const abrirLegado = async (id) => {
     salvo = null; pedidoPrevia = null;
     await page.goto(`http://127.0.0.1:${PORTA}/__wrapper/campanha?id=${id}`, { waitUntil: 'networkidle0' });
-    frame = page.frames().find(f => f.url().includes('campanha.html'));
+    frame = await esperarFrame(page, f => f.url().includes('campanha.html'));
     if (!frame) { console.log('FALHA a página da campanha não carregou'); process.exit(1); }
     await frame.waitForFunction(() => document.querySelectorAll('#cModelo option').length > 1, { timeout: 8000 });
   };
@@ -378,7 +379,7 @@ const { chaveDoRamo, RAMOS } = require('../wa-m1-utils');
 
   await t('E1. criar campanha abre a PAGINA, com as secoes dela', async () => {
     await page.goto(`http://127.0.0.1:${PORTA}/__wrapper/campanha?nova=1`, { waitUntil: 'networkidle0' });
-    frame = page.frames().find(f => f.url().includes('campanha.html'));
+    frame = await esperarFrame(page, f => f.url().includes('campanha.html'));
     await frame.waitForFunction(() => document.querySelectorAll('#cLista option').length > 1, { timeout: 8000 });
     const titulo = await frame.$eval('#tituloCamp', e => e.textContent);
     assert(/Nova campanha/.test(titulo), `o título diz "${titulo}"`);
@@ -447,7 +448,7 @@ const { chaveDoRamo, RAMOS } = require('../wa-m1-utils');
 
   await t('E6. editar campanha nova carrega o que ela ja tem', async () => {
     await page.goto(`http://127.0.0.1:${PORTA}/__wrapper/campanha?comm=7`, { waitUntil: 'networkidle0' });
-    frame = page.frames().find(f => f.url().includes('campanha.html'));
+    frame = await esperarFrame(page, f => f.url().includes('campanha.html'));
     await frame.waitForFunction(() => document.getElementById('cNome').value !== '', { timeout: 8000 });
     const nome = await frame.$eval('#cNome', e => e.value);
     const lista = await frame.$eval('#cLista', e => e.value);

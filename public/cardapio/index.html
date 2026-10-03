@@ -92,6 +92,7 @@
   <button class="btn sec" onclick="document.getElementById('dlgMsg').close()">Fechar</button>
 </div></dialog>
 
+<script src="/js/aviso-sistema.js"></script>
 <script>
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function fmt(v) { return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -210,8 +211,8 @@ function confirmarItem() {
   // servidor revalida de qualquer forma.
   for (const g of (itemAberto.grupos || [])) {
     const n = escolhidas.filter(c => c.dataset.grupo === String(g.id)).length;
-    if (n < g.minEscolhas) return alert(`Escolha ao menos ${g.minEscolhas} em "${g.nome}"`);
-    if (n > g.maxEscolhas) return alert(`No máximo ${g.maxEscolhas} em "${g.nome}"`);
+    if (n < g.minEscolhas) return Aviso.erro(`Escolha ao menos ${g.minEscolhas} em "${g.nome}"`);
+    if (n > g.maxEscolhas) return Aviso.erro(`No máximo ${g.maxEscolhas} em "${g.nome}"`);
   }
   const opcoes = escolhidas.map(c => {
     const g = itemAberto.grupos.find(x => String(x.id) === c.dataset.grupo);

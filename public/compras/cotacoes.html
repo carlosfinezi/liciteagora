@@ -120,6 +120,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('compras-cotacoes');</script>
@@ -169,7 +170,7 @@ async function enviar(id){
 }
 
 async function cancelar(id){
-  if (!confirm('Cancelar esta cotação?')) return;
+  if (!await Aviso.confirmar('Cancelar esta cotação?')) return;
   const r = await fetch(`/api/cotacoes/${id}/cancelar`, { method:'POST' }); const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
   carregar();
@@ -390,7 +391,7 @@ async function sugerirRateio(){
 }
 
 async function limparRateio(){
-  if (!confirm('Apagar a divisão inteira desta cotação?')) return;
+  if (!await Aviso.confirmar('Apagar a divisão inteira desta cotação?')) return;
   rateio = {};
   renderComparativo();
   await salvarRateio();

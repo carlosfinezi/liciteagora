@@ -160,6 +160,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
@@ -600,7 +601,7 @@ function novoProduto(){ location.href = '/catalogo/produto.html'; }
 function abrirProduto(id){ location.href = '/catalogo/produto.html?id=' + id; }
 
 async function excluir(id, nome){
-  if (!confirm('Desativar "'+nome+'"?')) return;
+  if (!await Aviso.confirmar('Desativar "'+nome+'"?')) return;
   try {
     const r = await fetch('/api/produtos/'+Number(id), { method:'DELETE' });
     const d = await r.json();

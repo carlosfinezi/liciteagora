@@ -72,6 +72,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script src="/js/proposta-ajustada.js?v=20260803"></script>
@@ -263,7 +264,7 @@ async function sincronizarFunil() {
 
 function exportarCSV() {
   if (!_ultimoResultado.participacoes || _ultimoResultado.participacoes.length === 0) {
-    alert('Nada para exportar — carregue dados primeiro.');
+    Aviso.erro('Nada para exportar — carregue dados primeiro.');
     return;
   }
   const cols = ['orgao','objeto','numero','ano','sequencial','compraId','dataHoraFimDisputa','statusLogico','propostaEnviadaEm','itens_homologados','itens_ganhos','valor_ganho','lances_ok','lances_falha'];

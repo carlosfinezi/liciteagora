@@ -39,6 +39,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script>initSidebar('anexos-compra');</script>
 <script>
 const params = new URLSearchParams(location.search);
@@ -151,7 +152,7 @@ async function anexar(numero) {
   const documentoId = sel.value;
   if (!documentoId) { alerta('Escolha uma certidão para anexar.', 'warning'); return; }
   const nome = sel.options[sel.selectedIndex].text;
-  if (!confirm(`Anexar "${nome}" ao item ${numero} da compra ${COMPRA}?`)) return;
+  if (!await Aviso.confirmar(`Anexar "${nome}" ao item ${numero} da compra ${COMPRA}?`)) return;
   sel.disabled = true;
   try {
     const r = await fetch('/api/comprasnet/anexos', {
@@ -166,7 +167,7 @@ async function anexar(numero) {
 }
 
 async function excluir(numero, nomeEnc, nomeOriginal) {
-  if (!confirm(`Excluir o anexo "${nomeOriginal}" do item ${numero}? Esta ação remove o arquivo do Comprasnet.`)) return;
+  if (!await Aviso.confirmar(`Excluir o anexo "${nomeOriginal}" do item ${numero}? Esta ação remove o arquivo do Comprasnet.`)) return;
   try {
     const r = await fetch('/api/comprasnet/anexos', {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' },

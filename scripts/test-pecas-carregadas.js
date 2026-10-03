@@ -118,6 +118,18 @@ function semComentario(js) {
       s.type('html').send(fs.readFileSync(alt, 'utf8'));
     });
   }
+  /**
+   * `index.html` existe em DOIS lugares: `public/index.html` é o painel do ERP
+   * e `public/landing/index.html` é a landing. Em produção quem escolhe é o
+   * HOST — a landing responde só no apex (`apexOnly`, em `landing-routes.js`),
+   * e no host do tenant `/index.html` é o painel. Com a landing montada na
+   * raiz aqui, a medição de `index.html` abria a landing: título "ERP completo
+   * para empresas que vivem de licitações", `/landing.js` como único script, e
+   * `window.Aviso` ausente com razão, porque a landing tem o toast dela. A
+   * checagem reprovava uma tela que não era a medida. Esta rota devolve o
+   * painel; a landing continua medida pelo caminho dela.
+   */
+  app.get('/index.html', (_q, s) => s.sendFile(path.join(PUBLICO, 'index.html')));
   app.use(express.static(path.join(PUBLICO, 'landing')));
   app.use(express.static(path.join(PUBLICO, 'auth')));
   app.use(express.static(PUBLICO));

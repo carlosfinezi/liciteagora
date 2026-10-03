@@ -590,6 +590,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/campo-formato.js"></script>
 <script>initSidebar('produtos');</script>
 <script>
@@ -811,7 +812,7 @@ async function excluir(){
   const id = val('prodId');
   if (!id) return;
   const nome = val('descricao') || val('sku');
-  if (!confirm('Desativar "'+nome+'"?')) return;
+  if (!await Aviso.confirmar('Desativar "'+nome+'"?')) return;
   try {
     const r = await fetch('/api/produtos/'+id, { method:'DELETE' });
     const d = await r.json();
@@ -844,7 +845,7 @@ function preverImagem(){
 async function removerImagem(){
   const id = val('prodId');
   if (!id) return;
-  if (!confirm('Remover imagem?')) return;
+  if (!await Aviso.confirmar('Remover imagem?')) return;
   try {
     const r = await fetch('/api/produtos/'+id+'/imagem', { method:'DELETE' });
     const d = await r.json();

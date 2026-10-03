@@ -166,11 +166,11 @@ async function verSaldoLojas(produtoId, sku){
     const r = await fetch(`/api/estoque/${produtoId}/saldo-lojas`).then(x=>x.json());
     if (!r.success) return;
     if (!r.lojas || r.lojas.length <= 1){
-      alert(`${sku}\nSaldo: ${fmt(r.total)} (só matriz)`);
+      Aviso.erro(`${sku}\nSaldo: ${fmt(r.total)} (só matriz)`);
       return;
     }
     const linhas = r.lojas.map(l=>`• ${l.nome}: ${fmt(l.saldo)}`).join('\n');
-    alert(`Saldo por loja — ${sku}\n\n${linhas}\n\nTotal da rede: ${fmt(r.total)}`);
+    Aviso.erro(`Saldo por loja — ${sku}\n\n${linhas}\n\nTotal da rede: ${fmt(r.total)}`);
   } catch(e){ /* silencioso */ }
 }
 

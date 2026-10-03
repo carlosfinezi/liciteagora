@@ -66,6 +66,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/campo-formato.js"></script>
 <script>initSidebar('adquirentes-cartao');</script>
 <script>
@@ -78,7 +79,7 @@ async function carregar(){
     const d = await r.json();
     LISTA = d.adquirentes || [];
     render();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 function render(){
@@ -144,7 +145,7 @@ async function salvar(){
     contaFinanceiraPadraoId: document.getElementById('mContaFin').value || null,
     observacoes: document.getElementById('mObs').value || null
   };
-  if (!body.nome) { alert('Nome obrigatório'); return; }
+  if (!body.nome) { Aviso.erro('Nome obrigatório'); return; }
   try {
     const url = EDITANDO ? '/api/adquirentes/'+EDITANDO : '/api/adquirentes';
     const method = EDITANDO ? 'PUT' : 'POST';
@@ -152,11 +153,11 @@ async function salvar(){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     fechar(); carregar();
-  } catch(e){ alert('Erro: '+e.message); }
+  } catch(e){ Aviso.erro(Aviso.mensagemDeErro(e)); }
 }
 
 async function desativar(id){
-  if (!confirm('Desativar esta adquirente? (não será mais listada no autocomplete de pedidos)')) return;
+  if (!await Aviso.confirmar('Desativar esta adquirente? (não será mais listada no autocomplete de pedidos)')) return;
   await fetch('/api/adquirentes/'+id, { method:'DELETE' });
   carregar();
 }

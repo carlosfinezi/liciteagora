@@ -68,6 +68,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
 <script>initSidebar('compras-necessidades');</script>
@@ -158,7 +159,7 @@ async function gerar(destino){
   const itens = montarItens();
   if (!itens.length) return showAlert('Selecione ao menos um item com quantidade', 'error');
   const rotulo = destino === 'cotacao' ? 'uma cotação' : 'pedido(s) de compra';
-  if (!confirm(`Gerar ${rotulo} com ${itens.length} linha(s)?\n\nO documento nasce em rascunho — nada é enviado ao fornecedor agora.`)) return;
+  if (!await Aviso.confirmar(`Gerar ${rotulo} com ${itens.length} linha(s)?\n\nO documento nasce em rascunho — nada é enviado ao fornecedor agora.`)) return;
 
   try {
     const r = await fetch('/api/compras/gerar-de-necessidade', {

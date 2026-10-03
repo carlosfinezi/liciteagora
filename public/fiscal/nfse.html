@@ -330,7 +330,7 @@
             const label = novoAmbiente === 1 ? 'PRODUCAO' : 'HOMOLOGACAO';
 
             if (novoAmbiente === 1) {
-                if (!confirm('Mudar para PRODUCAO? Notas emitidas serao reais!')) return;
+                if (!await Aviso.confirmar('Mudar para PRODUCAO? Notas emitidas serao reais!')) return;
             }
 
             try {
@@ -433,7 +433,7 @@
             const ambiente = configAtual.ambiente;
             const ambLabel = (ambiente === '1' || ambiente === 1) ? 'PRODUCAO' : 'HOMOLOGACAO';
             const linhaContrato = contratoOrigem ? '\nContrato: ' + contratoOrigem.numero : '';
-            if (!confirm('Emitir NFSe em ' + ambLabel + '?\n\nTomador: ' + razaoSocial + '\nValor: R$ ' + valor.toFixed(2) + linhaContrato)) return;
+            if (!await Aviso.confirmar('Emitir NFSe em ' + ambLabel + '?\n\nTomador: ' + razaoSocial + '\nValor: R$ ' + valor.toFixed(2) + linhaContrato)) return;
 
             btn.disabled = true;
             btn.textContent = 'Emitindo...';
@@ -583,6 +583,7 @@
     </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
+    <script src="/js/aviso-sistema.js"></script>
     <script src="/js/campo-formato.js"></script>
     <script>initSidebar('nfse');</script>
 </body>

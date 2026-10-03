@@ -1259,7 +1259,7 @@ async function cancelarBlitzPorKey(blitzKey, compraId, itemNumero) {
 async function agendarBlitzGlobal() {
     var horaEl = document.getElementById('blitz-global-hora');
     var horario = horaEl.value;
-    if(!horario) { alert('Informe o horário para a blitz global'); return; }
+    if(!horario) { Aviso.erro('Informe o horário para a blitz global'); return; }
     // Normalizar — adicionar segundos se ausente. NÃO adicionar ms — servidor calcula automaticamente
     if(horario.length === 5) horario += ':00';
 
@@ -1395,7 +1395,7 @@ async function setAuto(compraId, itemNumero, modo, selectEl) {
         }
     }
 
-    if(modo==='sniper' && isPregao(compraId) && !confirm(
+    if(modo==='sniper' && isPregao(compraId) && !await Aviso.confirmar(
         'Pregão fecha em horário aleatório — o modo Sniper (horário fixo) pode perder o fechamento.\n'+
         'Prefira Contínuo. Usar Sniper mesmo assim?')) { if(selectEl) selectEl.value=cfg?.modoAuto||''; return; }
 

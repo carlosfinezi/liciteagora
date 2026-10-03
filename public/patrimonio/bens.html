@@ -156,6 +156,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
 <script src="/js/campo-formato.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/grid.js"></script>
@@ -367,7 +368,7 @@ function abrirDepreciacao(){
 async function apurarDepr(simular){
   const competencia = document.getElementById('dpComp').value;
   if (!competencia) return showAlert('Escolha a competência','error');
-  if (!simular && !confirm(`Lançar a depreciação de ${competencia} na contabilidade?`)) return;
+  if (!simular && !await Aviso.confirmar(`Lançar a depreciação de ${competencia} na contabilidade?`)) return;
   const d = await fetch('/api/patrimonio/depreciacao/apurar', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ competencia, simular })
@@ -396,7 +397,7 @@ async function apurarDepr(simular){
 async function estornarDepr(){
   const competencia = document.getElementById('dpComp').value;
   if (!competencia) return showAlert('Escolha a competência','error');
-  if (!confirm(`Estornar a depreciação de ${competencia}?\n\nGera contra-lançamento e libera a competência para nova apuração.`)) return;
+  if (!await Aviso.confirmar(`Estornar a depreciação de ${competencia}?\n\nGera contra-lançamento e libera a competência para nova apuração.`)) return;
   const d = await fetch(`/api/patrimonio/depreciacao/${competencia}/estornar`, { method:'POST' }).then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');
   showAlert(`${d.estornadas} linha(s) estornada(s)` + (d.lancamentoEstornoId ? ` · contra-lançamento #${d.lancamentoEstornoId}` : ''));
