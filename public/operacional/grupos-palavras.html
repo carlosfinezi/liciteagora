@@ -7,6 +7,58 @@
   <script src="/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/css/sidebar.css">
   <link rel="stylesheet" href="/css/app-modern.css?v=20260520b">
+  <style>
+    /* Grid com `align-items: start`, e não multi-column: em colunas, abrir um
+       card empurra os de baixo para a coluna seguinte, e a tela inteira se
+       remonta a cada clique. Aqui o card cresce no lugar. O `start` é o que
+       impede o item de esticar até a altura da linha; fechados, todos têm a
+       mesma altura e não sobra vazio. `.cards-grid` do app-modern.css não serve:
+       ela vale para outras quatro telas. */
+    .grupos-colunas {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+      align-items: start;
+      gap: 20px;
+    }
+
+    /* O card é um <details>: o teclado, o `aria-expanded` e a busca do navegador
+       vêm de graça. O marcador nativo sai porque o cabeçalho é flex. */
+    .grupo > summary { cursor: pointer; list-style: none; }
+    .grupo > summary::-webkit-details-marker { display: none; }
+    .grupo > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .grupo .chevron { transition: transform .15s ease; flex: 0 0 auto; color: var(--text-3); }
+    .grupo[open] .chevron { transform: rotate(90deg); }
+    .grupo .conta-palavras { color: var(--text-3); font-size: 0.85rem; white-space: nowrap; }
+
+    /* A descrição chegava a quatro linhas e empurrava o cabeçalho. Duas linhas,
+       e o texto inteiro no `title`.
+
+       Sem fundo e sem padding por necessidade, não por gosto: do Chrome 134 em
+       diante o `-webkit-box` é ignorado e o `line-clamp` nativo CLIPA as linhas
+       excedentes em vez de tirá-las do layout. Com padding, a terceira linha
+       pintava dentro dele e aparecia cortada ao meio embaixo do bloco cinza.
+       O `max-height` é a rede para quem não tem line-clamp: corta sem as
+       reticências, mas corta. */
+    .card-sections .card-obs {
+      display: -webkit-box; -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2; line-clamp: 2;
+      overflow: hidden;
+      max-height: 2.8em;
+      background: none; border: 0; padding: 0;
+    }
+
+    /* Da nona palavra em diante, só quando se pede */
+    .chip-list.palavras:not(.aberta) > .chip-item:nth-of-type(n+9) { display: none; }
+    .ver-mais { margin-top: 8px; }
+
+    /* `.form-inline` é `display: flex !important` no app-modern.css, e vence o
+       `hidden` do atributo mesmo com especificidade menor. Daí o !important
+       daqui: sem ele o campo fica na tela com o atributo `hidden` posto. */
+    .add-palavra[hidden] { display: none !important; }
+
+    .busca-grupos { margin: 0 0 20px; max-width: 420px; }
+    .busca-grupos input { width: 100%; }
+  </style>
 </head>
 <body>
   <div class="layout">
@@ -22,20 +74,26 @@
         </div>
       </div>
 
+      <div class="busca-grupos">
+        <input type="search" id="buscaGrupos" placeholder="Buscar grupo ou palavra"
+          aria-label="Buscar grupo ou palavra" oninput="filtrarGrupos()">
+        <div class="hint" id="buscaSemResultado" hidden></div>
+      </div>
+
       <!-- Grupos de Pesquisa -->
-      <div id="gruposPesquisaContainer" class="cards-grid">
+      <div id="gruposPesquisaContainer" class="grupos-colunas">
         <div class="loading">Carregando grupos…</div>
       </div>
 
       <!-- Grupos de Exclusão -->
       <div class="page-header" style="margin-top: 32px;">
         <div>
-          <h1>🚫 Grupos de exclusão</h1>
+          <h2>🚫 Grupos de exclusão</h2>
           <small>Palavras-chave para excluir licitações indesejadas dos resultados</small>
         </div>
       </div>
 
-      <div id="gruposExclusaoContainer" class="cards-grid">
+      <div id="gruposExclusaoContainer" class="grupos-colunas">
         <div class="loading">Carregando grupos…</div>
       </div>
     </main>
@@ -101,22 +159,9 @@
           </div>
           <div class="hint">Selecione os grupos de exclusao que serao aplicados automaticamente nas buscas</div>
         </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
-        <button class="btn btn-primary" onclick="salvarGrupo()">Salvar</button>
-      </div>
-    </div>
-  </div>
 
-  <!-- Modal Agendamento Auto-análise IA -->
-  <div id="modalAgendamentoIA" class="modal-overlay">
-    <div class="modal">
-      <div class="modal-header">
-        <h3>🤖 Auto-análise IA — <span id="agendamentoNomeGrupo"></span></h3>
-        <button class="modal-close" onclick="fecharAgendamentoIA()">&times;</button>
-      </div>
-      <div class="modal-body">
+        <div id="secaoIA" hidden>
+          <h4 class="section-title" style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border);">🤖 Análise automática por IA</h4>
         <input type="hidden" id="agendamentoGrupoId">
 
         <div class="form-group form-inline">
@@ -126,11 +171,6 @@
         <div class="hint" style="margin-bottom:16px;">Cron varre licitações abertas que casam com este grupo e analisa as ainda não analisadas, até o limite definido.</div>
 
         <div class="form-grid-2">
-          <div class="form-group">
-            <label for="agendamentoUfs">UFs (vazio = todas)</label>
-            <input type="text" id="agendamentoUfs" placeholder="Ex: SP, RJ, MG">
-            <div class="hint">Separadas por vírgula</div>
-          </div>
           <div class="form-group">
             <label for="agendamentoModalidades">Modalidades (vazio = todas)</label>
             <input type="text" id="agendamentoModalidades" placeholder="Ex: 6, 5">
@@ -149,9 +189,25 @@
         </div>
 
         <div class="form-group">
-          <label for="agendamentoProdutos">🛍️ Produtos que sua empresa vende</label>
-          <textarea id="agendamentoProdutos" rows="3" placeholder="Ex: Vendo certificados SSL, Wildcard, Wildcard OV. NÃO vendo A1 CPF/CNPJ nem e-CPF/e-CNPJ."></textarea>
-          <div class="hint">A IA usa isso para classificar cada licitação como compatível ou não com seu portfólio. Seja específico sobre o que você vende E o que não vende. Deixe vazio para não classificar.</div>
+          <label for="agendamentoLimites">📐 Limites e exceções <small class="muted">opcional</small></label>
+          <textarea id="agendamentoLimites" rows="3" placeholder="Memória até 64 GB e fonte de no máximo 450 W. Somente os tamanhos 21,5&quot; e 23,8&quot;. NAS dedicados pertencem a outro grupo."></textarea>
+          <div class="hint">A IA já sabe o que você vende pelas palavras deste grupo, e o que você não vende pelas palavras dos grupos de exclusão. Escreva aqui só o que essas listas não alcançam: um teto de especificação, um tamanho que você não atende, um item que pertence a outra linha sua.</div>
+        </div>
+
+        <div class="panel" style="background:var(--bg-0);padding:14px;">
+          <h4 class="section-title">📄 Tabela de produtos do fabricante</h4>
+          <div class="hint" style="margin-bottom:12px;">Envie a tabela em PDF. A IA lê o arquivo uma vez e guarda a lista de linhas de produto, que passa a ser comparada com os itens de cada licitação.</div>
+
+          <div id="catalogoAtual" hidden style="margin-bottom:10px;">
+            <span class="label" id="catalogoDescricao"></span>
+            <button class="btn btn-ghost btn-sm" onclick="removerCatalogo()">Remover</button>
+          </div>
+
+          <div class="form-inline">
+            <input type="file" id="agendamentoCatalogo" accept="application/pdf,.pdf" style="flex:1;">
+            <button class="btn btn-secondary btn-sm" onclick="enviarCatalogo()" id="btnEnviarCatalogo">Enviar</button>
+          </div>
+          <div class="hint" id="catalogoHint" hidden></div>
         </div>
 
         <div class="panel" style="background:var(--bg-0);padding:14px;">
@@ -184,22 +240,35 @@
           </div>
           <div id="statusMensagem" class="hint hint-error" hidden></div>
         </div>
+        </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-ghost" onclick="fecharAgendamentoIA()">Fechar</button>
-        <button class="btn btn-secondary" onclick="executarScanAgora()" id="btnExecutarScan">▶ Rodar agora</button>
-        <button class="btn btn-primary" onclick="salvarAgendamentoIA()">Salvar</button>
+        <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+        <button class="btn btn-secondary" onclick="executarScanAgora()" id="btnExecutarScan" hidden>▶ Rodar agora</button>
+        <button class="btn btn-primary" onclick="salvarGrupo()">Salvar</button>
       </div>
     </div>
   </div>
 
-  <div id="toast" class="toast"></div>
+ 
+     <div id="toast" class="toast"></div>
 
   <script>
     const API_URL = '';
     let gruposPesquisa = [];
     let gruposExclusao = [];
     let corSelecionada = '#2196F3';
+
+    // Quantas palavras o card mostra fechado. O corte visual é da regra
+    // `.chip-list.palavras:not(.aberta) > .chip-item:nth-of-type(n+9)` lá em
+    // cima: mudar este número pede mudar o `n+9` junto.
+    const PALAVRAS_VISIVEIS = 8;
+
+    const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+    const textoDeBusca = (grupo) => semAcento(
+      [grupo.nome, grupo.descricao, ...(grupo.palavras || [])].filter(Boolean).join(' ')
+    ).replace(/"/g, '');
 
     // `ultimo_scan_em` vem do CURRENT_TIMESTAMP do SQLite, que grava em UTC no
     // formato "YYYY-MM-DD HH:MM:SS". Entregue cru ao `new Date`, o navegador lê
@@ -244,10 +313,70 @@
     }
 
     function renderizarGrupos() {
+      // Adicionar ou remover palavra redesenha tudo. Sem isto, o grupo em que
+      // se está trabalhando fecha a cada palavra.
+      const abertos = [...document.querySelectorAll('.grupo[open]')].map(d => d.dataset.id);
       renderizarGruposPorTipo('gruposPesquisaContainer', gruposPesquisa, 'pesquisa');
       renderizarGruposPorTipo('gruposExclusaoContainer', gruposExclusao, 'exclusao');
+      abertos.forEach(id => {
+        const card = document.querySelector(`.grupo[data-id="${id}"]`);
+        if (card) card.open = true;
+      });
+      // O render refaz os cards, e com eles some o que a busca tinha escondido
+      filtrarGrupos();
+      addAbertos.forEach(id => mostrarAddPalavra(id, true));
       // Após renderizar, carrega status do auto-análise IA de cada grupo de pesquisa
       carregarStatusAutoIA(gruposPesquisa).catch(() => {});
+    }
+
+    function filtrarGrupos() {
+      const digitado = document.getElementById('buscaGrupos').value.trim();
+      const termo = semAcento(digitado);
+      let visiveis = 0;
+      document.querySelectorAll('.grupo[data-busca]').forEach(card => {
+        const casa = !termo || card.dataset.busca.includes(termo);
+        card.hidden = !casa;
+        if (casa) visiveis++;
+
+        // Quem casou por uma PALAVRA abre, senão a palavra procurada fica
+        // escondida dentro do card fechado. Quem casou pelo nome não precisa.
+        const noNome = semAcento(card.querySelector('.card-title').textContent).includes(termo);
+        if (casa && termo && !noNome && !card.open) {
+          card.open = true;
+          card.dataset.abertoPelaBusca = '1';
+        } else if (!termo && card.dataset.abertoPelaBusca) {
+          card.open = false;
+          delete card.dataset.abertoPelaBusca;
+        }
+      });
+      const aviso = document.getElementById('buscaSemResultado');
+      aviso.hidden = !termo || visiveis > 0;
+      if (!aviso.hidden) aviso.textContent = `Nenhum grupo tem "${digitado}".`;
+    }
+
+    // Adicionar uma palavra recarrega e redesenha os cards. Sem guardar quem
+    // estava aberto, o campo fechava a cada palavra e era preciso clicar no "+"
+    // de novo — antes ele vivia aberto, e quem cadastra o faz em série.
+    const addAbertos = new Set();
+
+    function mostrarAddPalavra(grupoId, forcar) {
+      const box = document.getElementById(`addPalavra${grupoId}`);
+      if (!box) return;
+      box.hidden = forcar === true ? false : !box.hidden;
+      // O campo mora no corpo do card: sem abrir, o "+" não mostraria nada
+      const card = box.closest('.grupo');
+      if (card && !box.hidden) card.open = true;
+      if (box.hidden) addAbertos.delete(grupoId);
+      else {
+        addAbertos.add(grupoId);
+        if (forcar !== true) document.getElementById(`novaPalavra${grupoId}`).focus();
+      }
+    }
+
+    function verMaisPalavras(btn) {
+      const lista = btn.previousElementSibling;
+      const aberta = lista.classList.toggle('aberta');
+      btn.textContent = aberta ? 'menos' : `mais ${btn.dataset.restam} palavras`;
     }
 
     function renderizarGruposPorTipo(containerId, grupos, tipo) {
@@ -269,18 +398,27 @@
       }
 
       container.innerHTML = grupos.map(grupo => `
-        <div class="card-sections" data-id="${grupo.id}">
-          <div class="section section-header">
+        <details class="card-sections grupo" data-id="${grupo.id}" data-busca="${textoDeBusca(grupo)}">
+          <summary class="section section-header"
+            onclick="if (event.target.closest('button')) event.preventDefault();">
             <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+              <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 18l6-6-6-6"/>
+              </svg>
               <div class="card-avatar" style="background: ${grupo.cor || '#1a5f7a'}">
                 ${grupo.nome.charAt(0).toUpperCase()}
               </div>
               <div style="min-width:0;">
                 <div class="card-title">${grupo.nome}</div>
-                ${grupo.descricao ? `<div class="card-obs">${grupo.descricao}</div>` : ''}
+                <span class="conta-palavras">${grupo.palavras ? grupo.palavras.length : 0} palavra(s)</span>
               </div>
             </div>
             <div style="display:flex;gap:8px;">
+              <button class="icon-btn" onclick="mostrarAddPalavra(${grupo.id})" title="Adicionar palavra">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 5v14M5 12h14"/>
+                </svg>
+              </button>
               <button class="icon-btn" onclick="editarGrupo(${grupo.id})" title="Editar">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
@@ -294,9 +432,10 @@
                 </svg>
               </button>
             </div>
-          </div>
+          </summary>
           <div class="section">
-            <div class="chip-list">
+            ${grupo.descricao ? `<div class="card-obs" title="${grupo.descricao.replace(/"/g, '&quot;')}">${grupo.descricao}</div>` : ''}
+            <div class="chip-list palavras">
               ${grupo.palavras && grupo.palavras.length > 0
                 ? grupo.palavras.map(p => `
                     <span class="chip-item" style="background: ${grupo.cor}22; color: ${grupo.cor}; border-color: ${grupo.cor}55;">
@@ -307,7 +446,12 @@
                 : '<span class="hint">Nenhuma palavra configurada</span>'
               }
             </div>
-            <div class="form-inline" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+            ${grupo.palavras && grupo.palavras.length > PALAVRAS_VISIVEIS ? `
+              <button class="btn btn-ghost btn-sm ver-mais" data-restam="${grupo.palavras.length - PALAVRAS_VISIVEIS}"
+                onclick="verMaisPalavras(this)">mais ${grupo.palavras.length - PALAVRAS_VISIVEIS} palavras</button>
+            ` : ''}
+            <div class="form-inline add-palavra" id="addPalavra${grupo.id}" hidden
+              style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
               <input type="text" id="novaPalavra${grupo.id}" placeholder="Adicionar palavra..."
                 onkeypress="if(event.key==='Enter') adicionarPalavra(${grupo.id})" style="flex:1;">
               <button class="btn btn-primary btn-sm" onclick="adicionarPalavra(${grupo.id})">+ Adicionar</button>
@@ -325,21 +469,10 @@
             ${!isExclusao ? `
               <div class="auto-ia-row" id="autoIA-${grupo.id}" style="margin-top:10px;">
                 <span class="label" id="autoIAStatus-${grupo.id}">🤖 Auto-análise IA: <em>carregando...</em></span>
-                <button class="btn btn-ghost btn-sm" onclick="abrirAgendamentoIA(${grupo.id}, '${(grupo.nome || '').replace(/'/g, '&#39;')}')">Configurar</button>
               </div>
             ` : ''}
           </div>
-          <div class="section section-footer">
-            <span>${grupo.palavras ? grupo.palavras.length : 0} palavra(s)</span>
-            <button class="btn btn-primary btn-sm" onclick="pesquisarGrupo(${grupo.id})">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px;">
-                <circle cx="11" cy="11" r="8"/>
-                <path d="M21 21l-4.35-4.35"/>
-              </svg>
-              Pesquisar
-            </button>
-          </div>
-        </div>
+        </details>
       `).join('');
     }
 
@@ -392,6 +525,11 @@
         renderizarCheckboxesExclusao([]);
       }
 
+      // O agendamento se pendura no id do grupo, que só existe depois do
+      // primeiro Salvar. Por isso a seção de IA não aparece na criação.
+      document.getElementById('secaoIA').hidden = true;
+      document.getElementById('btnExecutarScan').hidden = true;
+
       document.getElementById('modalGrupo').classList.add('active');
     }
 
@@ -435,10 +573,16 @@
         renderizarCheckboxesExclusao(vinculadosIds);
       }
 
+      // Grupo de exclusão não tem análise IA: ele é insumo da busca, não alvo.
+      document.getElementById('secaoIA').hidden = isExclusao;
+      document.getElementById('btnExecutarScan').hidden = isExclusao;
+      if (!isExclusao) carregarAgendamentoNoModal(id);
+
       document.getElementById('modalGrupo').classList.add('active');
     }
 
     function fecharModal() {
+      clearTimeout(_modalRefreshTimer);
       document.getElementById('modalGrupo').classList.remove('active');
     }
 
@@ -506,6 +650,12 @@
         const data = await res.json();
 
         if (data.success) {
+          // O modal é um só, então o Salvar grava as duas partes. O agendamento
+          // só existe para grupo de pesquisa já criado, porque se pendura no id.
+          if (id && tipo !== 'exclusao') {
+            const okIA = await salvarSecaoIA(id, ufs);
+            if (!okIA) return;   // deixa o modal aberto, com o erro à vista
+          }
           showToast(id ? 'Grupo atualizado!' : 'Grupo criado!', 'success');
           fecharModal();
           carregarGrupos();
@@ -542,6 +692,18 @@
 
       if (!palavra) return;
 
+      // O grupo MONITOR DE VÍDEO tinha "monitor de video" e "monitor de vídeo"
+      // lado a lado, e a busca casa sem acento: a segunda não acrescenta nada
+      // e engorda o card.
+      const grupo = [...gruposPesquisa, ...gruposExclusao].find(g => g.id === grupoId);
+      const jaTem = (grupo && grupo.palavras || []).find(p => semAcento(p) === semAcento(palavra));
+      if (jaTem) {
+        showToast(jaTem === palavra
+          ? 'O grupo já tem essa palavra.'
+          : `O grupo já tem "${jaTem}". Acento não faz uma palavra diferente.`, 'error');
+        return;
+      }
+
       try {
         const res = await fetch(`${API_URL}/api/grupos-palavras/${grupoId}/palavras`, {
           method: 'POST',
@@ -576,11 +738,6 @@
       } catch (error) {
         showToast('Erro ao remover palavra', 'error');
       }
-    }
-
-    function pesquisarGrupo(id) {
-      // Redireciona para a pagina principal com o grupo selecionado
-      window.location.href = `/?grupo=${id}`;
     }
 
     // ==================== AGENDAMENTO AUTO-ANÁLISE IA ====================
@@ -624,16 +781,19 @@
     }
     let _autoIARefreshTimer = null;
 
-    async function abrirAgendamentoIA(grupoId, nomeGrupo) {
+    // Preenche a seção de IA do modal do grupo. Antes era um segundo modal,
+    // aberto por um segundo botão, pedindo UFs que o grupo já pedia.
+    async function carregarAgendamentoNoModal(grupoId) {
       document.getElementById('agendamentoGrupoId').value = grupoId;
-      document.getElementById('agendamentoNomeGrupo').textContent = nomeGrupo;
       // Reset
       document.getElementById('agendamentoAtivo').checked = false;
-      document.getElementById('agendamentoUfs').value = '';
       document.getElementById('agendamentoModalidades').value = '';
       document.getElementById('agendamentoValorMin').value = '';
       document.getElementById('agendamentoLimite').value = '100';
-      document.getElementById('agendamentoProdutos').value = '';
+      document.getElementById('agendamentoLimites').value = '';
+      document.getElementById('agendamentoCatalogo').value = '';
+      document.getElementById('catalogoHint').hidden = true;
+      document.getElementById('catalogoAtual').hidden = true;
       document.getElementById('agendamentoAutoInteresse').checked = false;
       document.getElementById('agendamentoAutoTelegram').checked = false;
       document.getElementById('agendamentoAutoScoreMin').value = '70';
@@ -645,11 +805,11 @@
         if (j.success) {
           const c = j.config;
           document.getElementById('agendamentoAtivo').checked = !!c.ativo;
-          document.getElementById('agendamentoUfs').value = (c.ufs || []).join(', ');
           document.getElementById('agendamentoModalidades').value = (c.modalidades || []).join(', ');
           document.getElementById('agendamentoValorMin').value = c.valor_minimo || '';
           document.getElementById('agendamentoLimite').value = c.limite_diario || 100;
-          document.getElementById('agendamentoProdutos').value = c.produtos_que_vendo || '';
+          document.getElementById('agendamentoLimites').value = c.limites || '';
+          renderizarCatalogo(c.catalogo_nome, c.catalogo_em);
           document.getElementById('agendamentoAutoInteresse').checked = !!c.auto_interesse_ativo;
           document.getElementById('agendamentoAutoTelegram').checked = !!c.auto_telegram_ativo;
           document.getElementById('agendamentoAutoScoreMin').value = c.auto_score_min ?? 70;
@@ -668,38 +828,91 @@
             // Auto-refresh enquanto rodando
             clearTimeout(_modalRefreshTimer);
             if (c.ultimo_scan_status === 'em_andamento'
-                && document.getElementById('modalAgendamentoIA').classList.contains('active')) {
-              _modalRefreshTimer = setTimeout(() => {
-                abrirAgendamentoIA(grupoId, document.getElementById('agendamentoNomeGrupo').textContent);
-              }, 3000);
+                && document.getElementById('modalGrupo').classList.contains('active')) {
+              _modalRefreshTimer = setTimeout(() => carregarAgendamentoNoModal(grupoId), 3000);
             }
           }
         }
       } catch (e) {
         showToast('Erro ao carregar agendamento', 'error');
       }
-      document.getElementById('modalAgendamentoIA').classList.add('active');
     }
     let _modalRefreshTimer = null;
 
-    function fecharAgendamentoIA() {
-      clearTimeout(_modalRefreshTimer);
-      document.getElementById('modalAgendamentoIA').classList.remove('active');
+    function renderizarCatalogo(nome, em) {
+      const box = document.getElementById('catalogoAtual');
+      if (!nome) { box.hidden = true; return; }
+      const quando = em ? ` · enviado em ${dataScan(em).toLocaleDateString('pt-BR')}` : '';
+      document.getElementById('catalogoDescricao').textContent = `${nome}${quando}`;
+      box.hidden = false;
     }
 
-    function parsearLista(s) {
-      return String(s || '').split(',').map(x => x.trim()).filter(Boolean);
-    }
-
-    async function salvarAgendamentoIA() {
+    async function enviarCatalogo() {
       const grupoId = document.getElementById('agendamentoGrupoId').value;
+      const campo = document.getElementById('agendamentoCatalogo');
+      const arquivo = campo.files && campo.files[0];
+      const hint = document.getElementById('catalogoHint');
+      if (!arquivo) { showToast('Escolha um arquivo PDF', 'error'); return; }
+
+      const botao = document.getElementById('btnEnviarCatalogo');
+      botao.disabled = true;
+      // A IA lê o PDF inteiro nesta chamada; sem este aviso a espera parece travamento.
+      hint.textContent = 'Lendo o PDF e extraindo as linhas de produto. Isso leva alguns segundos.';
+      hint.hidden = false;
+
+      try {
+        const corpo = new FormData();
+        corpo.append('catalogo', arquivo);
+        const resp = await fetch(`/api/analise/agendamento/${grupoId}/catalogo`, { method: 'POST', body: corpo });
+        const j = await resp.json();
+        if (j.success) {
+          showToast(`${j.linhas} linha(s) de produto importada(s)`, 'success');
+          hint.textContent = `${j.linhas} linha(s) de produto reconhecida(s).`;
+          campo.value = '';
+          renderizarCatalogo(j.catalogo_nome, j.catalogo_em);
+        } else {
+          showToast(j.error || 'Erro ao enviar o catálogo', 'error');
+          hint.textContent = j.error || '';
+        }
+      } catch (e) {
+        showToast('Erro ao enviar o catálogo', 'error');
+        hint.textContent = '';
+      } finally {
+        botao.disabled = false;
+      }
+    }
+
+    async function removerCatalogo() {
+      const grupoId = document.getElementById('agendamentoGrupoId').value;
+      if (!await Aviso.confirmar('Remover a tabela de produtos deste grupo?')) return;
+      try {
+        const resp = await fetch(`/api/analise/agendamento/${grupoId}/catalogo`, { method: 'DELETE' });
+        const j = await resp.json();
+        if (j.success) {
+          showToast('Tabela removida', 'success');
+          document.getElementById('catalogoAtual').hidden = true;
+          document.getElementById('catalogoHint').hidden = true;
+        } else {
+          showToast(j.error || 'Erro ao remover', 'error');
+        }
+      } catch (e) {
+        showToast('Erro ao remover', 'error');
+      }
+    }
+
+    // Grava a seção de IA do modal. As UFs vêm do campo do GRUPO e são
+    // gravadas também no agendamento: elas eram pedidas duas vezes, uma em cada
+    // modal, com a regra "as do agendamento prevalecem" que o usuário tinha de
+    // decorar. Gravando o mesmo valor nos dois lados, a precedência deixa de
+    // decidir nada e nenhum código de leitura precisou mudar.
+    async function salvarSecaoIA(grupoId, ufs) {
       const payload = {
         ativo: document.getElementById('agendamentoAtivo').checked,
-        ufs: parsearLista(document.getElementById('agendamentoUfs').value).map(s => s.toUpperCase()),
+        ufs: ufs || [],
         modalidades: parsearLista(document.getElementById('agendamentoModalidades').value).map(n => parseInt(n)).filter(n => !isNaN(n)),
         valor_minimo: parseFloat(document.getElementById('agendamentoValorMin').value) || null,
         limite_diario: parseInt(document.getElementById('agendamentoLimite').value) || 100,
-        produtos_que_vendo: document.getElementById('agendamentoProdutos').value.trim() || null,
+        limites: document.getElementById('agendamentoLimites').value.trim() || null,
         auto_interesse_ativo: document.getElementById('agendamentoAutoInteresse').checked,
         auto_telegram_ativo: document.getElementById('agendamentoAutoTelegram').checked,
         auto_score_min: parseInt(document.getElementById('agendamentoAutoScoreMin').value) || 70,
@@ -711,16 +924,12 @@
           body: JSON.stringify(payload),
         });
         const j = await resp.json();
-        if (j.success) {
-          showToast('Agendamento salvo', 'success');
-          fecharAgendamentoIA();
-          // Refresh badges
-          if (gruposPesquisa && gruposPesquisa.length) carregarStatusAutoIA(gruposPesquisa);
-        } else {
-          showToast('Erro: ' + (j.error || 'falha ao salvar'), 'error');
-        }
+        if (j.success) return true;
+        showToast('Grupo salvo, mas a análise IA falhou: ' + (j.error || 'erro'), 'error');
+        return false;
       } catch (e) {
-        showToast('Erro: ' + e.message, 'error');
+        showToast('Grupo salvo, mas a análise IA falhou: ' + e.message, 'error');
+        return false;
       }
     }
 
@@ -734,7 +943,7 @@
         const j = await resp.json();
         if (j.success) {
           showToast('Scan iniciado em background. Recarregue em alguns minutos.', 'success');
-          setTimeout(() => abrirAgendamentoIA(grupoId, document.getElementById('agendamentoNomeGrupo').textContent), 1500);
+          setTimeout(() => carregarAgendamentoNoModal(grupoId), 1500);
         } else {
           showToast('Erro: ' + (j.error || 'falha'), 'error');
         }

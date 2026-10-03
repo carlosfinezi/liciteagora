@@ -4,6 +4,76 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-03, os grupos de palavras couberam na tela
+
+A tela tinha **8.100 px**, ou 12,6 telas de rolagem, e nenhum dos 22 cards cabia
+inteiro na janela: o médio tinha 1.003 px contra os 643 px de altura útil. Agora
+são **1.119 px**, e os 13 grupos de pesquisa aparecem quase todos na primeira
+tela.
+
+| | antes | depois |
+|---|---|---|
+| Altura da página | 8.100 px | 1.119 px |
+| Telas de rolagem | 12,6 | 1,7 |
+| Card | 1.003 px (médio) | 75–89 px fechado, 552 px aberto |
+
+**Metade do que o card media não era conteúdo.** Dos 22.056 px somados dos 22
+cards, 8.940 px eram as palavras e 5.570 px eram moldura: cabeçalho com
+descrição, rodapé, campo "Adicionar palavra" e a linha da Auto-análise IA. Havia
+ainda **5.867 px de vazio, 27% do total**, e esses não vinham do card e sim do
+grid: cada linha fica com a altura do maior card dela, então o grupo de 67
+palavras esticava os vizinhos de 6 e de 41. O grupo VOTAÇÃO, com uma palavra só
+e 310 px de conteúdo, ocupava 1.635 px.
+
+O que mudou, por ordem de quanto encurtou:
+
+- **Cada grupo virou um `<details>`**, fechado por padrão. Fechado mostra
+  avatar, nome, contagem e os três botões; a descrição desceu para o corpo e a
+  contagem saiu do rodapé, para não aparecer duas vezes no card aberto. Usar o
+  elemento nativo traz o `aria-expanded`, o Enter e o Espaço sem JS de acordeão.
+- **O grid ganhou `align-items: start`**, numa classe local — `.cards-grid` é do
+  `app-modern.css` e serve outras quatro telas. Multi-column foi tentado e
+  descartado: em colunas, abrir um card empurra os de baixo para a coluna
+  seguinte e a tela se remonta a cada clique.
+- **A lista mostra 8 palavras** e um "mais N palavras" que abre e fecha. Eram
+  533 chips na tela de uma vez.
+- **O campo de adicionar foi para trás do "+"** do cabeçalho. Eram 22 campos de
+  texto abertos ao mesmo tempo.
+- **A descrição ficou em duas linhas**, com o texto inteiro no `title`.
+- **Busca por grupo ou palavra**, ignorando acento dos dois lados, e ela ABRE
+  quem casou por uma palavra: senão a palavra procurada ficaria escondida dentro
+  do card fechado. Quem casou pelo nome não precisa abrir. Com 533 palavras em
+  22 grupos, não havia como responder "em qual grupo está `ssl`?" sem rolar a
+  página inteira.
+- **Palavra que só difere por acento é recusada** ao adicionar. O grupo MONITOR
+  DE VÍDEO tinha `monitor de video` e `monitor de vídeo` lado a lado, e a busca
+  casa sem acento: a segunda não acrescenta nada e engorda o card.
+- O segundo `<h1>` da página virou `<h2>`, o que também apagou o
+  `skipped-heading` que o detector acusava.
+
+Duas armadilhas que a medição pegou e que valem para qualquer tela daqui:
+
+- **`.form-inline` é `display: flex !important` no `app-modern.css`**, e vence o
+  atributo `hidden` mesmo com especificidade menor. Os 22 campos ficaram na tela
+  com o `hidden` posto, e a primeira checagem — que lia a propriedade
+  `.hidden` — passou verde com o defeito à vista. A que vale lê `offsetParent`.
+- **Do Chrome 134 em diante o `-webkit-box` é ignorado**, e o `line-clamp`
+  nativo CLIPA as linhas excedentes em vez de tirá-las do layout. Com padding, a
+  terceira linha pintava dentro dele e aparecia cortada ao meio sob o bloco
+  cinza. Por isso a descrição no card perdeu fundo, borda e padding.
+
+Prova: as suítes que o modo rápido liga a esta tela (`test-consulta-compacta`,
+`test-consulta-secoes-card`, `test-scan-horario` e `test-telas-dois-temas`),
+todas verdes, mais medição por pixel na produção do 1bit a cada passo. A busca,
+o "mais palavras", o "+" e a recusa por acento foram exercidos contra a produção
+com o `fetch` interceptado, sem gravar nada no banco; o caso de palavra nova foi
+ao servidor, provando que a guarda não recusa tudo.
+
+O commit leva junto, no mesmo arquivo, a seção "Análise automática por IA" do
+modal (`secaoIA` e `agendamentoLimites`), que é de outra frente. O servidor dela
+(`analise-ia.js`, `analise-ia-scheduler.js`, `licitacoes-routes.js`) fica para
+quem a escreveu.
+
 ## 2026-10-03, a tela de Conversas parou de varrer a tabela de mensagens
 
 A caixa de Conversas estava lenta em toda ação, e a causa eram três varreduras
