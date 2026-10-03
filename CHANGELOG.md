@@ -4,6 +4,52 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-02, as três telas que a concorrência tinha deixado de fora
+
+O fechamento anterior reaplicou o aviso do sistema em 205 arquivos e declarou
+três telas fora, porque outras sessões as estavam editando na mesma hora. Elas
+pararam, e as telas entram agora, pelo mesmo caminho: o hunk do 72d4fa1
+invertido sobre o que a tela tem hoje, e só onde o contexto atual o aceitou.
+
+São **sete trocas, e não seis** como o relatório anterior disse:
+`comercial/pessoas.html` tem cinco (a ação em massa, o erro e o aviso dela, a
+remoção de integração e a exclusão definitiva da ficha), e
+`comunicacao/conversas.html` e `operacional/grupos-palavras.html` têm uma cada.
+As três já carregavam o `aviso-sistema.js`, e o revert não lhes tinha tirado o
+`<script>`; o que faltava eram as chamadas.
+
+**`comunicacao/canal.html` e `comunicacao/roteiros.html` não tinham nada
+pendente**, e isso se mediu em vez de se supor: nenhuma das duas é alvo do
+72d4fa1 (elas GANHARAM `Aviso.*` depois dele, e é por isso que o revert
+precisou manter a peça), e os rótulos ligados ao campo estão iguais no HEAD e na
+árvore, 11 e 8.
+
+Consertado de passagem, no mesmo arquivo e **só na árvore**: o `removerCatalogo`
+da `grupos-palavras.html` ficava com o `confirm()` do navegador ao lado do
+`Aviso.confirmar` do `excluirGrupo`, duas caixas diferentes na mesma tela. Ele
+não vinha do revert, veio da frente dos blocos colapsáveis, e é por isso que a
+reaplicação sozinha não o alcançava. A função inteira é daquela frente e não
+está no git, então o conserto fica em produção, onde já vale, e entra no
+histórico junto dela. Deste commit sai apenas a linha do `excluirGrupo`, que o
+HEAD tem.
+
+Vão de carona os **68 rótulos ligados ao campo** da `pessoas.html`, da rodada de
+lógica: estavam na árvore, em produção, e fora do git justamente por aquela
+disputa. Conferido antes de commitar que a diferença entre a árvore e o HEAD
+naquela tela é SÓ isso. Os da `grupos-palavras.html` não vão: ali a árvore tem
+262 linhas da frente dos blocos colapsáveis, e o arquivo entra por
+`git merge-file` com uma linha só.
+
+**A suíte 143 reprovou por resíduo em `/tmp`, e não pela tela**, com
+`EACCES: permission denied` num PNG de 24 bytes. O arquivo era do carlosfinezi,
+de uma rodada das 10:42, e gravável por ele; quem não conseguiu escrever foi o
+root. A causa é o `fs.protected_regular = 2` desta máquina, que recusa abrir
+para escrita arquivo regular de OUTRO usuário em diretório sticky e
+world-writable, **e não isenta o root**. É o espelho do caso já conhecido (o
+resíduo de root que o serviço, como carlosfinezi, não sobrescreve): vale nos
+dois sentidos, e o que o produz é a suíte usar nome fixo em `/tmp`. Movido o
+resíduo, a suíte fecha em 24/24.
+
 ## 2026-10-02, o aviso do sistema volta às telas de onde o revert o tirou
 
 O 72d4fa1 desfez, em 234 arquivos, o que a primeira leva da revisão tinha posto

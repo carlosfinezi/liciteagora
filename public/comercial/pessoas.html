@@ -258,7 +258,7 @@
                 </div>
             </div>
             <div id="motivoInativacaoBox" style="display:none; margin-bottom:14px;">
-                <label style="font-size:var(--text-xs);">Motivo da inativação (opcional)</label>
+                <label for="motivoInativacao" style="font-size:var(--text-xs);">Motivo da inativação (opcional)</label>
                 <input type="text" id="motivoInativacao" placeholder="ex: encerrou atividades, cliente duplicado">
             </div>
 
@@ -282,7 +282,7 @@
             <div class="subtab-content active" data-subtab-pane="ident">
                 <div class="form-row">
                     <div class="form-group">
-                        <label>CPF/CNPJ *</label>
+                        <label for="cpfCnpj">CPF/CNPJ *</label>
                         <div style="display:flex;gap:8px;">
                             <input type="text" id="cpfCnpj" data-formato="cpfcnpj" placeholder="00.000.000/0000-00" oninput="autoDetectTipo()" style="flex:1;">
                             <button class="btn btn-secondary btn-sm" id="btnConsultaCnpj" onclick="consultarCnpj()" title="Consultar dados públicos" style="white-space:nowrap;"><svg class="ic-sm"><use href="#i-search"/></svg> Buscar</button>
@@ -290,7 +290,7 @@
                         <small id="cnpjStatus" style="color:var(--text-3);"></small>
                     </div>
                     <div class="form-group">
-                        <label>Tipo</label>
+                        <label for="tipo">Tipo</label>
                         <select id="tipo" onchange="atualizarVisibilidadePF()">
                             <option value="PJ">Pessoa Jurídica</option>
                             <option value="PF">Pessoa Física</option>
@@ -300,22 +300,22 @@
 
                 <div class="form-row">
                     <div class="form-group full-width">
-                        <label>Razão Social / Nome completo *</label>
+                        <label for="razaoSocial">Razão Social / Nome completo *</label>
                         <input type="text" id="razaoSocial" placeholder="Razão social ou nome completo">
                     </div>
                 </div>
 
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Nome Fantasia / Apelido</label>
+                        <label for="nomeFantasia">Nome Fantasia / Apelido</label>
                         <input type="text" id="nomeFantasia">
                     </div>
                     <div class="form-group">
-                        <label>Inscrição Estadual</label>
+                        <label for="inscricaoEstadual">Inscrição Estadual</label>
                         <input type="text" id="inscricaoEstadual" data-formato="inscricao" placeholder="Deixe em branco se isento">
                     </div>
                     <div class="form-group">
-                        <label>Inscrição Municipal</label>
+                        <label for="inscricaoMunicipal">Inscrição Municipal</label>
                         <input type="text" id="inscricaoMunicipal" data-formato="inscricao">
                     </div>
                 </div>
@@ -324,7 +324,7 @@
                 <h4 style="margin-top:18px; color:var(--text-2); font-size:0.95em;">Dados Fiscais</h4>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Indicador IE (NF-e)</label>
+                        <label for="indicadorIE">Indicador IE (NF-e)</label>
                         <select id="indicadorIE">
                             <option value="">—</option>
                             <option value="1">1 · Contribuinte ICMS</option>
@@ -333,7 +333,7 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Regime Tributário</label>
+                        <label for="regimeTributario">Regime Tributário</label>
                         <select id="regimeTributario">
                             <option value="">—</option>
                             <option value="1">1 · Simples Nacional</option>
@@ -343,7 +343,7 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Porte</label>
+                        <label for="porte">Porte</label>
                         <select id="porte">
                             <option value="">—</option>
                             <option value="MEI">MEI</option>
@@ -353,41 +353,41 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Suframa</label>
+                        <label for="suframa">Suframa</label>
                         <input type="text" id="suframa" maxlength="10" placeholder="ZF Manaus">
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>CNAE Principal</label>
+                        <label for="cnaePrincipal">CNAE Principal</label>
                         <input type="text" id="cnaePrincipal" maxlength="10" placeholder="0000-0/00">
                     </div>
                     <div class="form-group" style="flex:2;">
-                        <label>Descrição da atividade</label>
+                        <label for="cnaeDescricao">Descrição da atividade</label>
                         <input type="text" id="cnaeDescricao">
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Cód. Natureza Jurídica</label>
+                        <label for="naturezaJuridicaCodigo">Cód. Natureza Jurídica</label>
                         <input type="text" id="naturezaJuridicaCodigo" maxlength="4">
                     </div>
                     <div class="form-group" style="flex:2;">
-                        <label>Descrição Natureza Jurídica</label>
+                        <label for="naturezaJuridicaDescricao">Descrição Natureza Jurídica</label>
                         <input type="text" id="naturezaJuridicaDescricao">
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label id="labelDataAbertura">Data de abertura</label>
+                        <label for="dataAberturaNascimento" id="labelDataAbertura">Data de abertura</label>
                         <input type="date" id="dataAberturaNascimento">
                     </div>
                     <div class="form-group">
-                        <label>Capital Social</label>
+                        <label for="capitalSocial">Capital Social</label>
                         <input type="number" id="capitalSocial" step="0.01" min="0">
                     </div>
                     <div class="form-group">
-                        <label>Situação Receita</label>
+                        <label for="situacaoCadastralReceita">Situação Receita</label>
                         <input type="text" id="situacaoCadastralReceita" placeholder="ATIVA">
                     </div>
                     <div class="form-group" style="display:flex; align-items:flex-end;">
@@ -409,25 +409,25 @@
                     <h4 style="margin-top:18px; color:var(--text-2); font-size:0.95em;">Pessoa Física</h4>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>RG</label>
+                            <label for="rg">RG</label>
                             <input type="text" id="rg">
                         </div>
                         <div class="form-group">
-                            <label>Órgão Emissor</label>
+                            <label for="rgOrgaoEmissor">Órgão Emissor</label>
                             <input type="text" id="rgOrgaoEmissor" placeholder="SSP/SP">
                         </div>
                         <div class="form-group">
-                            <label>Expedição</label>
+                            <label for="rgDataExpedicao">Expedição</label>
                             <input type="date" id="rgDataExpedicao">
                         </div>
                         <div class="form-group">
-                            <label>Nascimento</label>
+                            <label for="dataNascimento">Nascimento</label>
                             <input type="date" id="dataNascimento">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Sexo</label>
+                            <label for="sexo">Sexo</label>
                             <select id="sexo">
                                 <option value="">—</option>
                                 <option value="M">Masculino</option>
@@ -436,7 +436,7 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>Estado civil</label>
+                            <label for="estadoCivil">Estado civil</label>
                             <select id="estadoCivil">
                                 <option value="">—</option>
                                 <option value="solteiro">Solteiro</option>
@@ -447,21 +447,21 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>Profissão</label>
+                            <label for="profissao">Profissão</label>
                             <input type="text" id="profissao">
                         </div>
                         <div class="form-group">
-                            <label>Nacionalidade</label>
+                            <label for="nacionalidade">Nacionalidade</label>
                             <input type="text" id="nacionalidade" value="Brasileira">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Nome da mãe</label>
+                            <label for="nomeMae">Nome da mãe</label>
                             <input type="text" id="nomeMae">
                         </div>
                         <div class="form-group">
-                            <label>Nome do pai</label>
+                            <label for="nomePai">Nome do pai</label>
                             <input type="text" id="nomePai">
                         </div>
                     </div>
@@ -473,7 +473,7 @@
                 <h4 style="color:var(--text-2); font-size:0.95em;">Endereço Principal (Fiscal)</h4>
                 <div class="form-row">
                     <div class="form-group" style="flex:1;">
-                        <label>CEP</label>
+                        <label for="cep">CEP</label>
                         <div style="display:flex; gap:6px;">
                             <input type="text" id="cep" data-formato="cep" placeholder="00000-000" oninput="onCepInput()">
                             <button type="button" class="btn btn-secondary btn-sm" id="btnBuscaCep" onclick="buscarCep()" title="Buscar endereço pelo CEP" style="white-space:nowrap;"><svg class="ic-sm"><use href="#i-search"/></svg> Buscar</button>
@@ -481,64 +481,64 @@
                         <small id="cepStatus" style="color:var(--text-3);"></small>
                     </div>
                     <div class="form-group" style="flex:1;">
-                        <label>Cód. Município (IBGE)</label>
+                        <label for="codigoMunicipio">Cód. Município (IBGE)</label>
                         <input type="text" id="codigoMunicipio" maxlength="7">
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group" style="flex:3;">
-                        <label>Logradouro</label>
+                        <label for="endereco">Logradouro</label>
                         <input type="text" id="endereco" placeholder="Rua, Av, etc.">
                     </div>
                     <div class="form-group" style="flex:1;">
-                        <label>Número</label>
+                        <label for="numero">Número</label>
                         <input type="text" id="numero">
                     </div>
                     <div class="form-group" style="flex:1;">
-                        <label>Complemento</label>
+                        <label for="complemento">Complemento</label>
                         <input type="text" id="complemento">
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Bairro</label>
+                        <label for="bairro">Bairro</label>
                         <input type="text" id="bairro">
                     </div>
                     <div class="form-group">
-                        <label>Cidade</label>
+                        <label for="cidade">Cidade</label>
                         <input type="text" id="cidade">
                     </div>
                     <div class="form-group">
-                        <label>UF</label>
+                        <label for="uf">UF</label>
                         <input type="text" id="uf" maxlength="2" style="text-transform:uppercase;">
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Telefone</label>
+                        <label for="telefone">Telefone</label>
                         <input type="tel" id="telefone" data-formato="telefone" placeholder="(00) 00000-0000">
                         <small class="muted" id="semWhatsapp" style="display:none;"></small>
                     </div>
                     <div class="form-group">
-                        <label>E-mail</label>
+                        <label for="email">E-mail</label>
                         <input type="email" id="email" data-formato="email">
                     </div>
                     <div class="form-group" style="flex:2;">
-                        <label>E-mails adicionais (CC)</label>
+                        <label for="emailsAdicionais">E-mails adicionais (CC)</label>
                         <input type="text" id="emailsAdicionais" placeholder="separe por vírgula">
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Celular</label>
+                        <label for="celular">Celular</label>
                         <input type="tel" id="celular" data-formato="telefone" placeholder="(00) 00000-0000">
                     </div>
                     <div class="form-group">
-                        <label>E-mail do financeiro</label>
+                        <label for="emailFinanceiro">E-mail do financeiro</label>
                         <input type="email" id="emailFinanceiro" data-formato="email" title="Para onde vão boleto e nota — quando é diferente do e-mail geral">
                     </div>
                     <div class="form-group">
-                        <label>Site</label>
+                        <label for="site">Site</label>
                         <input type="text" id="site" placeholder="https://">
                     </div>
                 </div>
@@ -586,14 +586,14 @@
                         <select id="nichoFunilId"><option value="">—</option></select>
                     </div>
                     <div class="form-group">
-                        <label>Segmento (L)</label>
+                        <label for="segmentoId">Segmento (L)</label>
                         <div style="display:flex; gap:6px;">
                             <select id="segmentoId" style="flex:1;"><option value="">—</option></select>
                             <button type="button" class="btn btn-ghost btn-sm" onclick="abrirSegmentos()">Segmentos…</button>
                         </div>
                     </div>
                     <div class="form-group">
-                        <label>Origem</label>
+                        <label for="origem">Origem</label>
                         <select id="origem">
                             <option value="">—</option>
                             <option value="Indicação">Indicação</option>
@@ -606,13 +606,13 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Vendedor responsável</label>
+                        <label for="vendedorId">Vendedor responsável</label>
                         <select id="vendedorId">
                             <option value="">—</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Tabela de preço</label>
+                        <label for="tabelaPrecoId">Tabela de preço</label>
                         <select id="tabelaPrecoId" title="Pedidos deste cliente já nascem com esta tabela; vazio = preço do cadastro / tabela vigente">
                             <option value="">— (automático)</option>
                         </select>
@@ -620,13 +620,13 @@
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Tags (separadas por vírgula)</label>
+                        <label for="tagsInput">Tags (separadas por vírgula)</label>
                         <input type="text" id="tagsInput" placeholder="vip, atacado, Norte">
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group full-width">
-                        <label>Observações internas</label>
+                        <label for="observacoes">Observações internas</label>
                         <textarea id="observacoes" rows="3"></textarea>
                     </div>
                 </div>
@@ -640,14 +640,14 @@
             <div class="subtab-content" data-subtab-pane="financeiro" style="display:none;">
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Política de prazo</label>
+                        <label for="politicaPrazoId">Política de prazo</label>
                         <select id="politicaPrazoId" onchange="descreverPolitica()">
                             <option value="">— sem política —</option>
                         </select>
                         <small id="politicaHint" style="color:var(--text-3);">Define prazo das parcelas e meios de recebimento aceitos. Cadastre em <a href="/financeiro/politicas-prazo.html">Políticas de Prazo</a>.</small>
                     </div>
                     <div class="form-group">
-                        <label>Limite de crédito (R$)</label>
+                        <label for="limiteCredito">Limite de crédito (R$)</label>
                         <input type="number" id="limiteCredito" step="0.01" min="0">
                     </div>
                 </div>
@@ -669,13 +669,13 @@
                 <div id="integLista" style="font-size:13px;margin-bottom:10px;"></div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Adicionar integração</label>
+                        <label for="integTipo">Adicionar integração</label>
                         <select id="integTipo" onchange="renderCamposInteg()">
                             <option value="">— escolha um tipo —</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Padrão</label>
+                        <label for="integPadrao">Padrão</label>
                         <select id="integPadrao">
                             <option value="0">Não</option>
                             <option value="1">Sim</option>
@@ -697,15 +697,15 @@
                 <h4 style="margin-top:22px; color:var(--text-2); font-size:0.95em;">Compra</h4>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Prazo de entrega (dias)</label>
+                        <label for="prazoEntregaDias">Prazo de entrega (dias)</label>
                         <input type="number" id="prazoEntregaDias" min="0">
                     </div>
                     <div class="form-group">
-                        <label>Pedido mínimo (R$)</label>
+                        <label for="pedidoMinimo">Pedido mínimo (R$)</label>
                         <input type="number" id="pedidoMinimo" step="0.01" min="0">
                     </div>
                     <div class="form-group">
-                        <label>Tipo de frete</label>
+                        <label for="tipoFrete">Tipo de frete</label>
                         <select id="tipoFrete">
                             <option value="">—</option>
                             <option value="CIF">CIF (por conta do fornecedor)</option>
@@ -722,7 +722,7 @@
                 <h4 style="margin-top:22px; color:var(--text-2); font-size:0.95em;">Homologação</h4>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Status</label>
+                        <label for="statusHomologacao">Status</label>
                         <select id="statusHomologacao">
                             <option value="nao_avaliado">Não avaliado</option>
                             <option value="em_analise">Em análise</option>
@@ -731,11 +731,11 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Data da homologação</label>
+                        <label for="dataHomologacao">Data da homologação</label>
                         <input type="date" id="dataHomologacao">
                     </div>
                     <div class="form-group">
-                        <label>Avaliação (1 a 5)</label>
+                        <label for="avaliacao">Avaliação (1 a 5)</label>
                         <input type="number" id="avaliacao" min="1" max="5">
                     </div>
                 </div>
@@ -751,19 +751,19 @@
                      digitar um número num prompt. -->
                 <div class="form-row" style="margin-top:12px; align-items:flex-end;">
                     <div class="form-group">
-                        <label>Tipo</label>
+                        <label for="docTipo">Tipo</label>
                         <select id="docTipo"></select>
                     </div>
                     <div class="form-group">
-                        <label>Número (opcional)</label>
+                        <label for="docNumero">Número (opcional)</label>
                         <input type="text" id="docNumero">
                     </div>
                     <div class="form-group">
-                        <label>Emissão</label>
+                        <label for="docEmissao">Emissão</label>
                         <input type="date" id="docEmissao">
                     </div>
                     <div class="form-group">
-                        <label>Validade</label>
+                        <label for="docValidade">Validade</label>
                         <input type="date" id="docValidade">
                     </div>
                     <div class="form-group" style="flex:0 0 auto;">
@@ -780,7 +780,7 @@
                 <div id="anexosUploadBar" style="margin-top:14px;">
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Tipo</label>
+                            <label for="anexoTipo">Tipo</label>
                             <select id="anexoTipo">
                                 <option value="contrato">Contrato social</option>
                                 <option value="procuracao">Procuração</option>
@@ -790,11 +790,11 @@
                             </select>
                         </div>
                         <div class="form-group" style="flex:2;">
-                            <label>Arquivo</label>
+                            <label for="anexoFile">Arquivo</label>
                             <input type="file" id="anexoFile">
                         </div>
                         <div class="form-group">
-                            <label>Descrição (opcional)</label>
+                            <label for="anexoDescricao">Descrição (opcional)</label>
                             <input type="text" id="anexoDescricao">
                         </div>
                         <div class="form-group" style="display:flex; align-items:flex-end;">
@@ -814,11 +814,11 @@
                         </label>
                     </div>
                     <div class="form-group">
-                        <label>Data do consentimento</label>
+                        <label for="lgpdDataConsentimento">Data do consentimento</label>
                         <input type="datetime-local" id="lgpdDataConsentimento">
                     </div>
                     <div class="form-group" style="flex:2;">
-                        <label>Fonte do consentimento</label>
+                        <label for="lgpdFonte">Fonte do consentimento</label>
                         <input type="text" id="lgpdFonte" placeholder="ex: form do site, cadastro presencial, importação">
                     </div>
                 </div>
@@ -1188,15 +1188,15 @@
             body.fonte = fonte.trim();
         }
         const rotulo = document.getElementById('massaAcao').selectedOptions[0].textContent;
-        if (!confirm(`${rotulo}\n\nAplicar a ${SEL_PESSOAS.size} pessoa(s)?`)) return;
+        if (!await Aviso.confirmar(`${rotulo}\n\nAplicar a ${SEL_PESSOAS.size} pessoa(s)?`)) return;
 
         const d = await fetch('/api/pessoas/acao-massa', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         }).then(r => r.json());
-        if (!d.success) return alert(d.error);
+        if (!d.success) return Aviso.erro(Aviso.mensagemDeErro(d));
         SEL_PESSOAS.clear();
         await carregarPessoas();
-        alert(`${d.alterados} de ${d.total} atualizado(s).`);
+        Aviso.ok(`${d.alterados} de ${d.total} atualizado(s).`);
     }
 
     // Filtro por categoria: o cadastro é único, então é ele que responde
@@ -1468,7 +1468,7 @@
             ? campos.map(c => `
                 <div class="form-row">
                     <div class="form-group full-width">
-                        <label>${c.rotulo || c.chave}</label>
+                        <label for="ip_${c.chave}">${c.rotulo || c.chave}</label>
                         ${c.tipo === 'textarea'
                             ? `<textarea id="ip_${c.chave}" rows="3" style="font-family:monospace;font-size:var(--text-xs);"></textarea>`
                             : `<input type="text" id="ip_${c.chave}">`}
@@ -1570,7 +1570,7 @@
 
     async function removerIntegracao(id) {
         const pessoaId = pessoaAtualId();
-        if (!pessoaId || !confirm('Remover esta integração?')) return;
+        if (!pessoaId || !await Aviso.confirmar('Remover esta integração?')) return;
         const r = await fetch(`/api/fornecedor-integracoes/${pessoaId}/${id}`, { method: 'DELETE' });
         const d = await r.json();
         if (!d.success) return showAlert(d.error, 'error');
@@ -2545,7 +2545,7 @@
             return showAlert('Cadastro com movimentação vinculada não pode ser excluído:\n' + resumo, 'error');
         }
         const nome = document.getElementById('razaoSocial').value || 'este cadastro';
-        if (!confirm(`Excluir DEFINITIVAMENTE "${nome}"?\n\nSomem também contatos, endereços, dados bancários e anexos. Não há como desfazer.\n\nPara apenas tirar de uso, cancele e marque o status como Inativo.`)) return;
+        if (!await Aviso.confirmar(`Excluir DEFINITIVAMENTE "${nome}"?\n\nSomem também contatos, endereços, dados bancários e anexos. Não há como desfazer.\n\nPara apenas tirar de uso, cancele e marque o status como Inativo.`)) return;
         try {
             const resp = await fetch('/api/pessoas/' + id, { method: 'DELETE' });
             const data = await resp.json();
