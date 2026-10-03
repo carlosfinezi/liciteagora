@@ -21,8 +21,6 @@
       "Bash(sudo systemctl stop liciteagora.service)"
     ],
     "deny": [
-      "Bash(rm:*)",
-      "Bash(sudo rm:*)",
       "Bash(systemctl stop bll-session.service)",
       "Bash(sudo systemctl stop bll-session.service)",
       "Bash(systemctl stop bnc-session.service)",
@@ -78,6 +76,21 @@
       "Read(./**/.env)",
       "Edit(./.env)",
       "Edit(./**/.env)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /home/carlosfinezi/web/liciteagora.com.br/private/.claude/hooks/trava-remocao.js || printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"A trava de remocao nao executou (hook ausente ou node indisponivel), e nega por padrao. Confira .claude/hooks/trava-remocao.js.\"}}'",
+            "timeout": 10,
+            "statusMessage": "Conferindo a trava de remocao"
+          }
+        ]
+      }
     ]
   }
 }
