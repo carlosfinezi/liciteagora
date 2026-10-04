@@ -272,6 +272,23 @@ svg.ic-xl { width: 32px; height: 32px; vertical-align: -6px; }
 /* A sidebar no claro é branca com borda à direita — sem isso ela some no fundo. */
 [data-theme="claro"] .sidebar { border-right: 1px solid var(--border); }
 
+/* As marcas cinzas têm cor FIXA, escolhida para o fundo escuro: no claro o
+   `#37415150` compõe com o branco e vira #c0c3c8, e o texto #94a3b8 por cima dá
+   1,45:1 — "RASCUNHO" e "INATIVO" ficavam ilegíveis. Aqui o par é opaco e mede
+   6,15:1. As marcas coloridas não entram: elas usam os tokens, que já mudam
+   com o tema. */
+[data-theme="claro"] .badge.rascunho,
+[data-theme="claro"] .badge.pendente,
+[data-theme="claro"] .badge.inativo,
+[data-theme="claro"] .badge.nao,
+[data-theme="claro"] .badge.cancelada,
+[data-theme="claro"] .badge.sem-analise,
+[data-theme="claro"] .badge.pdf_indisponivel {
+  background: #e2e8f0;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+
 /* Overlay de modal: 0.65 de preto sobre tema claro escurece demais a tela. */
 [data-theme="claro"] .modal-bg { background: rgba(15, 23, 42, .38); }
 
@@ -468,6 +485,12 @@ input[disabled], select[disabled], textarea[disabled] {
   border-radius: var(--r-md);
   padding: 14px;
 }
+/* O reset lá em cima (`* { margin: 0 }`) zera a margem de todo título, e quem
+   monta um `.card` precisa lembrar de afastar o h3 do que vem embaixo. As telas
+   que esqueceram ficavam com o título encostado no conteúdo — medido 0px na
+   apuração do Simples Nacional e no DRE. `.panel > h3` não entra: ele já tem
+   margem e borda próprias. */
+.card > h2, .card > h3, .panel > h2 { margin-bottom: 10px; }
 .card-info { background: var(--bg-1); }
 
 /* ==================== TABELAS ==================== */
@@ -1619,6 +1642,11 @@ h1, h2, h3 { color: var(--text-0) !important; }
   gap: 14px;
   margin-bottom: 20px;
 }
+/* O "nada aqui" de uma grade de cartões ocupa a linha inteira. Sem isto ele
+   vira um cartão de 280px: a frase quebra no meio da tela, encostada à
+   esquerda, e parece um cartão que falhou em vez de uma lista vazia. */
+[class$="-grid"] > .empty,
+[class$="-grid"] > .empty-state { grid-column: 1 / -1; }
 .conta-card {
   background: var(--bg-2);
   border: 1px solid var(--border);
@@ -1665,8 +1693,12 @@ h1, h2, h3 { color: var(--text-0) !important; }
 /* Ícone Lucide injetado por sidebar.padronizarIconesDaPagina() no lugar do
    emoji que o HTML dos títulos traz. Mesmo peso de traço do menu lateral. */
 .titulo-icone { display: inline-flex; align-items: center; margin-right: 6px; }
-/* .panel h3 já é flex com gap: o espaçamento sairia dobrado */
-.panel h3 .titulo-icone, .page-header .titulo-icone { margin-right: 0; }
+/* `.panel > h3` e `.page-header` já são flex com gap: ali o espaçamento sairia
+   dobrado. O FILHO DIRETO é o que importa — com o seletor solto, o ícone
+   dentro do `<h1>` de um `.page-header` também perdia a margem, e o `.page-header`
+   é flex em volta do bloco do título, não em volta do ícone: o ícone colava na
+   primeira letra (era assim em financeiro/cp-recorrencias). */
+.panel > h3 > .titulo-icone, .page-header > .titulo-icone { margin-right: 0; }
 /* Ícone de botão: .btn já é inline-flex com gap, então sem margem própria */
 .btn-icone { display: inline-flex; align-items: center; margin-right: 6px; }
 .btn .btn-icone, button.btn .btn-icone, .so-icone { margin-right: 0; }
@@ -2332,6 +2364,10 @@ table td, table th,
 .btn-sm { min-height: 27px; border-radius: var(--raio-sm, 6px); }
 .btn-lg { min-height: 38px; }
 
+/* 180 botões do ERP são `<a class="btn">`, e sem isto cada um deles sai com o
+   sublinhado de link por cima do rótulo. */
+.btn { text-decoration: none; }
+
 /* O ícone dentro do botão alinha pelo centro e não estica. */
 .btn svg, .btn .icon { flex-shrink: 0; width: 15px; height: 15px; }
 .btn-sm svg, .btn-sm .icon { width: 13px; height: 13px; }
@@ -2442,6 +2478,12 @@ table td, table th,
   /* Alvo de toque confortável. 38px é o mínimo praticável aqui; o ideal (44px)
      deixaria as barras com três botões altas demais. */
   input, select, textarea { min-height: 40px; }
+  /* ⚠️ Marca de seleção fica de fora: ela não cresce com a altura, vira uma
+     caixa de 13×40 com a baseline lá embaixo, e o rótulo ao lado DESCE para
+     baixo dela. Era assim em todo `<label><input type=checkbox> Texto</label>`
+     do ERP no celular. O alvo de toque continua grande: quem recebe o clique é
+     o rótulo inteiro, que envolve a marca. */
+  input[type="checkbox"], input[type="radio"] { min-height: 0; vertical-align: middle; }
   .btn { min-height: 40px; padding: 10px 14px; }
   .btn-sm { min-height: 36px; padding: 8px 12px; font-size: 0.86rem; }
   .btn-icon-only { min-width: 40px; }

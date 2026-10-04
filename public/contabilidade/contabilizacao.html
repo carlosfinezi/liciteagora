@@ -55,6 +55,12 @@ async function carregarCfg(){
   if(!d.success)return showAlert(d.error,'error');
   disponiveis=d.eventosDisponiveis;
   const cfgPor=Object.fromEntries((d.configs||[]).map(c=>[c.evento,c]));
+  // Sem evento disponível a tabela ficava só com o cabeçalho, sem uma palavra.
+  if (!disponiveis.length) {
+    document.getElementById('tbCfg').innerHTML =
+      '<tr><td colspan="5" class="empty">Nenhum evento disponível para mapear.</td></tr>';
+    return;
+  }
   document.getElementById('tbCfg').innerHTML=disponiveis.map(ev=>{
     const c=cfgPor[ev.evento]||{};
     return `<tr data-ev="${ev.evento}">

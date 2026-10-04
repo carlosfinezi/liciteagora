@@ -26,13 +26,14 @@
       <span class="spacer"></span>
       <span id="contBase" style="font-size:var(--text-xs);color:var(--text-2);"></span>
     </div>
+    <h3 style="margin:18px 0 10px;font-size:1em;">Itens da base</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Título</th><th>Conteúdo</th><th>Origem</th><th>Ativo</th><th></th></tr></thead>
         <tbody id="tbBase"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
-    <h3 style="margin-top:22px;font-size:1em;">Respostas avaliadas</h3>
+    <h3 style="margin:22px 0 10px;font-size:1em;">Respostas avaliadas</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Veredito</th><th>Perguntaram</th><th>Respondeu</th><th>Resposta correta</th><th>Quando</th></tr></thead>
@@ -97,7 +98,7 @@ async function carregarBase(){
     <td>${esc(String(c.perguntou||'').slice(0,80))}</td>
     <td style="color:var(--${certo?'success':'danger'});">${esc(String(c.respondeu||'').slice(0,80))}</td>
     <td style="color:var(--success);">${certo ? '—' : esc(String(c.correta).slice(0,80))}</td>
-    <td>${esc(String(c.dataCriacao||'').slice(0,16))}</td></tr>`; }).join('')
+    <td style="white-space:nowrap;">${esc(dataBR(c.dataCriacao))} ${esc(String(c.dataCriacao||'').slice(11,16))}</td></tr>`; }).join('')
     : '<tr><td colspan="5" class="empty">Nenhuma avaliação ainda</td></tr>';
   window.__base = d.itens;
 }

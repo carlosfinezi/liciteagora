@@ -46,7 +46,13 @@
   <div id="lista">
     <div class="page-header">
       <div><h1>Roteiros de qualificação</h1></div>
-      <button class="btn btn-primary" id="btnNovo">Novo roteiro</button>
+    </div>
+    <!-- A ação e a contagem ficam na barra abaixo do título, como em Campanhas,
+         Listas, Modelos e Base da IA. -->
+    <div class="toolbar">
+      <button class="btn btn-primary" id="btnNovo">+ Novo roteiro</button>
+      <span class="spacer"></span>
+      <span id="rotResumo" style="font-size:var(--text-xs);color:var(--text-2);"></span>
     </div>
     <div class="tbl-wrap">
       <table>
@@ -142,14 +148,15 @@ async function carregar() {
     const j = await api('/api/roteiros');
     roteiros = j.roteiros || []; funis = j.funis || [];
     const tb = document.getElementById('tbRoteiros');
+    document.getElementById('rotResumo').textContent = `${roteiros.length} roteiro(s)`;
     if (!roteiros.length) { tb.innerHTML = '<tr><td colspan="4" class="empty">Nenhum roteiro cadastrado.</td></tr>'; return; }
     tb.innerHTML = roteiros.map((r, i) => `<tr>
       <td>${esc(r.nome)}</td>
       <td style="text-align:right;">${numBR(r.etapas)}</td>
       <td>${r.campanhas.length ? r.campanhas.map(esc).join(', ') : '<span class="muted">nenhuma</span>'}</td>
       <td><div class="acoes">
-        <button class="btn btn-secondary btn-sm" data-editar="${i}">Editar</button>
-        <details class="menu"><summary>⋯</summary><div class="itens">
+        <button class="btn btn-primary btn-sm" data-editar="${i}">Editar</button>
+        <details class="menu"><summary title="Mais ações">⋯</summary><div class="itens">
           <button class="perigo" data-remover="${i}">Remover</button>
         </div></details>
       </div></td></tr>`).join('');
@@ -202,7 +209,7 @@ function desenharEtapas() {
           <option value="encerra"${depois === 'encerra' ? ' selected' : ''}>Encerra e desqualifica</option>
           ${destinos.replace(`value="${esc(depois)}"`, `value="${esc(depois)}" selected`)}
         </select>
-        <input type="text" data-e="${i}" data-r="${j}" data-campo="dor" value="${esc(o.dor || '')}" placeholder="O que isso revela (opcional)">
+        <input type="text" data-e="${i}" data-r="${j}" data-campo="dor" value="${esc(o.dor || '')}" placeholder="ex.: já perdeu prazo por controle manual">
         <button class="btn btn-ghost btn-sm" data-tirar-resp="${i}:${j}" title="Tirar a resposta">✕</button>
       </div>`;
     }).join('');

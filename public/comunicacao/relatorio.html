@@ -155,7 +155,7 @@ async function carregarRelatorio(){
   const num = (v) => Number(v || 0).toLocaleString('pt-BR');
   document.getElementById('tbRelSerie').innerHTML = d.serie.length
     ? d.serie.slice().reverse().map(s => `<tr>
-        <td>${esc(s.dia)}</td>
+        <td style="white-space:nowrap;">${esc(dataBR(s.dia))}</td>
         <td style="text-align:right;">${num(s.recebidas)}</td>
         <td style="text-align:right;">${num(s.enviadasHumano)}</td>
         <td style="text-align:right;${s.recebidas > 0 && !s.enviadasIA ? 'color:var(--warn);' : ''}">${num(s.enviadasIA)}</td>
@@ -169,7 +169,7 @@ async function carregarRelatorio(){
     ? d.erros.map(e => `<tr>
         <td>${esc(e.motivo)}</td>
         <td style="text-align:right;">${num(e.n)}</td>
-        <td>${esc((e.ultimoEm || '').slice(0, 16))}</td>
+        <td style="white-space:nowrap;">${esc(dataBR(e.ultimoEm))} ${esc(String(e.ultimoEm || '').slice(11, 16))}</td>
         <td style="font-size:var(--text-xs);color:var(--text-2);">${esc(e.telefones || '—')}</td>
       </tr>`).join('')
     : '<tr><td colspan="4" class="empty">Nenhuma falha de envio no período</td></tr>';

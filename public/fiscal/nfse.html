@@ -47,7 +47,7 @@
             <div class="page-section">
                 <!-- Tomador -->
                 <div class="panel">
-                    <h3>Tomador do Servico</h3>
+                    <h3>Tomador do Serviço</h3>
                     <div class="form-row">
                         <div class="form-group autocomplete-wrapper" style="position: relative;">
                             <label for="tomaCpfCnpj">CPF/CNPJ *</label>
@@ -55,8 +55,8 @@
                             <div id="tomadorAutocompleteLista" class="autocomplete-list"></div>
                         </div>
                         <div class="form-group">
-                            <label for="tomaRazaoSocial">Razao Social / Nome *</label>
-                            <input type="text" id="tomaRazaoSocial" placeholder="Nome ou razao social">
+                            <label for="tomaRazaoSocial">Razão Social / Nome *</label>
+                            <input type="text" id="tomaRazaoSocial" placeholder="Nome ou razão social">
                         </div>
                         <div class="form-group">
                             <label for="tomaEmail">E-mail</label>
@@ -69,7 +69,7 @@
                             <input type="text" id="tomaLogradouro" placeholder="Rua, Av, etc.">
                         </div>
                         <div class="form-group" style="max-width: 120px;">
-                            <label for="tomaNumero">Numero</label>
+                            <label for="tomaNumero">Número</label>
                             <input type="text" id="tomaNumero" placeholder="Nr.">
                         </div>
                         <div class="form-group">
@@ -83,7 +83,7 @@
                             <input type="text" id="tomaBairro" placeholder="Bairro">
                         </div>
                         <div class="form-group">
-                            <label for="tomaCodMunicipio">Cod. Municipio (IBGE)</label>
+                            <label for="tomaCodMunicipio">Cód. Município (IBGE)</label>
                             <input type="text" id="tomaCodMunicipio" placeholder="Ex: 3550308">
                         </div>
                         <div class="form-group" style="max-width: 80px;">
@@ -99,7 +99,7 @@
 
                 <!-- Servico -->
                 <div class="panel">
-                    <h3>Servico Prestado</h3>
+                    <h3>Serviço Prestado</h3>
                     <div class="form-row">
                         <div class="form-group">
                             <label for="servCTribNac">Código de tributação *</label>
@@ -107,7 +107,7 @@
                             <small class="muted">O cTribNac, da tabela nacional de serviços.</small>
                         </div>
                         <div class="form-group">
-                            <label for="servCodListaServico">Codigo Lista Servico (LC 116)</label>
+                            <label for="servCodListaServico">Código Lista Serviço (LC 116)</label>
                             <input type="text" id="servCodListaServico" placeholder="Ex: 01.01" value="001">
                         </div>
                         <div class="form-group">
@@ -119,8 +119,8 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group full-width">
-                            <label for="servDescricao">Descricao do Servico *</label>
-                            <textarea id="servDescricao" placeholder="Descreva o servico prestado..."></textarea>
+                            <label for="servDescricao">Descrição do Serviço *</label>
+                            <textarea id="servDescricao" placeholder="Descreva o serviço prestado…"></textarea>
                         </div>
                     </div>
                 </div>
@@ -130,15 +130,15 @@
                     <h3>Valores</h3>
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="servValor">Valor do Servico (R$) *</label>
+                            <label for="servValor">Valor do Serviço (R$) *</label>
                             <input type="text" id="servValor" placeholder="0,00" data-formato="dinheiro">
                         </div>
                         <div class="form-group">
-                            <label for="servDeducoes">Deducoes (R$)</label>
+                            <label for="servDeducoes">Deduções (R$)</label>
                             <input type="number" id="servDeducoes" step="0.01" min="0" placeholder="0,00">
                         </div>
                         <div class="form-group">
-                            <label for="servAliquota">Aliquota ISS (%)</label>
+                            <label for="servAliquota">Alíquota ISS (%)</label>
                             <input type="number" id="servAliquota" step="0.01" min="0" max="100" placeholder="Ex: 5.00">
                         </div>
                         <div class="form-group">
@@ -382,7 +382,7 @@
                 const resp = await fetch('/api/nfse/parametros-municipais/' + cod);
                 const data = await resp.json();
                 if (data.success) {
-                    div.innerHTML = '<div class="config-panel"><h4>Parametros do Municipio ' + cod + '</h4><pre style="color: var(--border); font-size:var(--text-xs); white-space:pre-wrap; word-break:break-all;">' + JSON.stringify(data.parametros, null, 2) + '</pre></div>';
+                    div.innerHTML = '<div class="config-panel"><h4>Parâmetros do Município ' + cod + '</h4><pre style="color: var(--border); font-size:var(--text-xs); white-space:pre-wrap; word-break:break-all;">' + JSON.stringify(data.parametros, null, 2) + '</pre></div>';
                 } else {
                     div.innerHTML = '<p style="color: var(--danger);">Erro: ' + data.error + '</p>';
                 }

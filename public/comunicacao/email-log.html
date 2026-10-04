@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>E-mails Enviados - Licite Agora</title>
+    <title>Log de e-mails · Licite Agora</title>
     <script src="/js/theme-boot.js"></script>
     <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
@@ -22,7 +22,7 @@
         <main class="main-content">
             <div class="page-header">
               <div>
-                <h1>E-mails Enviados</h1>
+                <h1>Log de e-mails</h1>
                 <small>Relatório de todos os e-mails enviados pelo sistema (NFSe, boletos, cancelamentos)</small>
               </div>
             </div>
@@ -31,7 +31,10 @@
 
             <div class="kpi-grid" id="stats"></div>
 
-            <div class="filtros">
+            <!-- `toolbar`, e não `filtros`: é a barra com caixa que o resto do
+                 módulo usa. A `filtros` não tem fundo nem borda, e aqui ela era
+                 a única barra solta da Comunicação. -->
+            <div class="toolbar">
                 <input type="text" id="filtBusca" placeholder="Buscar por destinatário, NFS-e, descrição…" oninput="debounce(carregarLogs)" style="flex: 1; min-width: 220px;">
                 <input type="date" id="filtDataInicio" title="Data início" onchange="carregarLogs()" style="width:140px;">
                 <input type="date" id="filtDataFim" title="Data fim" onchange="carregarLogs()" style="width:140px;">
@@ -53,8 +56,7 @@
                 <button class="btn btn-ghost btn-sm" onclick="limparFiltros()">Limpar</button>
             </div>
 
-            <div class="panel">
-                <div class="table-container">
+            <div class="tbl-wrap">
                     <table>
                         <thead>
                             <tr>
@@ -80,7 +82,6 @@
                             </tr>
                         </tbody>
                     </table>
-                </div>
             </div>
         </main>
     </div>
@@ -206,14 +207,16 @@
             tbody.innerHTML = logs.map(l => `
                     <tr style="cursor:pointer;" onclick="verDetalhes(${l.id})">
                         <td>${formatarDataHora(l.dataEnvio)}</td>
-                        <td><span class="badge ${l.tipo}">${escHtml(l.tipo)}</span></td>
+                        <!-- Marca neutra: a classe com o nome do tipo não existe no
+                             app-modern.css, e o tipo saía em caixa-alta sem marca. -->
+                        <td><span class="badge inativo">${escHtml(l.tipo)}</span></td>
                         <td>${escHtml(l.destinatario)}</td>
-                        <td title="${escHtml(l.assunto || '')}">${escHtml((l.assunto || '').substring(0, 40))}${(l.assunto || '').length > 40 ? '...' : ''}</td>
+                        <td style="max-width:280px;" title="${escHtml(l.assunto || '')}">${escHtml((l.assunto || '').substring(0, 40))}${(l.assunto || '').length > 40 ? '...' : ''}</td>
                         <td>${escHtml(l.nfseNumero ? l.nfseNumero.substring(0, 15) + (l.nfseNumero.length > 15 ? '...' : '') : '-')}</td>
-                        <td>${l.valor ? 'R$ ' + Number(l.valor).toFixed(2) : '-'}</td>
+                        <td style="white-space:nowrap;">${l.valor ? Number(l.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
                         <td>${resumoAnexos(l)}</td>
                         <td>
-                          <span class="badge ${l.status}">${escHtml(l.status)}</span>
+                          <span class="badge ${l.status === 'enviado' ? 'entregue' : (l.status === 'erro' ? 'erro' : 'inativo')}">${escHtml(l.status)}</span>
                           ${l.status === 'erro' && l.erro
                             ? `<br><small style="color:var(--danger);" title="${escHtml(l.erro)}">${escHtml(l.erro.substring(0, 30))}</small>` : ''}
                         </td>

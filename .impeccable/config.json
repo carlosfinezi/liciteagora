@@ -1,6 +1,11 @@
 {
   "detector": {
-    "ignoreRules": [],
+    "ignoreRules": [
+      "all-caps-body",
+      "layout-transition",
+      "ai-color-palette",
+      "side-tab"
+    ],
     "ignoreFiles": [],
     "ignoreValues": [
       {
@@ -29,6 +34,30 @@
         ],
         "createdAt": "2026-10-01T13:35:15.761Z",
         "reason": "Usuario confirmou em 01/10/2026: a borda lateral do .toast e copia deliberada da regra do app-modern.css (linha 714), para o aviso da loja, do painel admin e do portal ficar IGUAL ao do ERP. A peca carrega esse estilo de reserva porque essas telas nao carregam a folha comum; mudar aqui desfaria a padronizacao."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "public/comunicacao/conversas.html"
+        ],
+        "createdAt": "2026-10-01T17:29:43.207Z",
+        "reason": "a barra colorida a esquerda e o desenho da citacao do WhatsApp, que o usuario pediu explicitamente (.msg .cita e .citando); a outra ocorrencia e o .conv.sel, anterior a esta sessao"
+      },
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-10-01T20:30:43.660Z",
+        "reason": "user confirmed: Inter e a escolha do design system, com o motivo escrito no proprio app-modern.css (ERP denso, numeros tabulares, boa legibilidade em 13-14px). Trocar por estetica seria risco sem ganho (relatorio 26, secao 8.1)."
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "public/comunicacao/conversas.html"
+        ],
+        "createdAt": "2026-10-04T01:38:50.282Z",
+        "reason": "usuario confirmou em 03/10/2026: e o <img id=visorImg> do visor de foto em tela cheia, que nasce sem src e so recebe um quando alguem abre a foto; nao chega a ser desenhado sem imagem"
       }
     ]
   }

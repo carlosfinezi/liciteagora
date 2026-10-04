@@ -236,7 +236,11 @@ function renderResumo(){
 function renderMeses(){
   const tb = document.getElementById('tbMeses');
   const tf = document.getElementById('tfMeses');
-  tb.innerHTML = defisAtual.meses.map(m => `
+  // Ano sem apuração nenhuma mostrava cabeçalho e linha de totais, sem uma
+  // palavra dizendo que não há mês apurado.
+  if (!defisAtual.meses.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="empty">Nenhum mês apurado neste ano — gere as apurações mensais primeiro.</td></tr>';
+  } else tb.innerHTML = defisAtual.meses.map(m => `
     <tr>
       <td>${m.competencia}</td>
       <td><span class="status-pill ${m.status}">${m.status.replace('_',' ')}</span></td>
@@ -281,6 +285,10 @@ function renderComplementar(){
 
 function renderSocios(){
   const area = document.getElementById('sociosRows');
+  if (!sociosAtual.length) {
+    area.innerHTML = '<p class="empty" style="padding:18px;">Nenhum sócio informado. Use "+ Adicionar".</p>';
+    return;
+  }
   area.innerHTML = sociosAtual.map((s, i) => `
     <div class="socio-linha" data-id="${s.id || ''}" data-idx="${i}">
       <input type="text" value="${escape(s.nome||'')}" placeholder="Nome completo" onchange="updateSocio(${i},'nome',this.value)">

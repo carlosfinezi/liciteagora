@@ -201,7 +201,7 @@ function renderSumario(s, semClass, origens){
   const avisos = avisosOrigem(origens);
   document.getElementById('dreSummary').innerHTML = `
     <div class="dre-summary">
-      <h3 style="margin-top:0;">Resumo</h3>
+      <h3 style="margin:0 0 10px;">Resumo</h3>
       <div class="row"><span class="label">Receita Bruta</span><span class="value tipo-receita">${fmtBRL(s.totalReceitas)}</span></div>
       <div class="row"><span class="label">(–) Deduções</span><span class="value tipo-deducao">${fmtBRL(s.totalDeducoes)}</span></div>
       <div class="row"><span class="label"><strong>Receita Líquida</strong></span><span class="value"><strong>${fmtBRL(s.receitaLiquida)}</strong></span></div>

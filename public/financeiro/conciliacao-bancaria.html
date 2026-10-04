@@ -7,7 +7,12 @@
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
-.upload-card { background:var(--bg-2); border:2px dashed var(--border); border-radius:var(--r-md); padding:24px; text-align:center; }
+/* A borda tracejada é de área de arquivo, mas o que mora aqui dentro é um
+   formulário com rótulos. Com `text-align:center` (como era até 03/10/2026) os
+   rótulos saíam centralizados sobre os campos, únicos assim no sistema inteiro,
+   e o título do bloco caía no meio da caixa. */
+.upload-card { background:var(--bg-2); border:2px dashed var(--border); border-radius:var(--r-md); padding:24px; }
+.upload-card > h3 { margin:0 0 14px; font-size:1em; }
 .trx-row.credito td { color:var(--success); }
 .trx-row.debito td { color:var(--danger); }
 .trx-row.conciliada td { opacity:0.55; }

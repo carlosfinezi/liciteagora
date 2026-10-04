@@ -4,6 +4,80 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-03, revisão visual das 141 telas
+
+Varredura de aparência em 14 módulos, tela por tela, em 1440 e 390 px, dentro do
+shell de verdade. **36 defeitos em 16 telas e no CSS global.** Nada de lógica:
+só CSS, estrutura visual do HTML e texto de tela.
+
+**Seis consertos foram de raiz, no `app-modern.css`** — cada um apareceu numa
+tela e valia para todas:
+
+| Regra | O que corrigiu |
+|---|---|
+| `input[type=checkbox], input[type=radio] { min-height: 0; vertical-align: middle }` | no celular, TODO checkbox do ERP virava uma caixa de 13×40 (herdava o alvo de toque dos campos de texto) e empurrava o rótulo para baixo da marca |
+| `.btn { text-decoration: none }` | os 180 `<a class="btn">` do sistema saíam com o sublinhado de link por cima do rótulo |
+| `[data-theme="claro"] .badge.rascunho, .pendente, .inativo…` | as marcas cinzas têm cor fixa, pensada para o fundo escuro: no claro o `#37415150` compõe com o branco e vira `#c0c3c8`, e o texto `#94a3b8` dava **1,45:1** de contraste. Agora 6,15:1 |
+| `[class$="-grid"] > .empty` | o "nada aqui" de uma grade de cartões virava um cartão de 280px, com a frase quebrada no meio da tela |
+| `.card > h2, .card > h3, .panel > h2 { margin-bottom: 10px }` | o reset `* { margin: 0 }` zera a margem de todo título, e cada tela precisava lembrar de afastar o próprio h3 — as que esqueceram ficavam com o título encostado no conteúdo |
+| `.panel > h3 > .titulo-icone, .page-header > .titulo-icone` | o seletor solto zerava a margem do ícone DENTRO do `<h1>`, e ele colava na primeira letra |
+
+Por tela, o que mais se repetiu foi **tabela vazia e muda** (DEFIS, Arquivamento
+Fiscal, Metas de Vendas, Contabilização Automática, CRM · Funil): cabeçalho na
+tela e nenhuma palavra dizendo que não há nada. O CRM · Funil era o pior caso —
+sem nenhum funil cadastrado, o `carregar()` saía no `if (!funilAtual) return` e
+sobrava a barra de filtros sobre uma área em branco do tamanho da janela.
+
+Também: 13 rótulos sem acento na emissão de NFS-e ("Tomador do Servico", "Razao
+Social", "Codigo Lista Servico"), formulário com rótulos centralizados na
+Conciliação Bancária (herança de "área de arrastar arquivo"), status em texto
+cru onde a tela vizinha usa marca (Campanhas, Log de e-mails), `R$ 1890.50` sem
+separador, datas em ISO, e a grade de dias do Canal, que pedia 446px de largura
+em 366 disponíveis e fazia a página inteira deslizar na horizontal no celular.
+
+**Catálogo, Estoque, Compras, Licitações, OS, Varejo, Cobrança e Configurações
+passaram sem um conserto sequer** — 57 telas.
+
+Os retratos de antes e depois estão em `/home/carlosfinezi/revisao-visual/`
+(fora da árvore), um `index.html` por módulo, com o resumo em cima.
+
+### Ficou anotado, não feito
+
+- **Venda rápida (PDV) no celular**: o painel do pedido fica inteiro fora da tela
+  (borda direita em 749px num viewport de 390), e não há como chegar à sacola.
+  É decidir como as duas colunas convivem em 390px, não ajuste de aparência.
+- **Relatório de Lances**: três cabeçalhos truncados no retrato ("IT…",
+  "RESULTA…"), que não se reproduzem medindo fora do harness. Não se mexe no
+  `grid.js`, compartilhado por dezenas de telas, por sintoma que não repete.
+- **Quatro `skipped-heading`** (h1 da página seguido do h3 de um modal, em
+  Conciliação Bancária, Recorrências NFS-e, CRM · Funil e Conversas): é
+  hierarquia para leitor de tela, fica para uma rodada de acessibilidade.
+
+### O gancho do grafo passou a funcionar quando o commit é do root
+
+As sessões de trabalho desta árvore rodam como root, e o coalescedor do grafo
+recusa root — por bom motivo: rodando assim ele deixaria `graphify-out`
+root-owned e a próxima rodada do carlosfinezi quebraria em EACCES. O resultado é
+que **todo commit feito aqui caía na recusa** e o grafo ficava parado, com o
+único sinal numa linha de `rebuild.log` que ninguém lê depois de um commit bem
+sucedido. Era assim desde 16/09.
+
+A guarda do coalescedor fica como está; quem mudou foi o gancho
+(`.git/hooks/post-commit`): sendo root, ele não chama o script — pede ao dono do
+grafo que chame, com `su - carlosfinezi`. Provado com um commit de teste num
+repositório descartável em `/tmp`, com cópia exata do gancho: o `rebuild.log`
+passou de `[commit] RECUSADO: rodando como root` para `[commit] OK`.
+
+### Detector de design
+
+Quatro regras entraram em `.impeccable/config.json` como exceção, com o motivo
+de cada uma: `all-caps-body` (a caixa-alta vem do `.form-group label` do design
+system), `layout-transition` (o `transition:all` do `.btn` e o `margin-left` da
+sidebar), `ai-color-palette` (a paleta do produto) e `side-tab` (a borda
+colorida de 3px dos KPIs e alertas). Mais um `broken-image` no escopo de
+`conversas.html`, que é o visor de foto em tela cheia — nasce sem `src` e só
+recebe um quando alguém abre a imagem.
+
 ## 2026-10-03, os grupos de palavras couberam na tela
 
 A tela tinha **8.100 px**, ou 12,6 telas de rolagem, e nenhum dos 22 cards cabia

@@ -354,7 +354,13 @@ async function carregarConfig(){
 async function carregar(){
   const fid = Number(document.getElementById('fFunil').value);
   funilAtual = funis.find(f=>f.id===fid);
-  if (!funilAtual) return;
+  // Sem nenhum funil cadastrado a tela saía daqui calada, e o que sobrava era a
+  // barra de filtros sobre uma área em branco do tamanho da janela.
+  if (!funilAtual) {
+    document.getElementById('board').innerHTML = '<p class="empty" style="width:100%;">'
+      + 'Nenhum funil cadastrado. Use o "+" ao lado do seletor para criar o primeiro.</p>';
+    return;
+  }
   document.getElementById('btnImportarInteresse').style.display = funilAtual.nome === 'Licitações' ? 'inline-flex' : 'none';
   const p = new URLSearchParams({ funilId: fid });
   const q = document.getElementById('fQ').value.trim();
@@ -422,6 +428,13 @@ function renderBoard(ops, totais){
   etapaCounts = {};
   carregadosEtapa = {};
   carregandoEtapa = {};
+  // Tenant sem funil, ou funil sem etapa, deixava a tela inteira em branco
+  // abaixo da barra — nem uma palavra dizendo o que fazer.
+  if (!funilAtual || !funilAtual.etapas || !funilAtual.etapas.length) {
+    board.innerHTML = '<p class="empty" style="width:100%;">Nenhuma etapa neste funil. '
+      + 'Use "+ Nova etapa" para criar a primeira.</p>';
+    return;
+  }
   board.innerHTML = funilAtual.etapas.map(et => {
     const lista = grupos[et.id] || [];
     const tot = totais && totais[et.id];

@@ -125,7 +125,11 @@ async function carregar(){
 function render(d){
   const tb = document.getElementById('tbody');
   const tf = document.getElementById('tfoot');
-  tb.innerHTML = d.meses.map(m => {
+  // Ano sem XML nenhum ficava só com o cabeçalho e a linha de total, sem dizer
+  // que não há nada guardado.
+  if (!d.meses.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="empty">Nenhum documento arquivado neste ano.</td></tr>';
+  } else tb.innerHTML = d.meses.map(m => {
     const total = m.saida + m.entrada + m.nfse;
     return `<tr>
       <td>${mesNome(m.ym)}</td>

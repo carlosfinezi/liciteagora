@@ -84,6 +84,13 @@
 <script src="/js/comunicacao-comum.js"></script>
 <script>
 // ---------- campanhas (as duas fontes) ----------
+// O status sai em marca colorida, como em toda listagem do ERP — ao lado de
+// Origem, que já era marca, o texto cru parecia um campo não preenchido. As
+// classes vêm do app-modern.css: o nome delas é de pedido e estoque, o que se
+// aproveita aqui é a cor.
+const BADGE_STATUS = { rascunho: 'rascunho', agendada: 'aberta', enviando: 'processando',
+                       pausada: 'parcial', enviada: 'entregue', cancelada: 'cancelada' };
+
 async function carregarCampanhas(){
   const d = await fetch('/api/conversas/campanhas').then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');
@@ -95,7 +102,7 @@ async function carregarCampanhas(){
     // nela obriga a caçar o número por fora.
     const dest = c.destinatarios
       ? Object.entries(c.destinatarios).map(([k,v]) =>
-          `<a href="#" onclick="verEnvios(event, ${c.id}, '${c.origem}', ${argJs(c.nome)}, '${k}')">${numBR(v)} ${k}</a>`).join(' · ')
+          `<a href="#" style="white-space:nowrap;" onclick="verEnvios(event, ${c.id}, '${c.origem}', ${argJs(c.nome)}, '${k}')">${numBR(v)} ${k}</a>`).join(' · ')
       : (c.totalDestinatarios != null ? `${numBR(c.totalDestinatarios)} na lista` : '—');
     // A lista, quando existe. A campanha legado guarda os próprios
     // destinatários e nunca tem uma — dizer isso em toda linha só somaria
@@ -166,7 +173,7 @@ async function carregarCampanhas(){
     return `<tr>
       <td><strong>${esc(c.nome||'(sem nome)')}</strong>${c.descricao?`<br><small class="muted">${esc(String(c.descricao).slice(0,90))}</small>`:''}${c.templateNome?`<br><small class="muted">modelo: ${esc(c.templateNome)}</small>`:''}</td>
       <td><span class="badge ${c.origem==='wa'?'inativo':'ativo'}">${c.origem==='wa'?'legado':'campanha'}</span></td>
-      <td>${esc(c.status||'—')}${c.rodada > 1 ? `<br><small class="muted">rodada ${c.rodada}</small>` : ''}</td>
+      <td>${c.status ? `<span class="badge ${BADGE_STATUS[st] || 'inativo'}">${esc(c.status)}</span>` : '—'}${c.rodada > 1 ? `<br><small class="muted">rodada ${c.rodada}</small>` : ''}</td>
       <td>${dest}${vinculo}</td>
       <td>${esc(dataBR(c.criadoEm))}</td>
       <td style="text-align:right;">${acao}</td>

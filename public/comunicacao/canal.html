@@ -20,9 +20,18 @@
 .msg { max-width:72%; padding:8px 12px; border-radius:12px; font-size:0.88em; line-height:1.45; white-space:pre-wrap; word-break:break-word; }
 .msg.deles { background:var(--bg-2); border:1px solid var(--border); align-self:flex-start; border-bottom-left-radius:3px; }
 
+/* A regra global de app-modern.css dá fundo, borda e canto arredondado a toda
+   <section>, mas não dá padding: sem isto o título "Números" encosta na borda
+   da caixa. */
+#blocoNumeros { padding:14px 16px 16px; }
+
 /* Os números da empresa, um cartão cada; o escolhido é o que o bloco de baixo
    configura. */
-.numeros { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:12px; margin-bottom:12px; }
+/* 250px não cabiam os três botões do cartão: o "⋯" caía sozinho para a linha de
+   baixo. E `align-items:start` evita que o cartão sem botões estique até a
+   altura do vizinho, que é de onde vinha o vazio dentro dele. */
+.numeros { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:12px;
+  margin-bottom:12px; align-items:start; }
 .numero { border:1px solid var(--border); border-radius:var(--r-md); padding:12px 14px; background:var(--bg-2);
   display:flex; flex-direction:column; gap:8px; }
 .numero.sel { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
@@ -33,6 +42,16 @@
 .numero .acoes { justify-content:flex-start; flex-wrap:wrap; }
 .secao-canal { margin-top:26px; padding-top:16px; border-top:1px solid var(--border); }
 .secao-canal > h2 { font-size:1.05em; margin:0 0 14px; }
+
+/* A linha de um dia da semana pede 446px (rótulo de 130 + dois campos de hora),
+   e no celular sobram 366: o segundo campo saía da tela e a página inteira
+   passava a deslizar na horizontal. A partir daqui o dia ocupa a linha e os
+   dois campos dividem o que sobra. */
+@media (max-width: 560px) {
+  #horDias > div, #agDias > div { flex-wrap:wrap; }
+  #horDias > div > label, #agDias > div > label { flex:1 1 100% !important; }
+  #horDias input[type="time"], #agDias input[type="time"] { flex:1 1 110px; min-width:0; }
+}
 </style>
 </head>
 <body>

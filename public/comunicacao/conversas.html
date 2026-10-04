@@ -87,8 +87,12 @@
 
 /* Os seletores dividem a linha de baixo, e cada um só aparece quando tem o que
    escolher (um número só, nenhum nicho com campanha). */
-.seletores { display:flex; gap:var(--space-2); }
-.seletores select { flex:1 1 0; min-width:0; padding:5px; font-size:var(--text-sm); }
+/* `flex:1 1 0` repartia a linha em partes iguais, e com dois ou três seletores
+   em 250px cada um ficava com ~110px: "Todos os nichos" saía cortado em "Todos
+   os nicho". Com uma base de 130px e quebra de linha, o que não cabe desce em
+   vez de truncar. */
+.seletores { display:flex; gap:var(--space-2); flex-wrap:wrap; }
+.seletores select { flex:1 1 130px; min-width:0; padding:5px; font-size:var(--text-sm); }
 
 /* Os filtros quebram linha. Até 29/09 rolavam para o lado, e "Campanhas" e
    "Minhas" ficavam fora da vista: filtro escondido é filtro que ninguém usa. */
@@ -127,7 +131,11 @@
   height:20px; overflow:hidden; }
 .conv .previa { font-size:var(--text-sm); color:var(--text-2); white-space:nowrap;
   overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0; }
-.conv .marcas { display:flex; gap:var(--space-1); flex:0 0 auto; max-width:55%;
+/* 55% da linha não cabiam as três marcas que uma conversa pendente com dono
+   mostra ("pendente", "IA", o nome de quem assumiu): a última era cortada pela
+   metade pelo `overflow:hidden`, e o que se via era meia pílula aberta na borda.
+   Em 70% as três cabem; a prévia, que já corta com reticências, cede o espaço. */
+.conv .marcas { display:flex; gap:var(--space-1); flex:0 0 auto; max-width:70%;
   overflow:hidden; white-space:nowrap; }
 /* O CONTORNO TEM DE FECHAR. A linha da prévia tem altura fixa de 20px com
    `overflow:hidden` (é o que mantém todo card igual), e a pílula media 22px:

@@ -250,6 +250,13 @@ async function carregarHistorico(){
       <div class="value">${fmtC(rs.totalPerdido)}</div></div>`;
 
   const hoje=val('comp');
+  // Doze meses sem venda nenhuma deixavam só o cabeçalho na tela, sem dizer
+  // que não há histórico.
+  if (!d.serie.length) {
+    document.getElementById('tbHist').innerHTML =
+      '<tr><td colspan="9" class="empty">Sem histórico nos últimos 12 meses.</td></tr>';
+    return;
+  }
   document.getElementById('tbHist').innerHTML=d.serie.map(s=>{
     const larg=Math.round((s.realizado/max)*100);
     const varCor=s.variacaoAnualPct==null?'var(--text-3)':(s.variacaoAnualPct>=0?'var(--success)':'var(--danger)');
