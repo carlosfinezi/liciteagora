@@ -4,6 +4,64 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-05, a conversa que anda sozinha, e o escopo da IA por número
+
+Duas frentes, as duas saídas de uso real.
+
+**1. A conversa aberta não tinha caminho nenhum para mensagem nova.** O tique de
+6 s só trocava o `<span class="ack">` dos balões já pintados, e a lista repinta a
+cada 30 s sem tocar no painel: quem conversava pelo celular via o PC parado até
+reabrir a conversa.
+
+- `GET /api/conversas/:id/mensagens` passou a aceitar `depoisDe`, o pedaço
+  SEGUINTE ao último balão. Com mais de 400 novas (aba escondida por muito
+  tempo) o limite corta as mais ANTIGAS, e o tique seguinte completa: cortar
+  pelo outro lado abriria buraco no meio da conversa, calado.
+- Entregando mensagem recebida, zera as não lidas. Quem está com a conversa
+  aberta leu, e sem isso a linha dela voltava à lista marcada como não lida.
+- Na tela, `mensagensNovas()` entrou no mesmo tique de 6 s. Quem está no pé da
+  conversa desce com a mensagem; quem está lendo o histórico atrás fica onde
+  estava (sabotagem da guarda: a leitura era arrastada de 0 para 18.251 px).
+- O filtro por id na resposta é também a guarda contra servidor que ainda não
+  conheça o `depoisDe`: ignorado, ele devolve o histórico inteiro, e a conversa
+  dobraria de tamanho a cada tique.
+
+**2. O escopo "só quem recebeu campanha" vazava entre os números do tenant.** O
+casamento era só pelos 8 últimos dígitos do telefone, sem olhar por qual número
+a campanha saiu. No 1bit: a campanha ao contato saiu pelo número **Principal**
+em 30/09, o contato mandou "oi" para o número **pessoal do atendente** e a IA
+respondeu lá com a primeira etapa do roteiro. Eram 4 conversas assim.
+
+- `campanhaDaConversa` passou a exigir o mesmo número, e o `canalId` entrou na
+  chamada do webhook, que era o que faltava. Vale também para o roteiro: o da
+  campanha de outro número não entra mais na conversa.
+- Envio sem canal (coluna nula, ou 0) é do número PADRÃO. Antes de haver vários
+  números todo disparo saía pelo número único, e exigir igualdade crua
+  descartaria de uma vez as campanhas de um banco anterior aos canais. No 1bit
+  os 363 envios já têm canal, então a guarda não muda nada lá.
+- **A marca da IA na lista não sabia do escopo**: dizia "a IA responde nesta
+  conversa" em 683 das 995 conversas do 1bit que ela nunca atenderia. Com o
+  escopo em `campanha`, a conversa que nenhuma campanha deste número abordou
+  aparece desligada. O cálculo é uma consulta para a lista inteira
+  (`abordadosPorCampanha`), e não uma por linha.
+- A validade de tempo da campanha ficou como está, por decisão do usuário:
+  campanha antiga continua habilitando a IA.
+
+Duas correções nas suítes, das quais a primeira pegou a regressão de verdade:
+
+- **a E6 da `test-whatsapp-canais` reprovou**, e o fixture dela era o errado:
+  inseria o envio de campanha sem `canalId`, coisa que o envio real sempre grava
+  (`comm-routes.js`, ao marcar 'enviado'). Corrigido, e a etapa ganhou a
+  asserção da regra nova, que é a prova no caminho real (o webhook);
+- **a N7c da `test-conversas-ux` esperava 900 ms fixos** por dois `carregar()`
+  seguidos, e com as quatro suítes em paralelo do verify o segundo não chegava.
+  Agora espera pela condição, com teto de 5 s.
+
+Provas novas: `test-conversas-acoes` A14 (o pedaço seguinte, com o caso das 401
+mensagens), `test-conversas-ux` H9 (a mensagem chegando sozinha, no tique real
+de 6 s) e A4d (a marca fora do escopo), `test-roteiros-campanha` Q12 (campanha
+de outro número não vale, nem para o roteiro).
+
 ## 2026-10-03, revisão visual das 141 telas
 
 Varredura de aparência em 14 módulos, tela por tela, em 1440 e 390 px, dentro do

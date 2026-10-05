@@ -88,8 +88,68 @@ const FILA_CHEIA = Array.from({ length: 300 }, (_, i) => ({
   let RECEBIDAS = { ultimoId: 10, novas: 0 }; // o aviso de mensagem nova (H2b)
   // Mídia (parte M): a 905 não existe mais no WhatsApp.
   const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  /**
+   * Um WAV de silêncio, de verdade, com a duração pedida.
+   *
+   * O áudio PRECISA ser áudio: o player lê os metadados para dizer a duração, e
+   * um PNG servido no lugar dispara o `onerror` do `<audio>` — que troca o
+   * player por "Mídia indisponível" e fazia a checagem do player não achar nada
+   * para medir. Com `preload="none"`, como era até 03/10, o arquivo nem era
+   * baixado e o PNG passava.
+   */
+  const wav = (segundos) => {
+    const taxa = 8000, amostras = taxa * segundos, dados = amostras; // 8 bits, mono
+    const b = Buffer.alloc(44 + dados, 128);                         // 128 = silêncio em 8 bits
+    b.write('RIFF', 0); b.writeUInt32LE(36 + dados, 4); b.write('WAVE', 8);
+    b.write('fmt ', 12); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+    b.writeUInt32LE(taxa, 24); b.writeUInt32LE(taxa, 28); b.writeUInt16LE(1, 32); b.writeUInt16LE(8, 34);
+    b.write('data', 36); b.writeUInt32LE(dados, 40);
+    return b;
+  };
+  const WAV = wav(5);
+  /**
+   * Um PNG com a dimensão pedida, de uma cor só.
+   *
+   * O PNG de 1x1 serve para "a imagem apareceu", e não para medir a caixa dela:
+   * a largura do balão da foto (parte M7) sai da foto, e com 1x1 qualquer regra
+   * passa. Gerado aqui porque é menor que o base64 de uma imagem de verdade.
+   */
+  const zlib = require('zlib');
+  const crcTab = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc32 = (b) => {
+    let c = 0xffffffff;
+    for (const x of b) c = crcTab[(c ^ x) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const pngDe = (w, h) => {
+    const linhas = [];
+    for (let y = 0; y < h; y++) {
+      const l = Buffer.alloc(1 + w * 3);                 // 1 byte de filtro + RGB
+      for (let x = 0; x < w; x++) { l[1 + x * 3] = 90; l[2 + x * 3] = 120; l[3 + x * 3] = 160; }
+      linhas.push(l);
+    }
+    const bloco = (tipo, dados) => {
+      const len = Buffer.alloc(4); len.writeUInt32BE(dados.length);
+      const corpo = Buffer.concat([Buffer.from(tipo), dados]);
+      const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(corpo));
+      return Buffer.concat([len, corpo, crc]);
+    };
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+    return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+      bloco('IHDR', ihdr), bloco('IDAT', zlib.deflateSync(Buffer.concat(linhas))),
+      bloco('IEND', Buffer.alloc(0))]);
+  };
+  const FOTO_EM_PE = pngDe(600, 900), FOTO_DEITADA = pngDe(900, 300);
   app.get('/api/conversas/midia/:id', (rq, rs) => {
     if (rq.params.id === '905') return rs.status(404).json({ success: false, error: 'O WhatsApp não tem mais esta mídia' });
+    if (rq.params.id === '903') return rs.type('audio/wav').send(WAV);
+    if (rq.params.id === '907') return rs.type('png').send(FOTO_EM_PE);
+    if (rq.params.id === '908') return rs.type('png').send(FOTO_DEITADA);
     rs.type('png').send(PNG);
   });
   app.get('/api/conversas', (rq, rs) => {
@@ -144,6 +204,25 @@ const FILA_CHEIA = Array.from({ length: 300 }, (_, i) => ({
         { id: 903, from_me: 0, message_type: 'audioMessage', texto: null, timestamp: 1789650020 },
         { id: 904, from_me: 0, message_type: 'documentMessage', texto: 'segue o boleto', timestamp: 1789650030 },
         { id: 905, from_me: 0, message_type: 'imageMessage', texto: null, timestamp: 1789650040 },
+        // A figurinha (03/10): a imagem do stub é de 1x1, e o que esta suíte
+        // mede é a CAIXA da figurinha, que é o que estourava — o `max-width`
+        // da foto num balão de 34em dava quase 400px de lado.
+        { id: 906, from_me: 0, message_type: 'stickerMessage', texto: null, timestamp: 1789650050 },
+        // Foto COM legenda, nas duas proporções (03/10): é a largura do balão
+        // que elas medem, e por isso vêm com dimensão de verdade.
+        { id: 907, from_me: 0, message_type: 'imageMessage', texto: 'chegou hoje, confere o numero de serie', timestamp: 1789650052 },
+        { id: 908, from_me: 0, message_type: 'imageMessage', texto: 'a etiqueta de baixo', timestamp: 1789650054 },
+        // Os ticks, um por status. A primeira é a mensagem ANTIGA, sem status
+        // gravado: ela não pode ganhar tique nenhum.
+        { id: 910, from_me: 1, texto: 'sem ack gravado', timestamp: 1789650060 },
+        { id: 911, from_me: 1, texto: 'enviando', timestamp: 1789650070, status: 'PENDING' },
+        { id: 912, from_me: 1, texto: 'enviada', timestamp: 1789650080, status: 'SERVER_ACK' },
+        { id: 913, from_me: 1, texto: 'entregue', timestamp: 1789650090, status: 'DELIVERY_ACK' },
+        { id: 914, from_me: 1, texto: 'lida', timestamp: 1789650100, status: 'READ' },
+        { id: 915, from_me: 1, texto: 'falhou', timestamp: 1789650110, status: 'ERROR' },
+        // Status em mensagem RECEBIDA: o webhook não grava, e a tela não
+        // desenha nem se chegar — o tique é do que sai daqui.
+        { id: 916, from_me: 0, texto: 'nao e minha', timestamp: 1789650120, status: 'READ' },
       ] });
     }
     rs.json({ success: true, conversa: c,
@@ -182,7 +261,22 @@ const FILA_CHEIA = Array.from({ length: 300 }, (_, i) => ({
     return { mensagens: HISTORICO.slice(ini, ate), temMais: ini > 0 };
   };
   app.get('/api/conversas/900/detalhe-longo', (_q, rs) => rs.json(pedaco(null)));
-  app.get('/api/conversas/:id/mensagens', (rq, rs) => rs.json({ success: true, ...pedaco(rq.query.antesDe) }));
+  // O que CHEGOU depois do último balão pintado — vazio na maior parte do
+  // tempo, que é o caso de toda etapa daqui. A etapa H9 enche esta fila para a
+  // mensagem chegar de fato, como chega quando o atendente conversa pelo
+  // celular. O corte por id é o mesmo da rota real.
+  const CHEGANDO = [];
+  // O tique do ack, que anda junto. Sem este stub o 404 dele entra na lista de
+  // erros de JavaScript da etapa D1 — e só às vezes, quando a conversa fica
+  // aberta mais de 6 s antes dela.
+  app.get('/api/conversas/:id/acks', (_q, rs) => rs.json({ success: true, acks: [] }));
+  app.get('/api/conversas/:id/mensagens', (rq, rs) => {
+    if (rq.query.depoisDe) {
+      const corte = Number(rq.query.depoisDe);
+      return rs.json({ success: true, temMais: false, mensagens: CHEGANDO.filter(m => m.id > corte) });
+    }
+    rs.json({ success: true, ...pedaco(rq.query.antesDe) });
+  });
   app.post('/api/conversas/abrir-destino', (rq, rs) => { pedidos.push('POST ' + rq.originalUrl); rs.json({ success: true, id: 1 }); });
   app.get('/api/conversas/:id/oportunidade', (_q, rs) => rs.json({ success: true, oportunidade: null }));
   // Qualificação pelo roteiro, na ficha da conversa.
@@ -347,6 +441,25 @@ const FILA_CHEIA = Array.from({ length: 300 }, (_, i) => ({
     assert(cores.off === cores.text3, `a IA desligada não está no cinza do tema: ${cores.off}`);
     assert(new Set([cores.on, cores.pausa, cores.off]).size === 3,
       'duas das três cores são iguais, e a cor é a única coisa que diz o estado');
+  });
+
+  // Com o atendente de IA em "só quem recebeu campanha", a IA não responde a
+  // quem este número nunca abordou, e a marca verde prometia o contrário em 683
+  // das 995 conversas do 1bit (05/10/2026).
+  await t('A4d. fora do escopo do atendente, a marca da IA vem DESLIGADA', async () => {
+    const m = await frame.evaluate(() => {
+      const classe = () => [...document.querySelectorAll('.conv')[0].querySelectorAll('.pil')]
+        .filter(p => p.textContent.trim() === 'IA').map(p => p.className).join();
+      const antes = classe();
+      CONVERSAS[0].iaForaDoEscopo = 1; renderLista();
+      const depois = classe();
+      delete CONVERSAS[0].iaForaDoEscopo; renderLista();
+      return { antes, depois, voltou: classe() };
+    });
+    assert(/ia-on/.test(m.antes), 'a conversa comum não estava com a IA ligada: ' + m.antes);
+    assert(/ia-off/.test(m.depois) && !/ia-on/.test(m.depois),
+      'fora do escopo a marca continuou ligada: ' + m.depois);
+    assert(/ia-on/.test(m.voltou), 'dentro do escopo a marca não voltou a ligada: ' + m.voltou);
   });
 
   await t('A5. nao lidas aparece no avatar, e so em quem tem', async () => {
@@ -993,7 +1106,15 @@ const FILA_CHEIA = Array.from({ length: 300 }, (_, i) => ({
       const r = document.getElementById('selSituacao'); r.value = 'todos'; r.dispatchEvent(new Event('change'));
       const n = document.getElementById('selNicho'); n.value = ''; n.dispatchEvent(new Event('change'));
     });
-    await new Promise(r => setTimeout(r, 900));
+    // Espera pela CONDIÇÃO, e não por um tempo fixo: são dois `carregar()`
+    // seguidos (situação e nicho), e com a máquina carregada — as quatro suítes
+    // em paralelo do verify — o segundo não chegava dentro dos 900 ms, e a
+    // etapa reprovava mostrando o pedido do primeiro.
+    const semFiltro = () => {
+      const u = pedidos.slice(antes2).pop() || '';
+      return !!u && !/nicho=/.test(u) && !/situacao=/.test(u);
+    };
+    for (let i = 0; i < 50 && !semFiltro(); i++) await new Promise(r => setTimeout(r, 100));
     const ultimo = pedidos.slice(antes2).pop() || '';
     assert(!/nicho=/.test(ultimo) && !/situacao=/.test(ultimo), 'filtro continuou no pedido: ' + ultimo);
     // Deixa a conversa de teste aberta de novo para as medições seguintes.
@@ -1386,6 +1507,144 @@ const FILA_CHEIA = Array.from({ length: 300 }, (_, i) => ({
     assert(/Mídia indisponível/.test(txt), 'a mídia que não existe mais não foi dita');
   });
 
+  // ---- M4 a M6: figurinha, player de áudio e ticks (03/10/2026) ----
+
+  await t('M4. a figurinha cabe em 128px, e nao na caixa da foto', async () => {
+    const m = await frame.evaluate(() => {
+      const fig = document.querySelector('#msgs .midia.figurinha img');
+      const foto = document.querySelector('#msgs .msg:not(.so-figurinha) .midia:not(.figurinha) img');
+      const cs = (el) => { const s = getComputedStyle(el); return { mw: s.maxWidth, mh: s.maxHeight }; };
+      const balao = fig && fig.closest('.msg');
+      return { fig: fig && cs(fig), foto: foto && cs(foto),
+        semBalao: balao ? balao.classList.contains('so-figurinha') : null,
+        fundo: balao ? getComputedStyle(balao).backgroundColor : null };
+    });
+    assert(m.fig && m.fig.mw === '128px' && m.fig.mh === '128px', 'figurinha: ' + JSON.stringify(m.fig));
+    // A foto NÃO pode ter encolhido junto: a regra é só da figurinha.
+    assert(m.foto && m.foto.mh === '320px', 'a foto mudou de tamanho: ' + JSON.stringify(m.foto));
+    assert(m.semBalao === true, 'figurinha sozinha ainda vem com balão');
+    assert(/rgba\(0, 0, 0, 0\)|transparent/.test(m.fundo || ''), 'o balão da figurinha não ficou transparente: ' + m.fundo);
+  });
+
+  await t('M5. o audio tem player proprio, e nao o do sistema', async () => {
+    const m = await frame.evaluate(() => {
+      const som = document.querySelector('#msgs .midia.som');
+      if (!som) return null;
+      const a = som.querySelector('audio');
+      const r = som.getBoundingClientRect();
+      return { controls: a.hasAttribute('controls'), src: a.getAttribute('src'),
+        temPlay: !!som.querySelector('.aud-play'), temBarra: !!som.querySelector('.aud-barra'),
+        tempo: (som.querySelector('.aud-tempo') || {}).textContent,
+        barraLigada: !som.querySelector('.aud-barra').disabled,
+        ligado: a.dataset.ligado === '1', alto: Math.round(r.height), largo: Math.round(r.width) };
+    });
+    assert(m, 'não há player de áudio na conversa');
+    // `controls` é o player do sistema: é ele que desenhava o alto-falante.
+    assert(!m.controls, 'o <audio> voltou a usar os controles do sistema');
+    assert(/\/api\/conversas\/midia\/903$/.test(m.src), 'áudio: ' + m.src);
+    assert(m.temPlay && m.temBarra && m.tempo, 'faltam peças no player: ' + JSON.stringify(m));
+    assert(m.ligado, 'o player existe mas ninguém ligou os eventos dele');
+    // O áudio do stub tem 5 segundos: parado, o player diz quanto ele tem.
+    assert(m.tempo === '00:05', 'a duração não foi lida: ' + m.tempo);
+    assert(m.barraLigada, 'a barra ficou desligada num áudio com duração conhecida');
+    // Caber no balão é o ponto: o player do Chrome tem 54px de altura.
+    assert(m.alto > 0 && m.alto <= 40, `o player tem ${m.alto}px de altura`);
+    assert(m.largo >= 200, `o player tem ${m.largo}px de largura, e a barra fica inutilizável`);
+  });
+
+  await t('M6. os ticks: um por status, nenhum sem status, e nenhum no que chegou', async () => {
+    const m = await frame.evaluate(() => {
+      const d = {};
+      for (const b of document.querySelectorAll('#msgs .msg[data-id]')) {
+        const ack = b.querySelector('.ack');
+        const r = ack ? ack.getBoundingClientRect() : null;
+        d[b.dataset.id] = ack
+          ? { titulo: ack.getAttribute('title'), cls: ack.className,
+              caminhos: ack.querySelectorAll('path').length,
+              visivel: !!(r.width > 0 && r.height > 0) }
+          : null;
+      }
+      // A hora da mensagem nossa leva o tique: a vaga da última linha tem de
+      // ter crescido, senão o tique cai por cima da palavra.
+      const vaga = document.querySelector('.msg[data-id="914"] .vaga');
+      return { d, vagaLarga: vaga ? Math.round(vaga.getBoundingClientRect().width) : null,
+        vagaSemAck: Math.round(document.querySelector('.msg[data-id="910"] .vaga').getBoundingClientRect().width) };
+    });
+    assert(m.d['910'] === null, 'mensagem sem status gravado ganhou tique');
+    assert(m.d['916'] === null, 'mensagem RECEBIDA ganhou tique');
+    assert(m.d['911'] && m.d['911'].titulo === 'Enviando', 'PENDING: ' + JSON.stringify(m.d['911']));
+    assert(m.d['912'] && m.d['912'].caminhos === 1, 'enviada tem UM tique: ' + JSON.stringify(m.d['912']));
+    assert(m.d['913'] && m.d['913'].caminhos === 2 && !/lida/.test(m.d['913'].cls),
+      'entregue tem DOIS tiques, e sem a cor de lida: ' + JSON.stringify(m.d['913']));
+    assert(m.d['914'] && m.d['914'].caminhos === 2 && /lida/.test(m.d['914'].cls),
+      'lida tem dois tiques e a cor: ' + JSON.stringify(m.d['914']));
+    assert(m.d['915'] && /falhou/.test(m.d['915'].cls), 'ERROR: ' + JSON.stringify(m.d['915']));
+    for (const id of ['911', '912', '913', '914', '915']) {
+      assert(m.d[id].visivel, `o tique da ${id} tem caixa zero — não se vê`);
+    }
+    assert(m.vagaLarga > m.vagaSemAck,
+      `a vaga não cresceu com o tique (${m.vagaSemAck}px sem, ${m.vagaLarga}px com)`);
+  });
+
+  // A foto com legenda (03/10). O balão media a largura pelo TEXTO: uma foto em
+  // pé de 213px dentro de um balão de 267px, com a legenda passando por fora
+  // dela de um lado só. Quem decide a largura agora é a foto, como no WhatsApp.
+  // A medida precisa de imagem com DIMENSÃO — com o PNG de 1x1 do resto da
+  // suíte, qualquer regra passa.
+  await t('M7. a foto com legenda decide a largura do balao, e a legenda cabe nela', async () => {
+    const m = await frame.evaluate(() => {
+      const ler = (id) => {
+        const b = document.querySelector(`.msg[data-id="${id}"]`);
+        const img = b.querySelector('.midia img');
+        const txt = b.querySelector('.txt');
+        return { balao: Math.round(b.getBoundingClientRect().width),
+          img: Math.round(img.getBoundingClientRect().width),
+          txt: txt ? Math.round(txt.getBoundingClientRect().width) : null,
+          comFoto: b.classList.contains('com-foto') };
+      };
+      return { pe: ler(907), deitada: ler(908) };
+    });
+    assert(m.pe.comFoto && m.deitada.comFoto, 'o balão da foto não ganhou a classe com-foto');
+    // 6px é o respiro do balão (3px de cada lado), e é tudo que sobra.
+    assert(m.pe.balao - m.pe.img <= 8,
+      `a foto em pé tem ${m.pe.img}px num balão de ${m.pe.balao}px — sobra faixa vazia ao lado dela`);
+    assert(m.pe.txt <= m.pe.img + 1,
+      `a legenda (${m.pe.txt}px) é mais larga que a foto (${m.pe.img}px)`);
+    // A deitada enche a largura máxima do balão: aqui a foto é que manda, e ela
+    // é maior que o teto de 34em.
+    assert(m.deitada.balao - m.deitada.img <= 8,
+      `foto deitada: ${m.deitada.img}px num balão de ${m.deitada.balao}px`);
+  });
+
+  // A foto abria em OUTRA ABA, e quem atendia saía da conversa para ver uma
+  // imagem. Agora ela abre por cima, e fechar devolve a conversa onde estava.
+  await t('M8. a foto abre na propria tela, e fecha sem sair da conversa', async () => {
+    const antes = await frame.evaluate(() => document.querySelectorAll('#msgs .msg').length);
+    await frame.click('.msg[data-id="907"] .midia');
+    await new Promise(r => setTimeout(r, 300));
+    const aberto = await frame.evaluate(() => {
+      const bg = document.getElementById('visorFoto');
+      const img = document.getElementById('visorImg');
+      const r = img.getBoundingClientRect();
+      return { aberto: bg.classList.contains('open'), largura: Math.round(r.width),
+        altura: Math.round(r.height), papel: bg.querySelector('.modal').getAttribute('role'),
+        baixar: document.getElementById('visorBaixar').getAttribute('href') };
+    });
+    assert(aberto.aberto, 'o clique na foto não abriu o visor');
+    assert(aberto.largura > 300 && aberto.altura > 300,
+      `a foto no visor saiu em ${aberto.largura}x${aberto.altura} — não é tamanho de ver`);
+    assert(aberto.papel === 'dialog', 'o visor não se anuncia como diálogo (dialogo.js)');
+    assert(/\/api\/conversas\/midia\/907/.test(aberto.baixar || ''), 'o botão Baixar não aponta para a foto');
+    // Esc fecha, e a conversa continua atrás, inteira.
+    await frame.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await new Promise(r => setTimeout(r, 200));
+    const depois = await frame.evaluate(() => ({
+      aberto: document.getElementById('visorFoto').classList.contains('open'),
+      msgs: document.querySelectorAll('#msgs .msg').length }));
+    assert(!depois.aberto, 'o Escape não fechou o visor');
+    assert(depois.msgs === antes, `a conversa mudou ao fechar o visor (${antes} → ${depois.msgs})`);
+  });
+
   // 30/09, medidos na produção: 15 conversas do 1bit passam de 400 mensagens e a
   // tela cortava em silêncio, sem como ver o histórico; e a conversa abria no
   // meio dela, porque a rolagem ia ao fim antes de a mídia carregar e crescer.
@@ -1451,6 +1710,75 @@ const FILA_CHEIA = Array.from({ length: 300 }, (_, i) => ({
     assert(JSON.stringify(chips.noComeco) !== JSON.stringify(chips.noMeio),
       'os chips não acompanharam a rolagem: o sticky não está valendo');
     comHistorico = false;
+  });
+
+  // A conversa aberta não tinha caminho nenhum para mensagem nova: o tique de
+  // 6 s só trocava o ack dos balões já pintados, e a lista repinta a cada 30 s
+  // sem tocar no painel. Quem conversava pelo celular via o PC parado até
+  // reabrir a conversa — foi o relato que trouxe esta etapa.
+  await t('H9. mensagem que chega aparece sozinha, sem duplicar e sem arrancar a leitura', async () => {
+    comMidia = false; comHistorico = false;
+    CHEGANDO.length = 0;
+    await page.bringToFront();
+    await page.setViewport({ width: 1440, height: 900 });
+    await page.goto(`http://127.0.0.1:${PORTA}/__wrapper/conversas`, { waitUntil: 'networkidle0' });
+    const f9 = page.frames().find(x => x.url().includes('conversas.html'));
+    await f9.waitForSelector('.conv', { timeout: 8000 });
+    await f9.evaluate(() => abrir(1));
+    await f9.waitForFunction(() => document.querySelectorAll('#msgs .msg').length > 0, { timeout: 8000 });
+    const antes = await f9.evaluate(() => document.querySelectorAll('#msgs .msg').length);
+
+    // Chega pelo celular, e a tela está parada esperando o tique.
+    CHEGANDO.push({ id: 16, from_me: 0, texto: 'chegou pelo celular',
+      timestamp: Math.floor(Date.now() / 1000) });
+    // O tique é de 6 s; esperar 15 dá folga sem esconder tela parada.
+    await f9.waitForFunction(() => !!document.querySelector('#msgs .msg[data-id="16"]'), { timeout: 15000 })
+      .catch(() => { throw new Error('a mensagem nova não apareceu sozinha na conversa aberta'); });
+    const depois = await f9.evaluate(() => {
+      const b = document.querySelector('#msgs .msg[data-id="16"]');
+      return { qtd: document.querySelectorAll('#msgs .msg').length,
+        repetida: document.querySelectorAll('#msgs .msg[data-id="16"]').length,
+        altura: b.getBoundingClientRect().height, texto: b.textContent };
+    });
+    assert(depois.qtd === antes + 1, `a conversa foi de ${antes} para ${depois.qtd} balões`);
+    assert(depois.repetida === 1, `o balão novo apareceu ${depois.repetida} vezes`);
+    assert(depois.altura > 10 && /chegou pelo celular/.test(depois.texto),
+      'o balão novo entrou sem aparecer: ' + JSON.stringify(depois));
+
+    // Quem está LENDO o histórico mais atrás não pode ser arrastado para o pé
+    // da conversa por mensagem nova. Medido na conversa longa: na de cinco
+    // balões não há rolagem nenhuma, e o teste passaria sem provar nada.
+    comHistorico = true;
+    CHEGANDO.length = 0;
+    await page.goto(`http://127.0.0.1:${PORTA}/__wrapper/conversas`, { waitUntil: 'networkidle0' });
+    const fL = page.frames().find(x => x.url().includes('conversas.html'));
+    await fL.waitForSelector('.conv', { timeout: 8000 });
+    await fL.evaluate(() => abrir(1));
+    await fL.waitForFunction(() => document.querySelectorAll('#msgs .msg').length === 400, { timeout: 8000 });
+    const pos = await fL.evaluate(async () => {
+      const m = document.getElementById('msgs');
+      m.scrollTop = 0;
+      await new Promise(r => requestAnimationFrame(r));
+      return m.scrollTop;
+    });
+    CHEGANDO.push({ id: 901, from_me: 0, texto: 'chegou enquanto eu lia',
+      timestamp: Math.floor(Date.now() / 1000) });
+    // Direto, sem esperar o tique: o que se mede aqui é a rolagem, e os 6 s já
+    // foram provados acima.
+    const lendo = await fL.evaluate(async () => {
+      await mensagensNovas();
+      const m = document.getElementById('msgs');
+      return { pos: m.scrollTop, tem: !!m.querySelector('.msg[data-id="901"]'),
+        qtd: m.querySelectorAll('.msg').length, botao: !!document.getElementById('btnMaisAntigas') };
+    });
+    assert(lendo.tem, 'a mensagem nova não entrou na conversa longa');
+    assert(lendo.qtd === 401, `a conversa longa ficou com ${lendo.qtd} balões`);
+    assert(Math.abs(lendo.pos - pos) < 80, `a leitura foi arrastada de ${pos} para ${lendo.pos}`);
+    // O botão do histórico antigo sobrevive ao repinte: sem ele, as 500
+    // mensagens anteriores ficam inalcançáveis até reabrir a conversa.
+    assert(lendo.botao, 'o botão de carregar as anteriores sumiu com a mensagem nova');
+    comHistorico = false;
+    CHEGANDO.length = 0;
   });
 
   await t('I5. no celular a lista ocupa a caixa, e a conversa vazia nao aparece', async () => {

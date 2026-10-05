@@ -183,8 +183,10 @@ async function autoResponder(tdb, canal, instance, jid, incomingText, { fechouAg
   // Foi o que fez todos os testes de campanha do 1bit ficarem sem resposta.
   let campanha = null;
   try {
+    // O `canalId` não é detalhe: sem ele a campanha de QUALQUER número do
+    // tenant casaria, e o escopo 'campanha' deixaria de ser deste número.
     campanha = require('./roteiro-conversa').campanhaDaConversa(tdb, {
-      id: conversa && conversa.id, jid, telefone: jid.split('@')[0],
+      id: conversa && conversa.id, jid, telefone: jid.split('@')[0], canalId,
     });
   } catch (_) { /* tenant sem campanhas */ }
   // Só o id LEGADO vai para o prompt: `buildSystemAtendimento` procura o id em
@@ -464,12 +466,53 @@ function marcarApagada(tdb, evt) {
   }
 }
 
+/**
+ * Os ticks do WhatsApp, pelo `messages.update` da Evolution.
+ *
+ * O ack NÃO é monotônico na chegada: o WhatsApp reentrega eventos e a Evolution
+ * os repassa na ordem em que o Baileys os vê, então DELIVERY_ACK chega atrasado
+ * depois de READ e faria o balão voltar de dois tiques azuis para dois cinzas
+ * na frente de quem está lendo. Daí a ESCADA: o status só avança.
+ *
+ * `ERROR` é a exceção e grava sempre, porque é o único que precisa aparecer
+ * mesmo contrariando a escada — mensagem que falhou depois de aceita pelo
+ * servidor ficaria dita como entregue.
+ */
+const ESCADA_ACK = { PENDING: 1, SERVER_ACK: 2, DELIVERY_ACK: 3, READ: 4, PLAYED: 5 };
+
+function marcarStatus(tdb, evt) {
+  const d = evt.data || {};
+  // O id do WhatsApp: `keyId` é o que a Evolution manda no update (`messageId`
+  // é o id INTERNO dela, de outro banco, e não casa com nada aqui).
+  const id = d.keyId ? String(d.keyId) : (d.key && d.key.id ? String(d.key.id) : null);
+  const novo = String(d.status || '').toUpperCase();
+  if (!id || !novo) return;
+  if (novo !== 'ERROR' && !ESCADA_ACK[novo]) return;
+  try {
+    // `from_me = 1` porque é só o que a tela desenha: o ack de mensagem
+    // RECEBIDA é a nossa própria leitura dela, e escrever isso seria uma
+    // escrita por mensagem lida, à toa.
+    const r = tdb.prepare(
+      `UPDATE whatsapp_messages SET status = ?
+        WHERE wa_message_id = ? AND instance = ? AND from_me = 1
+          AND (status IS NULL OR ? = 'ERROR'
+               OR COALESCE(?, 0) > COALESCE(CASE status
+                    WHEN 'PENDING' THEN 1 WHEN 'SERVER_ACK' THEN 2 WHEN 'DELIVERY_ACK' THEN 3
+                    WHEN 'READ' THEN 4 WHEN 'PLAYED' THEN 5 END, 0))`
+    ).run(novo, id, evt.instance, novo, ESCADA_ACK[novo] || 0);
+    return r.changes;
+  } catch (e) {
+    console.error('[whatsapp-webhook] marcarStatus:', e.message);
+  }
+}
+
 function registrarRotaWebhook(app, { tenantManager }) {
   app.post('/api/whatsapp/webhook', (req, res) => {
     res.sendStatus(200); // responde já; Evolution reenfileira em caso de erro
     try {
       const evt = req.body || {};
-      if (evt.event !== 'messages.upsert' && evt.event !== 'messages.delete') return;
+      if (evt.event !== 'messages.upsert' && evt.event !== 'messages.delete'
+        && evt.event !== 'messages.update') return;
 
       const slug = slugFromInstance(evt.instance, tenantManager);
       if (!slug || !tenantManager.getTenantBySlug(slug)) return;
@@ -482,6 +525,13 @@ function registrarRotaWebhook(app, { tenantManager }) {
       // que esta é a única escrita deste caminho.
       if (evt.event === 'messages.delete') {
         marcarApagada(tdb, evt);
+        return;
+      }
+      // Confirmação de entrega e de leitura: só o status da mensagem muda.
+      // Nada mais deste caminho roda — ack não é mensagem nova, não sobe a
+      // conversa na lista, não chama a IA e não avisa ninguém.
+      if (evt.event === 'messages.update') {
+        marcarStatus(tdb, evt);
         return;
       }
       // O número por onde a mensagem entrou. Empresa ainda sem canal
@@ -497,6 +547,25 @@ function registrarRotaWebhook(app, { tenantManager }) {
       // encheria a tabela — só esta instância tem 95 mil mensagens de grupo.
       if (jid.endsWith('@g.us')) return;
       const texto = extractText(data.message);
+
+      // A EDIÇÃO não é mensagem nova: ela troca o texto da mensagem já
+      // recebida, como no WhatsApp. Gravar o envelope cifrado em que ela chega
+      // (`secretEncryptedMessage`) deixava um balão sem conteúdo no meio da
+      // conversa, e o texto editado não aparecia em lugar nenhum — o porquê e
+      // como se abre estão no `wa-edicao.js`.
+      const waEdicao = require('./wa-edicao');
+      const edicao = waEdicao.lerEdicao(data);
+      if (edicao) {
+        waEdicao.aplicarEdicao(tdb, edicao);
+        // Metade das edições chega sem o segredo no próprio envelope, e aí ele
+        // está na mensagem original, que a Evolution guarda. Sem `await`: o
+        // webhook responde na hora, e o texto entra no histórico logo depois.
+        if (!edicao.texto) {
+          waEdicao.completarPelaOriginal(tdb, canal ? canal.id : null, data, edicao.alvo)
+            .catch(e => console.error('[whatsapp-webhook] edicao:', e.message));
+        }
+        return;
+      }
 
       // A reação guarda o emoji no texto e a mensagem reagida no `citaWaId`.
       const reacao = daReacao(data.message);
@@ -577,4 +646,4 @@ function registrarRotaWebhook(app, { tenantManager }) {
   console.log('[WhatsApp] Webhook público registrado em /api/whatsapp/webhook');
 }
 
-module.exports = { extractText, idCitado, daReacao, registrarRotaWebhook, idApagado, buildLeadReply, handleOptOut, jidCanonico, slugFromInstance, autoResponder, prometeuAtendimentoHumano, qualificarPeloRoteiro };
+module.exports = { extractText, idCitado, daReacao, registrarRotaWebhook, idApagado, marcarStatus, buildLeadReply, handleOptOut, jidCanonico, slugFromInstance, autoResponder, prometeuAtendimentoHumano, qualificarPeloRoteiro };

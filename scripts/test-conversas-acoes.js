@@ -428,6 +428,54 @@ const srv = app.listen(0, async () => {
     }
   });
 
+  await t('A14 o pedaco DEPOIS do ultimo balao traz so o que chegou, em ordem e sem lacuna', async () => {
+    const jid = '5511600004444@s.whatsapp.net';
+    const conv = Number(real.prepare(`INSERT INTO conv_conversas (canal, canalId, jid, telefone, nome, estado, naoLidas)
+      VALUES ('whatsapp', 1, ?, '5511600004444', 'Pelo celular', 'aberta', 2)`).run(jid).lastInsertRowid);
+    const por = (waId, deMim, texto) => Number(real.prepare(`INSERT INTO whatsapp_messages
+      (wa_message_id, instance, remote_jid, from_me, texto, message_type, timestamp)
+      VALUES (?, 'inst1', ?, ?, ?, 'conversation', ?)`)
+      .run(waId, jid, deMim ? 1 : 0, texto, agora()).lastInsertRowid);
+    const pintadas = [por('N-1', false, 'bom dia'), por('N-2', true, 'bom dia!'), por('N-3', false, 'tem em estoque?')];
+    const ultimo = pintadas[2];
+
+    // Nada chegou ainda: o tique da tela não pode trazer balão nenhum.
+    const vazio = await chamar(`/api/conversas/${conv}/mensagens?depoisDe=${ultimo}`);
+    assert(vazio.body.mensagens.length === 0, 'o pedaço seguinte veio com mensagem sem nada ter chegado');
+
+    // Duas chegaram: a do contato e a que ele mesmo mandou pelo celular.
+    const nova1 = por('N-4', false, 'chegou pelo celular');
+    const nova2 = por('N-5', true, 'respondi pelo celular');
+    const r = await chamar(`/api/conversas/${conv}/mensagens?depoisDe=${ultimo}`);
+    const ids = r.body.mensagens.map((m) => m.id);
+    assert(JSON.stringify(ids) === JSON.stringify([nova1, nova2]), 'o pedaço seguinte veio errado: ' + ids.join(','));
+    // `temMais` fala do histórico antigo: dito aqui, a tela ofereceria o botão
+    // de carregar anteriores depois da mensagem nova.
+    assert(r.body.temMais === false, 'o pedaço seguinte prometeu histórico anterior');
+    assert(real.prepare('SELECT naoLidas FROM conv_conversas WHERE id = ?').get(conv).naoLidas === 0,
+      'a conversa aberta continuou com não lidas depois de entregar a mensagem nova');
+
+    // Aba escondida por muito tempo: mais mensagens novas do que o pedaço
+    // aguenta. O corte tem de pegar as MAIS ANTIGAS das novas — cortando pelo
+    // outro lado, o meio da conversa some sem ninguém saber.
+    // Numa transação só: 401 inserções com fsync cada passam dos 5 s de
+    // keep-alive do servidor, e o `fetch` seguinte morre em ECONNRESET
+    // reusando um socket que o servidor já fechou.
+    const muitas = real.transaction(() => {
+      const ids = [];
+      for (let i = 0; i < 401; i++) ids.push(por('N-M' + i, false, 'mensagem ' + i));
+      return ids;
+    })();
+    const cheio = await chamar(`/api/conversas/${conv}/mensagens?depoisDe=${nova2}`);
+    assert(cheio.body.mensagens.length === 400, 'o pedaço seguinte não respeitou o limite: ' + cheio.body.mensagens.length);
+    assert(cheio.body.mensagens[0].id === muitas[0],
+      'o pedaço seguinte começou pela mais recente e deixou lacuna no meio da conversa');
+    // E o tique seguinte completa o resto, sem pular nada.
+    const resto = await chamar(`/api/conversas/${conv}/mensagens?depoisDe=${muitas[399]}`);
+    assert(resto.body.mensagens.length === 1 && resto.body.mensagens[0].id === muitas[400],
+      'o que sobrou do pedaço seguinte não veio no tique seguinte');
+  });
+
   srv.close();
   console.log(`\n${ok} ok, ${fail} falha(s)`);
   process.exit(fail ? 1 : 0);

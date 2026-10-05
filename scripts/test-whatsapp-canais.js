@@ -36,7 +36,16 @@ global.fetch = async (url, opts = {}) => {
   const u = String(url);
   const m = u.match(/\/(message\/sendText|message\/sendMedia|instance\/connectionState|instance\/logout|webhook\/set)\/([^/?]+)/);
   EVO.push({ rota: m ? m[1] : u, instance: m ? m[2] : null, corpo: opts.body ? JSON.parse(opts.body) : null });
-  const json = m && m[1] === 'instance/connectionState' ? { instance: { state: 'open' } } : { key: { id: 'WA' + (++seqMsg) } };
+  // A Evolution devolve o jid COMO ELA CONHECE o número, que pode não ser o que
+  // enviamos (o nono dígito cai em muitos números). O E7 mede justamente isso.
+  const enviado = String(opts.body ? (JSON.parse(opts.body).number || '') : '').replace(/\D/g, '');
+  // Em regra o jid devolvido é o número que enviamos. A exceção é o número do
+  // E7, que volta SEM o nono dígito — é o caso do 1bit, onde a conversa real é
+  // 559484512288 e o envio vai para 5594984512288.
+  const SEM_NONO = { '5594944443333': '559444443333' };
+  const jidReal = enviado ? (SEM_NONO[enviado] || enviado) + '@s.whatsapp.net' : null;
+  const json = m && m[1] === 'instance/connectionState' ? { instance: { state: 'open' } }
+    : { key: { id: 'WA' + (++seqMsg), remoteJid: jidReal } };
   return { status: 200, json: async () => json };
 };
 
@@ -201,6 +210,141 @@ const envios = (de) => EVO.slice(de).filter(e => /^message\//.test(e.rota));
     assert(envios(de).length === 0, 'o comercial respondeu com a IA desligada');
   });
 
+  console.log('\n--- a pausa da IA e a mensagem vista pelos dois números ---');
+
+  // 30/09: o teste de campanha do 1bit pareceu quebrado por duas razões que
+  // ninguém via. Estas quatro medem as duas, e o que se fez com elas.
+  await t('E1. a mesma mensagem nos dois numeros da empresa conta como duas visoes', async () => {
+    const jid2 = '5594977776666@s.whatsapp.net';
+    // Um número da empresa mandando para o outro: o WhatsApp entrega o MESMO id
+    // às duas instâncias, uma como própria e a outra como recebida. O único em
+    // wa_message_id sozinho engolia a segunda, e a resposta nunca era tratada
+    // como recebida.
+    await chamar('post', '/api/whatsapp/webhook', { body: { event: 'messages.upsert', instance: 'le_demo_2',
+      data: { key: { id: 'DUP1', remoteJid: jid2, fromMe: true }, message: { conversation: 'Sim' },
+              messageTimestamp: Math.floor(Date.now() / 1000) } } });
+    await esperar(200);
+    const de = EVO.length;
+    await chegou('le_demo', jid2, 'Sim', 'DUP1');
+    await esperar(400);
+    const linhas = db.prepare("SELECT instance, from_me FROM whatsapp_messages WHERE wa_message_id = 'DUP1' ORDER BY instance").all();
+    assert(linhas.length === 2, 'visões gravadas: ' + JSON.stringify(linhas));
+    assert(linhas.some(l => l.instance === 'le_demo' && l.from_me === 0), 'a visão de quem recebeu não entrou');
+    assert(envios(de).length === 0, 'o comercial tem a IA desligada e respondeu');
+  });
+
+  await t('E2. resposta humana pausa a IA, e a pausa e dita com hora', async () => {
+    const jid3 = '5594966665555@s.whatsapp.net';
+    await chegou('le_demo_2', jid3, 'oi', 'P1');              // cria a conversa no suporte (IA ligada)
+    await esperar(300);
+    const conv = db.prepare("SELECT id FROM conv_conversas WHERE jid = ? AND canalId = 2").get(jid3);
+    // O atendente responde à mão pela tela: é o que arma a pausa de 4 horas.
+    await chamar('post', '/api/conversas/:id/responder', { params: { id: conv.id }, body: { texto: 'eu assumo' } });
+    const aberta = await chamar('get', '/api/conversas/:id', { params: { id: conv.id } });
+    assert(aberta.body.pausaIA && aberta.body.pausaIA.pausada, 'a tela não recebeu a pausa: ' + JSON.stringify(aberta.body.pausaIA));
+    assert(aberta.body.pausaIA.ate > Math.floor(Date.now() / 1000), 'a pausa não diz até quando');
+    // E a IA se cala mesmo: a próxima mensagem do contato não é respondida.
+    const de = EVO.length;
+    await chegou('le_demo_2', jid3, 'Sim', 'P2');
+    await esperar(400);
+    assert(envios(de).length === 0, 'a IA respondeu durante a pausa');
+  });
+
+  await t('E3. "Retomar a IA" anula a pausa, e a proxima mensagem e respondida', async () => {
+    const jid3 = '5594966665555@s.whatsapp.net';
+    const conv = db.prepare("SELECT id FROM conv_conversas WHERE jid = ? AND canalId = 2").get(jid3);
+    const r = await chamar('post', '/api/conversas/:id/retomar-ia', { params: { id: conv.id } });
+    assert(r.body.success && !r.body.pausa.pausada, 'a pausa continuou: ' + JSON.stringify(r.body));
+    const de = EVO.length;
+    await chegou('le_demo_2', jid3, 'Sim de novo', 'P3');
+    await esperar(400);
+    assert(envios(de).length === 1, 'a IA continuou calada depois do retomar');
+  });
+
+  await t('E4. a tela mostra a pausa e o botao de retomar', () => {
+    const tela = require('fs').readFileSync(path.join(RAIZ, 'public/comunicacao/conversas.html'), 'utf8');
+    assert(/pausaIA/.test(tela), 'a tela não lê a pausa');
+    assert(/retomarIA\(/.test(tela) && /retomar-ia/.test(tela), 'a tela não tem o botão de retomar');
+  });
+
+
+
+  // 30/09: com o escopo em 'campanha', a IA só respondia a quem veio da campanha
+  // LEGADO. A nova grava em `comm_envios`, e o atendimento nem olhava lá: todo
+  // lead de campanha nova ficava sem resposta, e foi isso que fez os testes do
+  // 1bit parecerem quebrados três vezes.
+  await t('E6. escopo "campanha": quem veio da campanha NOVA tambem e atendido', async () => {
+    const jid4 = '5594955554444@s.whatsapp.net';
+    canais.salvarConfigCanal(db, 2, { whatsapp_ai_escopo: 'campanha' });
+    // Contato sem campanha nenhuma: o escopo o exclui, e isso continua valendo.
+    const de0 = EVO.length;
+    await chegou('le_demo_2', jid4, 'oi', 'ESC0');
+    await esperar(400);
+    assert(envios(de0).length === 0, 'o escopo campanha respondeu a quem não veio de campanha');
+
+    // Agora o mesmo contato como destinatário JÁ ENVIADO de uma campanha nova.
+    const tpl = Number(db.prepare("INSERT INTO comm_templates (nome, canal, corpo) VALUES ('e6','whatsapp','Oi')").run().lastInsertRowid);
+    const lst = Number(db.prepare("INSERT INTO comm_listas (nome) VALUES ('e6')").run().lastInsertRowid);
+    const camp = Number(db.prepare(`INSERT INTO comm_campanhas (nome, templateId, listaId, canal, status, tipo)
+      VALUES ('e6', ?, ?, 'whatsapp', 'enviada', 'marketing')`).run(tpl, lst).lastInsertRowid);
+    // O `canalId` é o do número que disparou, como o envio real grava
+    // (comm-routes, ao marcar 'enviado'). Aqui é o 2, o mesmo por onde a
+    // conversa chega: campanha conta pelo número por onde ela saiu.
+    const envio = Number(db.prepare(`INSERT INTO comm_envios (campanhaId, canal, destino, mensagemRenderizada, status, dataEnvio, rodada, canalId)
+      VALUES (?, 'whatsapp', ?, 'Oi', 'enviado', ?, 1, 2)`).run(camp, '5594955554444', new Date().toISOString()).lastInsertRowid);
+    const de = EVO.length;
+    await chegou('le_demo_2', jid4, 'Sim', 'ESC1');
+    await esperar(500);
+    assert(envios(de).length === 1, 'a IA não respondeu a quem veio da campanha nova');
+
+    // E a campanha que saiu por OUTRO número não vale (05/10/2026): no 1bit a
+    // campanha saiu pelo Principal, o contato escreveu para o número pessoal do
+    // atendente e a IA respondeu lá, porque o casamento era só pelo telefone.
+    db.prepare('UPDATE comm_envios SET canalId = 1 WHERE id = ?').run(envio);
+    const de2 = EVO.length;
+    await chegou('le_demo_2', jid4, 'E agora', 'ESC2');
+    await esperar(500);
+    assert(envios(de2).length === 0, 'a campanha de outro número fez a IA responder, e o escopo vaza');
+    // Limpa para não mexer na contagem das provas de conversa.
+    const c = db.prepare('SELECT id FROM conv_conversas WHERE jid = ?').all(jid4).map(x => x.id);
+    for (const id of c) db.prepare('DELETE FROM conv_eventos WHERE conversaId = ?').run(id);
+    db.prepare('DELETE FROM conv_conversas WHERE jid = ?').run(jid4);
+    db.prepare('DELETE FROM whatsapp_messages WHERE remote_jid = ?').run(jid4);
+    canais.salvarConfigCanal(db, 2, { whatsapp_ai_escopo: 'todos' });
+  });
+
+  // 30/09: o que o sistema mandava ia só para `whatsapp_queue`, então a tela
+  // mostrava a resposta do contato sem a mensagem que a provocou, e a IA, que lê
+  // o mesmo histórico, respondia fora do assunto por não saber o que foi
+  // oferecido. Foi o que aconteceu com a campanha de alimentação do 1bit.
+  await t('E7. o que o sistema envia entra no historico, com o jid que o WhatsApp devolve', async () => {
+    const jid5 = '559444443333@s.whatsapp.net';          // sem o nono dígito, como o WhatsApp responde
+    // Enviamos para o número COM o nono; a Evolution devolve o jid real.
+    const r = await adapter.enviarWhatsApp(db, { telefone: '5594944443333', texto: 'Oi, tudo bem?', canalId: 1, ignorarRitmo: true });
+    assert(r.success, JSON.stringify(r));
+    const m = db.prepare("SELECT remote_jid, from_me, from_bot, texto FROM whatsapp_messages WHERE texto = 'Oi, tudo bem?'").get();
+    assert(m, 'o enviado não entrou no histórico');
+    assert(m.remote_jid === jid5, `gravou em ${m.remote_jid}, e a conversa real é ${jid5}`);
+    assert(m.from_me === 1 && m.from_bot === 1, 'não ficou marcado como mensagem nossa: ' + JSON.stringify(m));
+    // E não inventa conversa: campanha de 27 mil contatos não cria 27 mil linhas na tela.
+    const conv = db.prepare('SELECT COUNT(*) n FROM conv_conversas WHERE jid = ?').get(jid5).n;
+    assert(conv === 0, 'criou conversa para quem só recebeu');
+    db.prepare('DELETE FROM whatsapp_messages WHERE remote_jid = ?').run(jid5);
+  });
+
+  await t('E5. as provas da pausa nao deixam conversa de teste para tras', () => {
+    // A C1 conta as conversas existentes: as três criadas aqui a fariam reprovar
+    // sem defeito nenhum (é o que aconteceu ao escrever este bloco).
+    for (const j of ['5594977776666@s.whatsapp.net', '5594966665555@s.whatsapp.net']) {
+      const c = db.prepare('SELECT id FROM conv_conversas WHERE jid = ?').all(j).map(x => x.id);
+      for (const id of c) db.prepare('DELETE FROM conv_eventos WHERE conversaId = ?').run(id);
+      db.prepare('DELETE FROM conv_conversas WHERE jid = ?').run(j);
+      db.prepare('DELETE FROM whatsapp_messages WHERE remote_jid = ?').run(j);
+    }
+    const restou = db.prepare("SELECT COUNT(*) n FROM conv_conversas WHERE jid LIKE '%7776666%' OR jid LIKE '%6665555%'").get().n;
+    assert(restou === 0, `ficaram ${restou} conversas de teste`);
+  });
+
   console.log('\n--- a caixa de conversas ---');
 
   await t('C1. filtro por numero, com o nome do numero em cada conversa', async () => {
@@ -289,6 +433,21 @@ const envios = (de) => EVO.slice(de).filter(e => /^message\//.test(e.rota));
     const r = await chamar('get', '/api/whatsapp/canais');
     assert(r.body.success && r.body.canais.every(c => c.state === 'open' && !('apikey' in c)), JSON.stringify(r.body));
   });
+
+  await t('D6. numero nunca usado sai de vez; com historico, a linha fica desativada', async () => {
+    const linha = (id) => db.prepare('SELECT id, ativo FROM whatsapp_canais WHERE id = ?').get(id);
+    // O 1 saiu no D4 carregando conversas e envios: a linha tem de ficar, senão
+    // a caixa de Conversas perde a regra que esconde o que é dele.
+    assert(db.prepare('SELECT COUNT(*) n FROM conv_conversas WHERE canalId = 1').get().n > 0, 'o 1 não tem histórico para guardar');
+    const guardado = linha(1);
+    assert(guardado && guardado.ativo === 0, 'o número com histórico devia ficar desativado: ' + JSON.stringify(guardado));
+    // O 3 (Financeiro, criado no D3) nunca enviou nem recebeu nada.
+    const del = await chamar('delete', '/api/whatsapp/canais/:id', { params: { id: 3 } });
+    assert(del.body.success, JSON.stringify(del.body));
+    assert(!linha(3), 'o número nunca usado continuou no banco');
+  });
+
+  console.log('\n--- a pausa da IA e a mensagem vista pelos dois números ---');
 
   console.log(`\n${ok} ok, ${fail} falha(s)`);
   process.exit(fail ? 1 : 0);

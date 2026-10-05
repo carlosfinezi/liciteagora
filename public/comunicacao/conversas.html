@@ -249,9 +249,14 @@
    ela passa — sem isso a última palavra ficaria embaixo dela. */
 .msg .hora-canto { position:absolute; right:var(--space-3); bottom:3px;
   font-size:var(--text-xs); color:var(--text-3); white-space:nowrap; }
-/* A vaga: 6 caracteres para a hora, 14 quando ela vem com "editada" na frente. */
+/* A vaga: 6 caracteres para a hora, 14 quando ela vem com "editada" na frente.
+   Na mensagem NOSSA a hora leva o tique junto, e a vaga cresce o tanto dele —
+   sem isso o tique volta a cair por cima da última palavra, que é o defeito que
+   a vaga existe para evitar. */
 .msg .vaga { display:inline-block; width:6ch; }
 .msg .vaga.larga { width:14ch; }
+.msg.minha .vaga.com-ack { width:8.5ch; }
+.msg.minha .vaga.larga.com-ack { width:16.5ch; }
 /* Mensagem que é só mídia não tem última linha onde reservar vaga: ali a hora
    volta a ser uma linha, embaixo do arquivo e à direita. */
 .msg.so-midia .hora-canto { position:static; display:block; text-align:right; }
@@ -281,6 +286,107 @@
 .msg .midia audio, .msg .midia video { display:block; max-width:100%; }
 .msg .midia video { max-height:320px; border-radius:6px; }
 .msg .midia .falhou { font-size:var(--text-xs); color:var(--text-3); }
+
+/* ---- foto e vídeo: o balão tem a LARGURA da imagem ----
+   A moldura de 8px em volta e a legenda escrita na largura do texto, e não na
+   da foto, faziam o balão sair torto: foto em pé de 187px dentro de um balão de
+   241px, com a legenda passando por fora dela de um lado só. No WhatsApp a foto
+   encosta nas bordas e é ELA que decide a largura; a legenda quebra ali dentro.
+
+   A largura vem do `ajustarBalaoDaFoto`, no clique de carregamento: a imagem
+   chega sem dimensão declarada, e só depois de carregada se sabe quanto ela
+   ocupa com o teto de 320px de altura. Em CSS puro isso não se escreve — a
+   largura do balão depende da foto, e a da foto depende do balão. */
+.msg.com-foto { padding:3px; }
+.msg.com-foto .midia { margin-bottom:0; }
+.msg.com-foto .midia img, .msg.com-foto .midia video { border-radius:5px; }
+.msg.com-foto .txt { padding:3px var(--space-2) 2px; }
+.msg.com-foto .cita { margin:3px 3px var(--space-1); }
+/* Foto sem legenda: a hora vai POR CIMA dela, no canto, como no WhatsApp. Numa
+   linha própria embaixo ela abria uma faixa vazia do tamanho dela no balão que
+   agora é só a foto. A sombra é o que a mantém legível sobre foto clara. */
+.msg.com-foto.so-midia .hora-canto { position:absolute; right:10px; bottom:8px;
+  color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.9); }
+.msg.com-foto.so-midia .ack { color:#fff; }
+
+/* ---- o visor da foto ----
+   A foto abria em outra aba, e quem estava atendendo saía da conversa para ver
+   uma imagem. Aqui ela abre por cima, a conversa fica atrás e fechar devolve a
+   leitura onde estava. O `.modal-bg` é o do sistema, então o `dialogo.js` já
+   trata foco e leitor de tela; o que muda é a caixa, que aqui não é cartão. */
+.visor-bg .modal.visor { background:transparent; border:0; box-shadow:none; padding:0;
+  max-width:none; width:auto; max-height:92vh; display:flex; flex-direction:column;
+  align-items:flex-end; gap:var(--space-2); overflow:visible; }
+.visor-bg .visor-barra { display:flex; gap:var(--space-2); align-items:center; }
+.visor-bg #visorImg { display:block; max-width:92vw; max-height:84vh; border-radius:var(--raio-md);
+  box-shadow:0 20px 60px rgba(0,0,0,.6); background:var(--bg-1); }
+
+/* ---- a figurinha ----
+   Ela chega em 512x512 e caía na mesma regra da foto (`max-width:100%`), que
+   num balão de 34em dá quase 400px de lado: uma figurinha ocupava mais tela que
+   qualquer foto do histórico. No WhatsApp ela é pequena e não tem balão em
+   volta, e é esse o tamanho que vale aqui — 128px, medidos nos dois lados para
+   que figurinha larga e figurinha alta fiquem na mesma caixa.
+
+   Sem balão SÓ quando ela é o conteúdo inteiro (`so-figurinha`): com legenda, o
+   texto embaixo precisa do fundo para ser lido. */
+.msg .midia.figurinha img { max-width:128px; max-height:128px; border-radius:0; }
+.msg.so-figurinha { background:transparent; border:0; padding:0; }
+/* A hora da figurinha não tem balão onde se apoiar, então ela ganha o próprio
+   fundo, como os chips de data — sem isso ela fica cinza sobre o fundo da
+   conversa, que é de onde vem a cor dela. */
+.msg.so-figurinha .hora-canto { background:var(--bg-1); border:var(--borda);
+  border-radius:var(--raio-pill); padding:0 6px; }
+
+/* ---- o áudio ----
+   O `<audio controls>` desenha a barra do SISTEMA: no Chrome é um bloco
+   cinza-escuro de 54px de altura e 300px de largura, com o alto-falante e o
+   menu de três pontos, e ele não obedece ao tema nem cabe no balão. O que está
+   aqui tem as mesmas peças e nada mais: tocar, a posição e o tempo.
+
+   A barra é um `<input type="range">`, e não um desenho próprio: arrastar,
+   clicar no meio e as setas do teclado já vêm dele. */
+.msg .midia.som { display:flex; align-items:center; gap:var(--space-2);
+  min-width:min(240px, 60vw); padding:2px 0; }
+.msg .som .aud-play { flex:0 0 auto; width:32px; height:32px; border-radius:50%;
+  border:0; cursor:pointer; display:grid; place-items:center; padding:0;
+  background:var(--accent); color:#fff; }
+.msg .som .aud-play:hover { filter:brightness(1.08); }
+.msg .som .aud-play svg { width:16px; height:16px; }
+.msg .som .aud-play .pausar, .msg .som.tocando .aud-play .tocar { display:none; }
+.msg .som.tocando .aud-play .pausar { display:block; }
+.msg .som .aud-barra { flex:1 1 auto; min-width:60px; height:4px; margin:0;
+  -webkit-appearance:none; appearance:none; background:transparent; cursor:pointer; }
+.msg .som .aud-barra::-webkit-slider-runnable-track { height:4px; border-radius:2px;
+  background:linear-gradient(to right, var(--accent) var(--tocado, 0%), var(--superficie-hover) var(--tocado, 0%)); }
+.msg .som .aud-barra::-moz-range-track { height:4px; border-radius:2px; background:var(--superficie-hover); }
+.msg .som .aud-barra::-moz-range-progress { height:4px; border-radius:2px; background:var(--accent); }
+.msg .som .aud-barra::-webkit-slider-thumb { -webkit-appearance:none; appearance:none;
+  width:11px; height:11px; margin-top:-3.5px; border-radius:50%; background:var(--accent); border:0; }
+.msg .som .aud-barra::-moz-range-thumb { width:11px; height:11px; border:0;
+  border-radius:50%; background:var(--accent); }
+.msg .som .aud-tempo { flex:0 0 auto; font-size:var(--text-xs); color:var(--text-2);
+  font-variant-numeric:tabular-nums; }
+/* O áudio que não disse a duração (ogg sem o cabeçalho completo) não tem como
+   ser arrastado: a barra sai desligada, em vez de fingir uma posição. */
+.msg .som .aud-barra:disabled { opacity:.45; cursor:default; }
+/* Áudio sem legenda: a hora entra na linha do player. Pela regra do `so-midia`
+   ela virava uma linha própria embaixo, e o balão do áudio ficava com o dobro
+   da altura e uma faixa vazia no meio. */
+.msg.so-audio { display:flex; align-items:center; gap:var(--space-2); }
+.msg.so-audio .midia.som { margin-bottom:0; }
+
+/* ---- os ticks de envio, entrega e leitura ----
+   Eles vão DENTRO da hora, que é onde o WhatsApp os põe, e por isso a vaga
+   reservada na última linha do texto cresce nas mensagens nossas: a hora passa
+   a levar o tique junto, e sem a vaga maior ela voltaria a cair por cima da
+   última palavra. */
+.msg .ack { display:inline-block; vertical-align:-2px; margin-left:3px; }
+.msg .ack svg { width:14px; height:14px; display:block; }
+/* "Lida" é o acento do TEMA, e não o azul do WhatsApp: o balão nosso já é
+   `accent-soft`, e uma cor de fora dele ficaria como mancha nos dois temas. */
+.msg .ack.lida { color:var(--accent); }
+.msg .ack.falhou { color:var(--danger); }
 /* A linha de rodapé do balão: marcas (apagada, IA, "certo", "corrigir") e a
    HORA, juntas, alinhadas pela base e à direita.
 
@@ -528,6 +634,18 @@
     </div>
   </div>
 </div>
+<!-- o visor da foto, aberto no clique do balão (igual ao WhatsApp: a conversa
+     continua atrás, e fechar devolve a leitura onde ela estava) -->
+<div class="modal-bg visor-bg" id="visorFoto" onclick="fecharVisorFora(event)">
+  <div class="modal visor">
+    <div class="visor-barra">
+      <a class="btn btn-ghost btn-sm" id="visorBaixar" download>Baixar</a>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('visorFoto')" aria-label="Fechar a foto"
+        style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <img id="visorImg" alt="Foto da conversa, em tamanho inteiro">
+  </div>
+</div>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
 <script src="/js/aviso-sistema.js"></script>
@@ -589,7 +707,11 @@ const ROTULO_TIPO = {
   locationMessage: 'Localização', liveLocationMessage: 'Localização em tempo real',
   listMessage: 'Lista de opções', buttonsMessage: 'Mensagem com botões',
   albumMessage: 'Álbum', pollCreationMessage: 'Enquete', pollUpdateMessage: 'Voto em enquete',
-  secretEncryptedMessage: 'Mensagem protegida',
+  // A edição que chegou cifrada e não abriu. O webhook passou a aplicá-la na
+  // mensagem original (`wa-edicao.js`), então isto só aparece nas que já
+  // estavam gravadas e nas nossas, editadas pelo celular, cujo segredo não
+  // existe em lugar nenhum.
+  secretEncryptedMessage: 'Mensagem editada',
 };
 const TIPOS_MIDIA = { imageMessage: 'img', stickerMessage: 'img', templateMessage: 'img',
   videoMessage: 'video', ptvMessage: 'video', audioMessage: 'audio',
@@ -599,11 +721,166 @@ function midiaDa(x){
   if (!tipo) return '';
   const url = '/api/conversas/midia/' + x.id;
   const falha = `this.closest('.midia').innerHTML='<span class=\\'falhou\\'>Mídia indisponível</span>'`;
-  if (tipo === 'img') return `<a class="midia" href="${url}" target="_blank" rel="noopener">
-    <img src="${url}" alt="" loading="lazy" onerror="${falha}"></a>`;
-  if (tipo === 'video') return `<span class="midia"><video src="${url}" controls preload="metadata" onerror="${falha}"></video></span>`;
-  if (tipo === 'audio') return `<span class="midia"><audio src="${url}" controls preload="none" onerror="${falha}"></audio></span>`;
+  if (tipo === 'img') {
+    // A figurinha tem outra caixa: 128px e sem balão (ver `.figurinha`, no
+    // estilo), e por isso não abre no visor nem mexe na largura do balão.
+    const fig = x.message_type === 'stickerMessage' ? ' figurinha' : '';
+    // O `href` fica: ele é o que dá "abrir em nova guia" pelo botão do meio e
+    // pelo menu do navegador. O clique comum é do visor.
+    return `<a class="midia${fig}" href="${url}"${fig ? ' target="_blank" rel="noopener"' : ' onclick="abrirVisor(event, this.href)"'}>
+    <img src="${url}" alt="" loading="lazy" onerror="${falha}"${fig ? '' : ' onload="ajustarBalaoDaFoto(this)"'}></a>`;
+  }
+  if (tipo === 'video') return `<span class="midia"><video src="${url}" controls preload="metadata" onerror="${falha}" onloadedmetadata="ajustarBalaoDaFoto(this)"></video></span>`;
+  if (tipo === 'audio') return playerDeAudio(url, falha);
   return `<a class="midia" href="${url}" target="_blank" rel="noopener">Abrir documento</a>`;
+}
+
+/**
+ * A largura do balão passa a ser a da foto, como no WhatsApp.
+ *
+ * A foto chega sem dimensão declarada e com teto de 320px de altura: uma foto
+ * em pé fica com 187px de largura dentro de um balão de 241px, e a legenda
+ * escrita embaixo ultrapassava a foto de um lado só. Depois de carregada, a
+ * largura dela é conhecida, e é ela que o balão passa a ter — a legenda quebra
+ * nessa medida, e a hora cabe no canto.
+ *
+ * O piso de 110px é a hora: abaixo disso ela não cabe na linha e cairia por
+ * cima da legenda. Miniatura menor que isso é rara e fica com faixa de balão
+ * em volta, que é o mal menor.
+ */
+function ajustarBalaoDaFoto(el){
+  const balao = el.closest('.msg');
+  if (!balao) return;
+  balao.classList.add('com-foto');
+  const largura = Math.round(el.getBoundingClientRect().width);
+  if (largura > 0) balao.style.width = Math.max(largura, 110) + 6 + 'px';
+}
+
+/**
+ * O visor: a foto abre por cima da conversa, e não em outra aba.
+ *
+ * Fechar devolve a conversa exatamente onde estava. O `.modal-bg` é o do
+ * sistema de propósito — o `dialogo.js` cuida de foco e leitor de tela.
+ */
+function abrirVisor(ev, url){
+  if (ev) ev.preventDefault();
+  document.getElementById('visorImg').src = url;
+  document.getElementById('visorBaixar').href = url;
+  document.getElementById('visorFoto').classList.add('open');
+}
+// Clicar no fundo fecha; clicar na foto, não.
+function fecharVisorFora(ev){
+  if (ev.target.id === 'visorFoto') fechar('visorFoto');
+}
+
+/* ---------- o player de áudio ----------
+ *
+ * O `<audio controls>` desenhava o player do sistema, que no Chrome é um bloco
+ * cinza com alto-falante e menu de três pontos: não acompanha o tema, não cabe
+ * no balão e oferece coisas que não têm sentido aqui (baixar, velocidade).
+ *
+ * Este tem as três peças que se usam num áudio de atendimento: tocar, a posição
+ * e o tempo. O `<audio>` continua sendo o do navegador — o que saiu foi só a
+ * interface dele (`controls`).
+ */
+const SVG_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const SVG_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>';
+
+function playerDeAudio(url, falha){
+  return `<span class="midia som">
+    <button type="button" class="aud-play" aria-label="Tocar áudio">
+      <span class="tocar">${SVG_PLAY}</span><span class="pausar">${SVG_PAUSE}</span></button>
+    <input class="aud-barra" type="range" min="0" max="1000" value="0" step="1"
+      aria-label="Posição do áudio" disabled>
+    <span class="aud-tempo">--:--</span>
+    <audio src="${url}" preload="metadata" onerror="${falha}"></audio>
+  </span>`;
+}
+
+const mmss = (s) => {
+  if (!isFinite(s) || s < 0) return '--:--';
+  const t = Math.floor(s);
+  return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0');
+};
+
+// O áudio que está tocando. Dois áudios ao mesmo tempo não se entendem, e no
+// WhatsApp tocar um para o outro.
+let AUDIO_TOCANDO = null;
+
+/**
+ * Liga os players da conversa recém-pintada.
+ *
+ * Um listener por áudio, e não um delegado no `.msgs`: `timeupdate`,
+ * `loadedmetadata` e `ended` não sobem na árvore, então a delegação por
+ * borbulhamento não os veria.
+ */
+function ligarAudios(container){
+  for (const som of container.querySelectorAll('.midia.som')) {
+    const a = som.querySelector('audio');
+    const barra = som.querySelector('.aud-barra');
+    const tempo = som.querySelector('.aud-tempo');
+    if (!a || a.dataset.ligado) continue;
+    a.dataset.ligado = '1';
+
+    const pintar = () => {
+      const dur = a.duration;
+      // Sem duração conhecida não há posição: a barra fica desligada e o tempo
+      // mostra o que já tocou, em vez de uma régua inventada.
+      if (!isFinite(dur) || dur <= 0) { barra.disabled = true; tempo.textContent = a.currentTime ? mmss(a.currentTime) : '--:--'; return; }
+      barra.disabled = false;
+      const frac = Math.min(1, a.currentTime / dur);
+      if (document.activeElement !== barra) barra.value = String(Math.round(frac * 1000));
+      barra.style.setProperty('--tocado', (frac * 100).toFixed(1) + '%');
+      // Parado mostra quanto o áudio tem; tocando, onde está.
+      tempo.textContent = mmss(a.paused && !a.currentTime ? dur : a.currentTime);
+    };
+
+    a.addEventListener('loadedmetadata', pintar);
+    a.addEventListener('timeupdate', pintar);
+    a.addEventListener('play', () => {
+      if (AUDIO_TOCANDO && AUDIO_TOCANDO !== a) AUDIO_TOCANDO.pause();
+      AUDIO_TOCANDO = a;
+      som.classList.add('tocando');
+    });
+    a.addEventListener('pause', () => som.classList.remove('tocando'));
+    a.addEventListener('ended', () => { som.classList.remove('tocando'); a.currentTime = 0; pintar(); });
+
+    som.querySelector('.aud-play').addEventListener('click', () => {
+      if (a.paused) a.play().catch(e => { tempo.textContent = 'erro'; console.error('[audio]', e.message); });
+      else a.pause();
+    });
+    barra.addEventListener('input', () => {
+      if (isFinite(a.duration) && a.duration > 0) a.currentTime = (Number(barra.value) / 1000) * a.duration;
+    });
+    pintar();
+  }
+}
+
+/* ---------- os ticks de envio, entrega e leitura ----------
+ *
+ * O status vem do `messages.update` da Evolution, gravado pelo webhook em
+ * `whatsapp_messages.status`. Mensagem sem status gravado (todo o histórico
+ * anterior a 03/10/2026, e o envio cujo ack ainda não chegou) sai SEM tique:
+ * desenhar um tique cinza ali seria afirmar que o WhatsApp aceitou a mensagem
+ * sem ninguém ter medido isso.
+ */
+const SVG_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+const SVG_CHECK2 = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg>';
+const SVG_RELOGIO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+const SVG_ERRO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>';
+const ACKS = {
+  PENDING:      { svg: SVG_RELOGIO, cls: '',        titulo: 'Enviando' },
+  SERVER_ACK:   { svg: SVG_CHECK,   cls: '',        titulo: 'Enviada' },
+  DELIVERY_ACK: { svg: SVG_CHECK2,  cls: '',        titulo: 'Entregue no aparelho' },
+  READ:         { svg: SVG_CHECK2,  cls: 'lida',    titulo: 'Lida' },
+  PLAYED:       { svg: SVG_CHECK2,  cls: 'lida',    titulo: 'Ouvida' },
+  ERROR:        { svg: SVG_ERRO,    cls: 'falhou',  titulo: 'Não foi entregue' },
+};
+function tique(x){
+  if (!x.from_me) return '';
+  const a = ACKS[x.status];
+  if (!a) return '';
+  return `<span class="ack ${a.cls}" title="${a.titulo}">${a.svg}</span>`;
 }
 
 // ---------- lista ----------
@@ -793,7 +1070,10 @@ function marcas(c){
   // ela está (a pedido, 02/10). É a exceção à regra do parágrafo acima: o
   // estado da IA é o que se procura nesta tela, e sem a marca verde "ligada" e
   // "não sei" ficavam iguais.
+  // Com o atendente em "só quem recebeu campanha", a IA não responde a quem
+  // este número nunca abordou: a marca vem desligada, como ela está de fato.
   if (c.iaAtiva === 0) m.push('<span class="pil ia-off" title="Alguém desligou a IA nesta conversa">IA</span>');
+  else if (c.iaForaDoEscopo) m.push('<span class="pil ia-off" title="A IA não responde nesta conversa">IA</span>');
   else if (c.iaPausada) m.push('<span class="pil ia-pausa" title="A IA está em pausa de 4 h porque alguém respondeu à mão">IA</span>');
   else m.push('<span class="pil ia-on" title="A IA responde nesta conversa">IA</span>');
   if (c.donoNome) m.push(`<span class="pil dono">${esc(c.donoNome)}</span>`);
@@ -900,6 +1180,7 @@ async function abrir(id){
   renderBotaoIA(c.id, c.iaAtiva);
 
   window.__msgs = d.mensagens;
+  window.__temMais = d.temMais;
   pintarMensagens(c.id, d.mensagens, d.temMais);
 
   document.getElementById('responder').style.display = 'flex';
@@ -939,8 +1220,13 @@ function pintarMensagens(convId, msgs, temMais){
     // vale também para o balão que não tem texto (Contato, Localização…), que
     // até 02/10 saía sem vaga nenhuma e deixava a hora por cima da palavra.
     // Medida em `ch`: cinco dígitos da hora, mais o "editada " quando houver.
-    const vaga = `<span class="vaga${editada ? ' larga' : ''}"></span>`;
+    const ack = tique(x);
+    const vaga = `<span class="vaga${editada ? ' larga' : ''}${ack ? ' com-ack' : ''}"></span>`;
     const soMidia = !x.texto && TIPOS_MIDIA[x.message_type];
+    // Figurinha sozinha não leva balão, como no WhatsApp (ver `.so-figurinha`).
+    const soFigurinha = !x.texto && x.message_type === 'stickerMessage';
+    // Áudio sem legenda: a hora cabe na linha do player (ver `.so-audio`).
+    const soAudio = !x.texto && x.message_type === 'audioMessage';
     // O conteúdo do balão citado só existe quando a citada está no histórico
     // carregado; fora disso a resposta aparece sem ele.
     const cita = x.citaTexto
@@ -960,12 +1246,12 @@ function pintarMensagens(convId, msgs, temMais){
       x.from_bot ? selo(x) : '',
     ].filter(Boolean).join('');
     return `
-    <div class="msg ${x.from_me ? 'minha' : 'deles'}${x.apagadaEm ? ' apagada' : ''}${soMidia ? ' so-midia' : ''}${marcasMeta ? ' tem-meta' : ''}"
+    <div class="msg ${x.from_me ? 'minha' : 'deles'}${x.apagadaEm ? ' apagada' : ''}${soMidia ? ' so-midia' : ''}${soFigurinha ? ' so-figurinha' : ''}${soAudio ? ' so-audio' : ''}${marcasMeta ? ' tem-meta' : ''}"
       data-id="${x.id}" data-mine="${x.from_me ? 1 : 0}">
       ${cita}${midiaDa(x)}${corpoTexto}${reacoes}
       ${marcasMeta
-        ? `<div class="meta">${marcasMeta}<span class="hora-canto">${editada}${hora}</span></div>`
-        : `<span class="hora-canto">${editada}${hora}</span>`}
+        ? `<div class="meta">${marcasMeta}<span class="hora-canto">${editada}${hora}${ack}</span></div>`
+        : `<span class="hora-canto">${editada}${hora}${ack}</span>`}
     </div>`;
   };
   m.innerHTML = maisAntigas + (msgs.length
@@ -973,7 +1259,83 @@ function pintarMensagens(convId, msgs, temMais){
         + g.msgs.map(balao).join('') + '</div>').join('')
     : '<div class="vazio-centro">Sem mensagens nesta conversa</div>');
   if (window.lucide && window.lucide.createIcons) { try { window.lucide.createIcons(); } catch (e) { } }
+  ligarAudios(m);
   ancorarNoFim(m);
+}
+
+/**
+ * O tique avançando sem repintar a conversa.
+ *
+ * O ack chega pelo webhook segundos depois do envio, e quem acabou de mandar é
+ * exatamente quem olha o tique: sem isto ele só mudaria ao reabrir a conversa.
+ * Troca só o `<span class="ack">` de cada balão, então a rolagem, o áudio
+ * tocando, a citação e o texto em digitação ficam onde estão.
+ */
+async function atualizarTiques(){
+  const id = ATUAL, msgs = window.__msgs;
+  if (!id || !msgs || !msgs.length) return;
+  if (document.hidden) return;   // aba escondida não precisa de tique novo
+  const d = await fetch(`/api/conversas/${id}/acks?desde=${msgs[0].id}`)
+    .then(r => r.json()).catch(() => null);
+  // Trocou de conversa enquanto a resposta vinha: os ids são de outra.
+  if (!d || !d.success || ATUAL !== id) return;
+  const corpo = document.getElementById('msgs');
+  for (const a of d.acks) {
+    const m = msgs.find(x => x.id === a.id);
+    if (!m || m.status === a.status) continue;
+    m.status = a.status;
+    const balao = corpo.querySelector(`.msg[data-id="${a.id}"]`);
+    if (!balao) continue;
+    const alvo = balao.querySelector('.hora-canto');
+    const atual = alvo && alvo.querySelector('.ack');
+    const novo = tique(m);
+    if (!alvo || !novo) continue;
+    if (atual) atual.outerHTML = novo;
+    else {
+      alvo.insertAdjacentHTML('beforeend', novo);
+      // Primeiro tique da mensagem: a hora ficou mais larga, e a vaga da última
+      // linha do texto tem de acompanhar, senão o tique cai sobre a palavra.
+      const vaga = balao.querySelector('.vaga');
+      if (vaga) vaga.classList.add('com-ack');
+    }
+  }
+}
+
+/**
+ * O que CHEGOU na conversa aberta desde a última pintura.
+ *
+ * A conversa aberta não tinha caminho nenhum para mensagem nova: o tique só
+ * troca o ack, e a lista repinta a cada 30 s sem tocar no painel. Quem
+ * conversava pelo celular via o PC parado até reabrir a conversa.
+ *
+ * A pergunta é pelo que é mais novo que o último balão — um corte por id,
+ * quase sempre devolvendo nada — e só vindo algo é que se repinta.
+ */
+async function mensagensNovas(){
+  const id = ATUAL, msgs = window.__msgs;
+  if (!id || !msgs || !msgs.length) return;
+  if (document.hidden) return;
+  const ultimo = msgs[msgs.length - 1].id;
+  const d = await fetch(`/api/conversas/${id}/mensagens?depoisDe=${ultimo}`)
+    .then(r => r.json()).catch(() => null);
+  // Trocou de conversa enquanto a resposta vinha: as mensagens são de outra.
+  if (!d || !d.success || ATUAL !== id || window.__msgs !== msgs) return;
+  // O filtro é também a guarda contra servidor que ainda não conheça o
+  // `depoisDe`: ignorado, ele devolve o histórico inteiro, e sem isto a
+  // conversa dobraria de tamanho a cada tique.
+  const novas = (d.mensagens || []).filter(x => x.id > ultimo);
+  if (!novas.length) return;
+  const corpo = document.getElementById('msgs');
+  const noFim = corpo.scrollHeight - corpo.scrollTop - corpo.clientHeight < 80;
+  const posAntes = corpo.scrollTop;
+  window.__msgs = [...msgs, ...novas];
+  pintarMensagens(id, window.__msgs, window.__temMais);
+  // No pé da conversa, desce com a mensagem nova (o `pintarMensagens` ancora no
+  // fim). Lendo o histórico mais atrás, fica onde estava: ser arrastado para o
+  // pé no meio da leitura é pior do que não ver a mensagem chegar.
+  if (!noFim) corpo.scrollTop = posAntes;
+  // A prévia, a ordem da lista e a contagem de não lidas seguem a mensagem nova.
+  carregar();
 }
 
 function renderFicha(c, f){
@@ -1468,7 +1830,7 @@ async function acaoMsg(qual){
 document.getElementById('msgs').addEventListener('contextmenu', abrirMenuMsg);
 document.getElementById('msgs').addEventListener('click', abrirMenuIA);
 document.addEventListener('click', e => { if (!e.target.closest('#menuMsg')) fecharMenuMsg(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharMenuMsg(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { fecharMenuMsg(); fechar('visorFoto'); } });
 
 /* O espaço que o rodapé flutuante ocupa sobre a conversa.
    Ele é medido, e não um número: a barra cresce com a citação, com o anexo, com
@@ -1663,6 +2025,7 @@ async function carregarAnteriores(id){
   if (!d?.success) { if (btn) { btn.disabled = false; btn.textContent = 'Carregar mensagens anteriores'; } return showAlert(d?.error || 'Não foi possível carregar','error'); }
   const alturaAntes = m.scrollHeight, posAntes = m.scrollTop;
   window.__msgs = [...d.mensagens, ...(window.__msgs || [])];
+  window.__temMais = d.temMais;
   pintarMensagens(id, window.__msgs, d.temMais);
   m.scrollTop = posAntes + (m.scrollHeight - alturaAntes);
 }
@@ -1755,6 +2118,11 @@ renderAvisos();
 carregarAtendentes();
 carregar();
 setInterval(carregar, 30000);
+// O tique anda em segundos, e a lista só a cada 30: são dois tempos. Este é
+// barato de propósito — um SELECT por id na conversa aberta, e nada quando não
+// há conversa aberta nem quando a aba está escondida. A mensagem que chega vem
+// no mesmo tempo, e pelo mesmo motivo: 30 s de conversa parada se nota.
+setInterval(() => { atualizarTiques(); mensagensNovas(); }, 6000);
 </script>
 </body>
 </html>

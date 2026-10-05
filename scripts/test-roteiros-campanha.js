@@ -102,7 +102,6 @@ require('../comm-routes').registrarRotasComm(app, db);
 require('../conversas-routes').registrarRotasConversas(app, db);
 require('../roteiros-routes').registrarRotasRoteiros(app, db);
 app.get('/api/user/prefs', (_q, rs) => rs.json({ success: true, prefs: {} }));
-app.get('/api/wa-campanhas/:id/images', (_q, rs) => rs.json({ success: true, images: [] }));
 app.get('/api/whatsapp/canais', (_q, rs) => rs.json({ success: true, canais: [] }));
 app.get('/favicon.ico', (_q, rs) => rs.status(204).end());
 app.get('/__wrapper/:pasta/:tela', (rq, rs) => rs.type('html').send(
@@ -446,6 +445,53 @@ const srv = app.listen(0, async () => {
     RC.migrar(db);
     const cols = db.prepare('PRAGMA table_info(roteiro_visitas)').all().map(c => c.name);
     assert(['resultado', 'finalizadoEm', 'trechos'].every(c => cols.includes(c)), cols.join());
+  });
+
+  // Campanha recebida conta pelo NÚMERO por onde ela saiu (05/10/2026). No
+  // 1bit a campanha saiu pelo Principal, o contato mandou "oi" para o número
+  // pessoal do atendente e a IA respondeu lá com a primeira etapa do roteiro,
+  // porque o casamento era só pelo telefone. Eram 4 conversas assim.
+  await t('Q12 campanha de OUTRO numero nao vale: nem roteiro, nem escopo da IA', async () => {
+    db.prepare("INSERT INTO whatsapp_canais (id, nome, instance, padrao, config) VALUES (2, 'Pessoal', 'inst2', 0, '{}')").run();
+    const tel = '5594991110081';
+    db.prepare("INSERT INTO conv_conversas (id, canal, jid, telefone, nome, canalId) VALUES (81, 'whatsapp', ?, ?, 'Pelo Principal', 1)")
+      .run(tel + '@s.whatsapp.net', tel);
+    db.prepare("INSERT INTO conv_conversas (id, canal, jid, telefone, nome, canalId) VALUES (82, 'whatsapp', ?, ?, 'Pelo Pessoal', 2)")
+      .run(tel + '@s.whatsapp.net', tel);
+    const noCanal1 = db.prepare('SELECT * FROM conv_conversas WHERE id = 81').get();
+    const noCanal2 = db.prepare('SELECT * FROM conv_conversas WHERE id = 82').get();
+    db.prepare("INSERT INTO comm_campanhas (id, nome, canal, templateId, listaId, status, roteiroId) VALUES (81, 'Do Principal', 'whatsapp', 0, 0, 'concluida', ?)").run(rotA);
+    db.prepare(`INSERT INTO comm_envios (campanhaId, canal, destino, status, dataEnvio, canalId)
+      VALUES (81, 'whatsapp', ?, 'enviado', '2023-11-14T00:00:00.000Z', 1)`).run(tel);
+
+    assert(RC.campanhaDaConversa(db, noCanal1), 'a campanha do próprio número não casou');
+    assert(!RC.campanhaDaConversa(db, noCanal2), 'a campanha de outro número casou, e o escopo da IA vaza');
+    assert(RC.roteiroDaConversa(db, noCanal1)?.id === rotA, 'o roteiro não veio no número que abordou');
+    assert(!RC.roteiroDaConversa(db, noCanal2), 'o roteiro vazou para o número que não abordou');
+
+    // Envio de banco anterior aos canais (coluna nula) é do número PADRÃO:
+    // exigir igualdade crua descartaria toda campanha antiga de uma vez.
+    db.prepare('UPDATE comm_envios SET canalId = NULL WHERE campanhaId = 81').run();
+    assert(RC.campanhaDaConversa(db, noCanal1), 'envio sem canal deixou de contar no número padrão');
+    assert(!RC.campanhaDaConversa(db, noCanal2), 'envio sem canal contou num número que não é o padrão');
+    db.prepare('UPDATE comm_envios SET canalId = 1 WHERE campanhaId = 81').run();
+
+    // E a marca da IA na lista diz a mesma coisa: com o escopo em 'campanha',
+    // a conversa que nenhuma campanha deste número abordou aparece desligada.
+    db.prepare("INSERT INTO config (chave, valor) VALUES ('whatsapp_ai_escopo', 'campanha')").run();
+    const r = await pedir('/api/conversas');
+    const por = (id) => r.corpo.conversas.find(c => c.id === id);
+    assert(por(81) && por(81).iaForaDoEscopo === 0, 'quem veio da campanha deste número saiu fora do escopo');
+    assert(por(82) && por(82).iaForaDoEscopo === 1, 'quem nenhuma campanha deste número abordou saiu como atendido pela IA');
+    // Sem o escopo restrito, a marca volta a valer para todas.
+    db.prepare("UPDATE config SET valor = 'todos' WHERE chave = 'whatsapp_ai_escopo'").run();
+    const t2 = await pedir('/api/conversas');
+    assert(t2.corpo.conversas.every(c => c.iaForaDoEscopo === 0), 'com o escopo em "todos" alguma conversa saiu fora dele');
+    db.prepare("DELETE FROM config WHERE chave = 'whatsapp_ai_escopo'").run();
+    db.prepare('DELETE FROM conv_conversas WHERE id IN (81, 82)').run();
+    db.prepare('DELETE FROM comm_envios WHERE campanhaId = 81').run();
+    db.prepare('DELETE FROM comm_campanhas WHERE id = 81').run();
+    db.prepare('DELETE FROM whatsapp_canais WHERE id = 2').run();
   });
 
   // ==================== N. a resposta pelo número da opção (01/10) ==========

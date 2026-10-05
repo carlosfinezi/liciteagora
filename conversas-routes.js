@@ -140,14 +140,22 @@ const MSGS_POR_VEZ = 400;
 /**
  * As mensagens de uma conversa, em ordem cronológica. Com `antesDe`, o pedaço
  * anterior a essa mensagem: é como a tela busca o histórico de conversa longa,
- * que antes era cortado em 400 sem aviso nenhum.
+ * que antes era cortado em 400 sem aviso nenhum. Com `depoisDe`, o pedaço
+ * SEGUINTE, que é como a conversa aberta recebe o que chegou desde a pintura.
+ *
+ * Com `depoisDe` o limite corta as MAIS ANTIGAS do pedaço, e não as mais
+ * recentes: aba que ficou escondida um dia pode ter mais de 400 mensagens novas,
+ * e cortar pelo outro lado deixaria um buraco no meio da conversa, calado. O
+ * tique seguinte pede o resto.
  */
-function mensagensDaConversa(db, c, { antesDe = null } = {}) {
-  const corte = antesDe ? ' AND m.id < ?' : '';
-  const args = [c.jid, c.canalId || 0, ...(antesDe ? [Number(antesDe)] : []), MSGS_POR_VEZ];
+function mensagensDaConversa(db, c, { antesDe = null, depoisDe = null } = {}) {
+  const corte = antesDe ? ' AND m.id < ?' : (depoisDe ? ' AND m.id > ?' : '');
+  const ordem = depoisDe ? 'ASC' : 'DESC';
+  const args = [c.jid, c.canalId || 0,
+    ...(antesDe || depoisDe ? [Number(antesDe || depoisDe)] : []), MSGS_POR_VEZ];
   return db.prepare(`SELECT * FROM (
       SELECT m.id, m.from_me, m.from_bot, m.texto, m.message_type, m.timestamp, m.apagadaEm,
-        m.editadaEm, m.wa_message_id,
+        m.editadaEm, m.wa_message_id, m.status,
         (SELECT veredito FROM ia_correcoes x WHERE x.mensagemId = m.id ORDER BY x.id DESC LIMIT 1) AS veredito,
         -- O balao citado: o texto e o lado de quem escreveu a mensagem que esta
         -- responde. Vem por subconsulta pelo id do WhatsApp porque e esse id que
@@ -167,7 +175,7 @@ function mensagensDaConversa(db, c, { antesDe = null } = {}) {
       FROM whatsapp_messages m, (SELECT ? AS jid, ? AS canalId) c
       WHERE ${MSG_DA_CONVERSA}${corte}
         AND (m.message_type IS NULL OR m.message_type <> 'reactionMessage')
-      ORDER BY m.id DESC LIMIT ?
+      ORDER BY m.id ${ordem} LIMIT ?
     ) ORDER BY id ASC`).all(...args);
 }
 
@@ -622,7 +630,20 @@ function registrarRotasConversas(app, db) {
           ? db.prepare(`SELECT COUNT(*) n FROM whatsapp_messages WHERE id > ? AND ${RECEBIDA}`).get(desde).n : 0;
         recebidas = { ultimoId, novas };
       }
-      res.json({ success: true, conversas: linhas.map(c => ({ ...c, etiquetas: jsonOu(c.etiquetas, []) })), contagem,
+      // Com o atendente de IA em "só quem recebeu campanha", a IA não responde
+      // a quem este número nunca abordou — e a marca verde dizia o contrário em
+      // 683 das 995 conversas do 1bit. O cálculo é uma consulta para a lista
+      // inteira (`abordadosPorCampanha`), e não uma por linha.
+      let foraDoEscopo = () => false;
+      try {
+        const escopo = db.prepare("SELECT valor FROM config WHERE chave = 'whatsapp_ai_escopo'").get();
+        if (escopo && String(escopo.valor) === 'campanha') {
+          const abordados = require('./roteiro-conversa').abordadosPorCampanha(db);
+          foraDoEscopo = (c) => !abordados.tem(c);
+        }
+      } catch (_) { /* tenant sem config ou sem campanhas: a marca fica como era */ }
+      res.json({ success: true, contagem,
+        conversas: linhas.map(c => ({ ...c, etiquetas: jsonOu(c.etiquetas, []), iaForaDoEscopo: foraDoEscopo(c) ? 1 : 0 })),
         canais: numeros, recebidas, nichos: nichosComCampanha(db) });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
   });
@@ -1098,18 +1119,56 @@ function registrarRotasConversas(app, db) {
    * saída era esperar as 4 horas da pausa (ver `pausaDaIA`), e nada na tela
    * dizia que a espera existia.
    */
-  /** O pedaço anterior do histórico: o "carregar mensagens anteriores" da tela. */
+  /**
+   * O pedaço anterior do histórico (`antesDe`): o "carregar mensagens
+   * anteriores" da tela. E, com `depoisDe`, o que CHEGOU desde a última
+   * pintura, que é como a conversa aberta anda sozinha — quem conversa pelo
+   * celular via o PC parado até reabrir a conversa.
+   */
   app.get('/api/conversas/:id/mensagens', (req, res) => {
     try {
       const c = db.prepare('SELECT * FROM conv_conversas WHERE id = ?').get(req.params.id);
       if (!c) return res.status(404).json({ success: false, error: 'Conversa não encontrada' });
       const antesDe = Number(req.query.antesDe) || null;
-      const mensagens = mensagensDaConversa(db, c, { antesDe });
-      const temMais = mensagens.length
+      const depoisDe = Number(req.query.depoisDe) || null;
+      const mensagens = mensagensDaConversa(db, c, { antesDe, depoisDe });
+      // Quem está com a conversa aberta LEU o que acabou de chegar: sem isto a
+      // linha dela voltaria à lista marcada como não lida.
+      if (depoisDe && mensagens.some((m) => !m.from_me)) {
+        db.prepare('UPDATE conv_conversas SET naoLidas = 0 WHERE id = ?').run(c.id);
+      }
+      // `temMais` fala do histórico ANTIGO, e no pedaço seguinte não tem
+      // sentido: devolvê-lo calculado ali diria sempre "sim" e a tela ofereceria
+      // o botão de carregar anteriores no lugar errado.
+      const temMais = mensagens.length && !depoisDe
         ? !!db.prepare(`SELECT 1 FROM whatsapp_messages m, (SELECT ? AS jid, ? AS canalId) c
             WHERE ${MSG_DA_CONVERSA} AND m.id < ? LIMIT 1`).get(c.jid, c.canalId || 0, mensagens[0].id)
         : false;
       res.json({ success: true, mensagens, temMais });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * Só os ticks das mensagens NOSSAS, para a tela ver o tique avançar sem
+   * repintar a conversa.
+   *
+   * O ack chega pelo webhook, segundos depois do envio: sem este caminho o
+   * balão só mudaria de tique ao reabrir a conversa, e quem acabou de mandar —
+   * que é justamente quem olha o tique — não veria nada acontecer. Repintar
+   * tudo pelo `GET /api/conversas/:id` custaria 400 mensagens, a ficha e os
+   * pedidos a cada poucos segundos, e perderia a rolagem e a citação em curso.
+   *
+   * `desde` é o menor id que a tela tem pintado.
+   */
+  app.get('/api/conversas/:id/acks', (req, res) => {
+    try {
+      const c = db.prepare('SELECT jid, canalId FROM conv_conversas WHERE id = ?').get(req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Conversa não encontrada' });
+      const desde = Number(req.query.desde) || 0;
+      const acks = db.prepare(`SELECT m.id, m.status FROM whatsapp_messages m, (SELECT ? AS jid, ? AS canalId) c
+        WHERE ${MSG_DA_CONVERSA} AND m.from_me = 1 AND m.status IS NOT NULL AND m.id >= ?`)
+        .all(c.jid, c.canalId || 0, desde);
+      res.json({ success: true, acks });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
   });
 
@@ -1484,6 +1543,28 @@ function registrarRotasConversas(app, db) {
         .run(b.conversaId || null, b.mensagemId || null, String(b.perguntou || '').slice(0, 1000),
              respondeu.slice(0, 2000), respondeu.slice(0, 4000), usuario(req));
       res.json({ success: true });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * Apagar a avaliação. O item de base que a correção criou sai junto: deixá-lo
+   * manteria a IA ensinada pela correção que o atendente acabou de desfazer, e
+   * a tela diria "removida" sobre algo que continua respondendo.
+   *
+   * Some também o veredito da mensagem — ela volta a oferecer "✓ certo /
+   * corrigir" na tela de Conversas, que é o estado de quem nunca foi avaliada.
+   */
+  app.delete('/api/ia/avaliacao/:id', (req, res) => {
+    try {
+      const c = db.prepare('SELECT * FROM ia_correcoes WHERE id = ?').get(req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Avaliação não encontrada' });
+      const base = c.baseId
+        ? db.prepare('SELECT titulo FROM ia_base WHERE id = ?').get(c.baseId) : null;
+      db.transaction(() => {
+        if (c.baseId) db.prepare('DELETE FROM ia_base WHERE id = ?').run(c.baseId);
+        db.prepare('DELETE FROM ia_correcoes WHERE id = ?').run(c.id);
+      })();
+      res.json({ success: true, baseRemovida: base ? base.titulo : null });
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });
 

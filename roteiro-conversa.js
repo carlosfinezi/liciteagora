@@ -63,19 +63,47 @@ function migrar(db) {
 }
 
 /**
- * A campanha mais recente que o contato da conversa RECEBEU, nova ou legado:
- * { origem: 'wa'|'comm', id, roteiroId } ou null. Pelos últimos 8 dígitos: o
- * telefone da conversa vem do jid, às vezes sem o nono dígito.
+ * Campanha RECEBIDA conta pelo NÚMERO por onde ela saiu.
+ *
+ * Até 05/10/2026 o casamento era só pelo telefone, e isso fazia o escopo "só
+ * quem recebeu campanha" vazar entre os números do tenant: no 1bit, a campanha
+ * ao contato saiu pelo número Principal em 30/09, o contato mandou "oi" para o
+ * número pessoal do atendente e a IA respondeu lá com a primeira etapa do
+ * roteiro. Eram 4 conversas assim. Campanha que saiu por outro número não é
+ * abordagem DESTE número.
+ *
+ * Envio sem canal (coluna nula, ou 0) é do canal PADRÃO: antes de haver vários
+ * números, todo disparo saía pelo número único, e exigir igualdade crua
+ * descartaria de uma vez as campanhas de um banco anterior aos canais.
+ */
+const MESMO_CANAL = (col) => `COALESCE(NULLIF(${col}, 0), ?) = ?`;
+
+/** O número da conversa e o padrão do tenant, os dois já normalizados. */
+function canaisDa(db, conversa) {
+  let padrao = 0;
+  try {
+    const p = require('./whatsapp-canais').canalPadrao(db);
+    padrao = (p && p.id) || 0;
+  } catch (_) { /* tenant sem a tabela de números */ }
+  return [padrao, Number(conversa && conversa.canalId) || padrao];
+}
+
+/**
+ * A campanha mais recente que o contato da conversa RECEBEU por este número,
+ * nova ou legado: { origem: 'wa'|'comm', id, roteiroId } ou null. Pelos últimos
+ * 8 dígitos: o telefone da conversa vem do jid, às vezes sem o nono dígito.
  */
 function campanhaDaConversa(db, conversa) {
   const tel = String(conversa.telefone || String(conversa.jid || '').split('@')[0] || '').replace(/\D/g, '');
   if (tel.length < 8) return null;
   const fim = tel.slice(-8);
+  const canais = canaisDa(db, conversa);
   const achadas = [];
   if (temTabela(db, 'wa_campanha_dest')) {
     const d = db.prepare(`SELECT d.campanha_id AS id, d.enviado_em AS quando, c.config FROM wa_campanha_dest d
       JOIN wa_campanhas c ON c.id = d.campanha_id
-      WHERE substr(d.telefone, -8) = ? AND d.enviado_em IS NOT NULL ORDER BY d.enviado_em DESC LIMIT 1`).get(fim);
+      WHERE substr(d.telefone, -8) = ? AND d.enviado_em IS NOT NULL
+        AND ${MESMO_CANAL('d.canalId')} ORDER BY d.enviado_em DESC LIMIT 1`).get(fim, ...canais);
     if (d) achadas.push({ origem: 'wa', id: d.id, quando: String(d.quando).replace(' ', 'T'),
       roteiroId: Number(jsonOu(d.config).roteiro_id) || null });
   }
@@ -83,11 +111,38 @@ function campanhaDaConversa(db, conversa) {
     const e = db.prepare(`SELECT e.campanhaId AS id, e.dataEnvio AS quando, c.roteiroId FROM comm_envios e
       JOIN comm_campanhas c ON c.id = e.campanhaId
       WHERE e.canal = 'whatsapp' AND e.status = 'enviado' AND substr(e.destino, -8) = ?
-      ORDER BY e.dataEnvio DESC LIMIT 1`).get(fim);
+        AND ${MESMO_CANAL('e.canalId')} ORDER BY e.dataEnvio DESC LIMIT 1`).get(fim, ...canais);
     if (e) achadas.push({ origem: 'comm', id: e.id, quando: String(e.quando), roteiroId: e.roteiroId || null });
   }
   achadas.sort((a, b) => (a.quando < b.quando ? 1 : -1));
   return achadas[0] || null;
+}
+
+/**
+ * Os pares "final de 8 dígitos + nosso número" que já receberam campanha.
+ *
+ * Uma consulta só, para a lista de conversas poder dizer em qual delas a IA
+ * responde sem perguntar por linha: com o escopo em 'campanha', a marca verde
+ * prometia atendimento automático em 683 conversas do 1bit que a IA nunca
+ * atenderia. O critério de número é o mesmo do `campanhaDaConversa`.
+ */
+function abordadosPorCampanha(db) {
+  const [padrao] = canaisDa(db, null);
+  const set = new Set();
+  const juntar = (linhas) => { for (const r of linhas) set.add(r.f + '|' + r.c); };
+  if (temTabela(db, 'wa_campanha_dest')) {
+    juntar(db.prepare(`SELECT substr(telefone, -8) AS f, COALESCE(NULLIF(canalId, 0), ?) AS c
+      FROM wa_campanha_dest WHERE enviado_em IS NOT NULL AND telefone IS NOT NULL`).all(padrao));
+  }
+  if (temTabela(db, 'comm_envios')) {
+    juntar(db.prepare(`SELECT substr(destino, -8) AS f, COALESCE(NULLIF(canalId, 0), ?) AS c
+      FROM comm_envios WHERE canal = 'whatsapp' AND status = 'enviado' AND destino IS NOT NULL`).all(padrao));
+  }
+  return { set, padrao, tem: (conversa) => {
+    const tel = String(conversa.telefone || String(conversa.jid || '').split('@')[0] || '').replace(/\D/g, '');
+    if (tel.length < 8) return false;
+    return set.has(tel.slice(-8) + '|' + (Number(conversa.canalId) || padrao));
+  } };
 }
 
 /** Um instante em epoch, aceitando o ISO do envio e o `CURRENT_TIMESTAMP` do SQLite (que é UTC). */
@@ -559,5 +614,5 @@ function roteiroEscolhido(db, valor) {
   return id;
 }
 
-module.exports = { migrar, roteiroEscolhido, campanhaDaConversa, roteiroDaConversa, registroDa, criarOportunidade, gravar,
+module.exports = { migrar, roteiroEscolhido, campanhaDaConversa, abordadosPorCampanha, roteiroDaConversa, registroDa, criarOportunidade, gravar,
   qualificarPelaIA, blocoParaIA, etapaPendente, semLinkNoRoteiro, desvioDaMensagem, mensagemDeTermino };
