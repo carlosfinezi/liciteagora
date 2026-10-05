@@ -304,8 +304,16 @@ function calendario(db, de, ate, opts = {}) {
   const msFim = new Date(fim.replace(' ', 'T')).getTime();
   // Teto de 180 dias: além disso a grade não cabe na tela e a consulta cresce
   // sem servir a ninguém.
-  for (let t = msIni, n = 0; t < msFim && n < 180; t += umDia, n++) {
-    dias.push(normalizarInstante(new Date(t)).slice(0, 10));
+  //
+  // O corte é pelo DIA, e não pelo instante: a tela manda datas puras, que o
+  // normalizarInstante completa com 00:00:00, e comparar instantes descartava
+  // justamente o dia escolhido em "Até" (pedir 31/10 terminava a grade em
+  // 30/10). Comparando a data, a hora que vier em `ate` deixa de importar.
+  const diaFim = fim.slice(0, 10);
+  for (let t = msIni, n = 0; n < 180; t += umDia, n++) {
+    const dia = normalizarInstante(new Date(t)).slice(0, 10);
+    if (dia > diaFim) break;
+    dias.push(dia);
   }
 
   const linhas = produtos.map(p => {

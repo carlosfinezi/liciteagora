@@ -411,6 +411,55 @@ t('G11 equipamento, série e garantia só aparecem quando há', () => {
   assert(h.includes("o.garantiaDias > 0 ?"), 'Garantia ainda aparece zerada');
 });
 
+// A situação do orçamento morava num aviso dentro de Ações preso a
+// `o.status === 'aberta'`: iniciar a execução apagava da tela inteira uma
+// aprovação que o banco guardava com data e hora. Aqui a função da capa é
+// EXECUTADA, e não só procurada no texto — asserção de string passaria mesmo
+// com a condição errada dentro dela.
+t('G13 a capa da OS mostra a situação do orçamento, em qualquer status da OS', () => {
+  const h = ler('public/os/ordem-servico.html');
+  const ini = h.indexOf('const ORCAMENTO_NA_CAPA');
+  const fim = h.indexOf('function renderResumo');
+  assert(ini > 0 && fim > ini, 'o bloco de orçamento da capa sumiu');
+
+  const vm = require('vm');
+  const ctx = {
+    fmtData: v => { const d = String(v).slice(0, 10).split('-'); return `${d[2]}/${d[1]}/${d[0]}`; },
+  };
+  ctx.fmtDataHora = v => {
+    const s = String(v);
+    return ctx.fmtData(s) + (s.length >= 16 ? ' ' + s.slice(11, 16) : '');
+  };
+  vm.createContext(ctx);
+  vm.runInContext(h.slice(ini, fim), ctx);
+
+  const aprovado = ctx.blocoOrcamento({
+    orcamentoStatus: 'aprovado', status: 'em-andamento',
+    dataRespostaOrcamento: '2026-09-28 15:48:00',
+  });
+  assert(/aprovado pelo cliente/.test(aprovado),
+    'OS em andamento perde a aprovação do cliente — era o defeito do retrato de máquinas');
+  assert(aprovado.includes('28/09/2026 15:48'), 'falta a data e a hora da resposta');
+
+  assert(/recusado pelo cliente/.test(ctx.blocoOrcamento({
+    orcamentoStatus: 'rejeitado', dataRespostaOrcamento: '2026-09-28 16:00:00',
+  })), 'o orçamento recusado não aparece');
+
+  const enviado = ctx.blocoOrcamento({
+    orcamentoStatus: 'enviado', dataEnvioOrcamento: '2026-09-27 09:10:00',
+  });
+  assert(/enviado ao cliente/.test(enviado) && enviado.includes('27/09/2026 09:10'),
+    'o enviado tem de datar pelo ENVIO, não pela resposta que ainda não veio');
+
+  assert(ctx.blocoOrcamento({ orcamentoStatus: 'rascunho' }) === '',
+    'rascunho não é situação para anunciar na capa');
+  assert(ctx.blocoOrcamento({}) === '', 'OS sem orçamento não ganha bloco');
+
+  // E a informação não pode aparecer duas vezes na mesma tela.
+  assert(!h.includes('✓ Orçamento aprovado pelo cliente</div>'),
+    'o aviso antigo continua em Ações e duplica a informação');
+});
+
 t('G12 o relatório por cliente diz que é das OS, e a coluna de equipamento é condicional', () => {
   const h = ler('public/os/os-relatorios.html');
   assert(h.includes('Resultado das OS por cliente'), 'o nome antigo continua');

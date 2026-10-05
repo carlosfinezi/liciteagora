@@ -149,6 +149,14 @@ const ROTULO_STATUS = {
   devolvido: 'Devolvido (a faturar)', encerrado: 'Encerrado', cancelado: 'Cancelado',
 };
 
+// A vistoria é uma OS, e estes são os status dela.
+const ROTULO_OS = {
+  rascunho: 'Rascunho', aberta: 'Aberta', 'em-andamento': 'Em andamento',
+  'aguardando-peca': 'Aguardando peça', concluida: 'Concluída',
+  faturada: 'Faturada', cancelada: 'Cancelada',
+};
+const GRAVIDADE_AVARIA = { leve: 'Leve', media: 'Média', grave: 'Grave', perda: 'Perda' };
+
 function showAlert(m, t = 'success') {
   const e = document.getElementById('alertGlobal');
   e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
@@ -315,6 +323,39 @@ async function abrir(id) {
       <tbody>${d.acertos.map(a => `<tr><td>${esc(a.tipo)}</td><td>${esc(a.descricao)}</td>
         <td style="text-align:right;">${moeda(a.valorTotal)}</td></tr>`).join('')}</tbody></table>` : '';
 
+    // A vistoria é o que prova em que estado o bem saiu e voltou. O detalhe
+    // continua na OS e no Histórico; aqui fica o bastante para ver, sem abrir
+    // nada, se os dois momentos foram conferidos.
+    const avariasLista = (d.avarias || []).map(a => `
+      <li>${esc(a.descricao)}
+        <span class="muted">(${esc(GRAVIDADE_AVARIA[a.gravidade] || a.gravidade)})</span>
+        ${Number(a.valorCobrado) > 0
+          ? `— R$ ${moeda(a.valorCobrado)} ${a.cobrada ? 'cobrado' : '<span class="muted">a cobrar</span>'}`
+          : ''}</li>`).join('');
+
+    const vistorias = (d.vistorias || []).map(v => {
+      const os = v.os;
+      const situacao = !os
+        ? '<span class="muted">não realizada</span>'
+        : `${esc(ROTULO_OS[os.status] || os.status)}${v.pendencias > 0
+            ? ` <span class="muted">(${v.pendencias} item(ns) do checklist em aberto)</span>` : ''}`;
+      const quando = os ? dt(os.dataConclusao || os.dataAbertura) : '—';
+      return `<tr>
+        <td>${v.rotulo}</td>
+        <td>${os ? `<a href="/os/ordem-servico.html?id=${os.id}">${esc(os.numero)}</a>` : '—'}</td>
+        <td>${quando}</td>
+        <td>${situacao}</td>
+      </tr>`;
+    }).join('');
+
+    const blocoVistorias = `
+      <h4>Vistorias</h4>
+      <table><thead><tr><th>Momento</th><th>OS</th><th>Data</th><th>Situação</th></tr></thead>
+      <tbody>${vistorias}</tbody></table>
+      ${avariasLista
+        ? `<p style="margin:6px 0 0;"><strong>Avarias</strong></p><ul style="margin:4px 0 0;">${avariasLista}</ul>`
+        : '<p class="muted" style="margin:6px 0 0;">Sem avarias registradas.</p>'}`;
+
     const eventos = d.eventos.slice(0, 12).map(e =>
       `<li><span class="muted">${dt(e.data)}</span> — ${esc(e.tipo)}${e.descricao ? ': ' + esc(e.descricao) : ''}</li>`).join('');
 
@@ -373,6 +414,8 @@ async function abrir(id) {
             <button class="btn btn-primary" onclick="addItem(${c.id})">Acrescentar</button>
           </div>
         </div>` : ''}
+
+        ${blocoVistorias}
 
         ${acertos}
 

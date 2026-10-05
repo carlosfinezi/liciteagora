@@ -289,7 +289,15 @@ assert(!colsCore.includes('dataInicio'), 'reservas_estoque continua sem janela d
 secao('Calendário');
 const grade = D.calendario(db, '2026-09-09', '2026-09-16', { produtoId: prodA });
 assert(grade.ok, 'calendário responde ok');
-eq(grade.dias.length, 7, 'grade de 7 dias');
+// 09 a 16 INCLUSIVE: o dia escolhido em "Até" é o último da grade. Antes a
+// comparação era por instante e descartava esse dia (pedir 16 terminava em 15).
+eq(grade.dias.length, 8, 'grade de 8 dias (os dois extremos entram)');
+eq(grade.dias[grade.dias.length - 1], '2026-09-16', 'o último dia do filtro está na grade');
+eq(grade.dias[0], '2026-09-09', 'o primeiro dia do filtro está na grade');
+
+// A hora que vier no "até" não muda a grade: o corte é por dia.
+const gradeComHora = D.calendario(db, '2026-09-09', '2026-09-16 18:30', { produtoId: prodA });
+eq(gradeComHora.dias.length, 8, 'hora no fim do período não acrescenta nem tira dia');
 const linhaA = grade.linhas.find(l => l.produtoId === Number(prodA));
 assert(!!linhaA, 'produto aparece na grade');
 const dia09 = linhaA.dias.find(x => x.dia === '2026-09-09');

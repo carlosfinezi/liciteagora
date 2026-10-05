@@ -1257,6 +1257,31 @@ const CLASSE_STATUS_OS = {
 };
 function classeStatusOS(st){ return CLASSE_STATUS_OS[st] || 'rascunho'; }
 
+// Situação do orçamento na capa.
+//
+// Ela existia só como um aviso dentro de Ações, e só enquanto a OS estava
+// 'aberta': bastava iniciar a execução para a aprovação do cliente sumir da
+// tela inteira, embora o banco a guardasse com data e hora. Aqui ela fica na
+// capa, independente do status da OS, e diz QUANDO o cliente respondeu — é o
+// que vale quando ele cobra o que foi combinado.
+const ORCAMENTO_NA_CAPA = {
+  enviado:   { rotulo: 'Orçamento enviado ao cliente', cor: 'var(--warn)', marca: '◷' },
+  aprovado:  { rotulo: 'Orçamento aprovado pelo cliente', cor: 'var(--success)', marca: '✓' },
+  rejeitado: { rotulo: 'Orçamento recusado pelo cliente', cor: 'var(--danger)', marca: '✖' },
+};
+
+function blocoOrcamento(o){
+  const info = ORCAMENTO_NA_CAPA[o.orcamentoStatus];
+  if (!info) return '';
+  const quando = o.orcamentoStatus === 'enviado' ? o.dataEnvioOrcamento : o.dataRespostaOrcamento;
+  return `
+    <div style="margin-bottom:12px;padding:8px 10px;border:1px solid ${info.cor};
+                border-radius:var(--r-md);font-size:var(--text-xs);">
+      <div style="color:${info.cor};">${info.marca} ${info.rotulo}</div>
+      ${quando ? `<div class="muted" style="margin-top:2px;">${fmtDataHora(quando)}</div>` : ''}
+    </div>`;
+}
+
 function renderResumo(){
   const o = osData.os;
   const st = document.getElementById('pgStatus');
@@ -1273,6 +1298,7 @@ function renderResumo(){
   const totalOrcado = orcados.reduce((t,i) => t + (Number(i.valorTotal)||0), 0);
 
   document.getElementById('resumo').innerHTML = `
+    ${blocoOrcamento(o)}
     <div>
       <div class="resumo-linha"><span class="muted">Peças</span><strong>${fmtBRL(o.valorPecas)}</strong></div>
       <div class="resumo-linha"><span class="muted">Serviços</span><strong>${fmtBRL(o.valorServicos)}</strong></div>
@@ -1331,9 +1357,8 @@ function renderAcoes(){
       html += `<a class="btn btn-secondary" href="/orcamento.html?token=${o.orcamentoToken}" target="_blank" style="display:block;text-align:center;margin-bottom:6px;font-size:12px;">🔗 Abrir link público</a>`;
     }
   }
-  if (orcSt === 'aprovado' && o.status === 'aberta') {
-    html += `<div style="padding:8px;text-align:center;font-size:12px;color:var(--success);margin-bottom:6px;border:1px solid var(--success);border-radius:var(--r-sm);background:var(--success-soft);">✓ Orçamento aprovado pelo cliente</div>`;
-  }
+  // O aviso de aprovado saiu daqui: agora a situação do orçamento fica na capa,
+  // pelo blocoOrcamento, em qualquer status da OS.
   if (o.status === 'aberta' || o.status === 'aguardando-peca') html += `<button class="btn btn-primary" style="width:100%;margin-bottom:6px;" onclick="iniciar()">▶ Iniciar execução</button>`;
   if (o.status === 'em-andamento' || o.status === 'aberta') html += `<button class="btn btn-secondary" style="width:100%;margin-bottom:6px;" onclick="aguardar()">⏳ Aguardando peça</button>`;
   if (['aberta','em-andamento','aguardando-peca'].includes(o.status)) html += `<button class="btn btn-success" style="width:100%;margin-bottom:6px;" onclick="concluir()">✓ Concluir</button>`;

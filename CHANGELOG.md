@@ -4,6 +4,43 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-05, o que a locação e a OS escondiam da tela
+
+Três defeitos achados pela rodada de prints do vídeo de locadora e oficina de
+máquinas. Nenhum era de cálculo: o sistema sabia das três coisas e não as
+mostrava.
+
+**1. A grade de disponibilidade perdia o último dia do filtro.** Pedindo de
+02/10 a 31/10, a última coluna era 30/10. O laço comparava INSTANTES
+(`t < msFim`) e a tela manda data pura, que vira `00:00:00` — o dia escolhido em
+"Até" caía fora por zero hora de diferença. O corte passou a ser por DIA, o que
+também torna indiferente a hora que venha em `ate`.
+
+**2. A vistoria não aparecia no contrato.** Saída e retorno são OS
+(`vistoria.js`), e o único rastro delas na capa era um evento dentro do
+"Histórico" colapsado: quem abria o contrato não via se o bem tinha saído
+conferido nem se faltava a vistoria de retorno. O `carregar` passou a devolver
+`vistorias` — os dois momentos SEMPRE, inclusive o que não foi aberto, porque
+"falta a vistoria de retorno" é o que interessa a quem está com o bem na rua —
+com a OS, a data, a situação e quantos itens obrigatórios do checklist seguem
+em aberto. A tela ganhou o resumo no corpo do contrato, com as avarias e o que
+foi cobrado; o detalhe continua na OS e no Histórico.
+
+**3. A aprovação do cliente sumia da OS ao iniciar a execução.** O aviso vivia
+em Ações, preso a `o.status === 'aberta'`: aprovado o orçamento e começada a
+execução, a tela inteira deixava de dizer que houve aprovação, embora o banco
+guardasse data e hora. A situação foi para a capa, junto do Resumo, em qualquer
+status da OS, e agora cobre também o enviado e o recusado, cada um datado pelo
+seu evento (envio ou resposta). O aviso antigo saiu, para a informação não
+aparecer duas vezes.
+
+Nos testes, o que guarda cada um: `test-locacao-f2` conta os dois extremos da
+grade e prova que hora no fim do período não muda o número de dias;
+`test-locacao-f4` lê a capa no instante exato em que o bem saiu e ainda não
+voltou; `test-os-sla-e-rotulos` (G13) EXECUTA a função da capa com a OS em
+andamento, porque asserção de texto passaria mesmo com a condição errada dentro
+dela.
+
 ## 2026-10-05, a conversa que anda sozinha, e o escopo da IA por número
 
 Duas frentes, as duas saídas de uso real.

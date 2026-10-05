@@ -275,6 +275,46 @@ function reabrir(db, contratoId, opts = {}) {
   return db.prepare('SELECT * FROM locacao_contratos WHERE id = ?').get(contratoId);
 }
 
+/**
+ * As duas vistorias do contrato, resumidas para a capa.
+ *
+ * A vistoria é uma OS (vistoria.js), e até aqui o único rastro dela na tela do
+ * contrato era um evento dentro do "Histórico" colapsado — quem abria o
+ * contrato não via se o bem tinha saído e voltado conferido. Devolve sempre os
+ * dois momentos, inclusive o que ainda não foi aberto, porque "falta a vistoria
+ * de retorno" é a informação que interessa a quem está com o bem na rua.
+ */
+function vistoriasDoContrato(db, contrato) {
+  const momentos = [
+    { momento: 'entrega', rotulo: 'Saída', osId: contrato.osEntregaId },
+    { momento: 'devolucao', rotulo: 'Retorno', osId: contrato.osDevolucaoId },
+  ];
+
+  return momentos.map(m => {
+    if (!m.osId) return { ...m, os: null, pendencias: 0 };
+    let os = null;
+    try {
+      os = db.prepare(`
+        SELECT id, numero, status, dataAbertura, dataConclusao
+        FROM os_ordens WHERE id = ?
+      `).get(m.osId);
+    } catch (_) { os = null; }
+    // OS apagada à mão deixa o ponteiro para trás; a capa mostra o momento
+    // como não vistoriado em vez de quebrar.
+    if (!os) return { ...m, os: null, pendencias: 0 };
+
+    let pendencias = 0;
+    try {
+      pendencias = db.prepare(`
+        SELECT COUNT(*) AS n FROM os_checklist
+        WHERE osId = ? AND obrigatorio = 1 AND concluido = 0
+      `).get(m.osId).n;
+    } catch (_) { pendencias = 0; }
+
+    return { ...m, os, pendencias };
+  });
+}
+
 /** Carrega o documento inteiro: itens, acertos, avarias, eventos e reservas. */
 function carregar(db, contratoId) {
   const contrato = db.prepare(`
@@ -335,6 +375,7 @@ function carregar(db, contratoId) {
     caucaoDetalhe,
     acertos: db.prepare('SELECT * FROM locacao_acertos WHERE contratoId = ? ORDER BY id').all(contratoId),
     avarias: db.prepare('SELECT * FROM locacao_avarias WHERE contratoId = ? ORDER BY id').all(contratoId),
+    vistorias: vistoriasDoContrato(db, contrato),
     eventos: db.prepare('SELECT * FROM locacao_eventos WHERE contratoId = ? ORDER BY id DESC').all(contratoId),
     reservas: db.prepare(`
       SELECT * FROM locacao_reservas

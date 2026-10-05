@@ -229,6 +229,25 @@ assert(r.st === 409 && /já saiu/.test(r.out.error || ''),
 secao('Devolução no prazo');
 
 db.prepare('UPDATE locacao_contratos SET osDevolucaoId = NULL WHERE id = ?').run(loc1);
+
+// Resumo das vistorias na capa do contrato. Este é o ponto exato em que o bem
+// saiu conferido e ainda não voltou: a capa tem de dizer as duas coisas, e era
+// o que faltava — o rastro da vistoria vivia só no Histórico colapsado.
+r = chamar('/api/locacao/locacoes/:id', 'get', { params: { id: loc1 } });
+eq((r.out.vistorias || []).length, 2, 'a capa traz os dois momentos de vistoria');
+const vSaida = r.out.vistorias.find(v => v.momento === 'entrega');
+const vRetorno = r.out.vistorias.find(v => v.momento === 'devolucao');
+eq(vSaida.os && vSaida.os.id, osEntregaId, 'a vistoria de saída aponta para a OS de entrega');
+eq(vSaida.pendencias, 0, 'saída sem item obrigatório em aberto');
+eq(vRetorno.os, null, 'o retorno ainda não vistoriado aparece como não realizado');
+
+// E a tela tem de desenhar isso no corpo do contrato: o dado existir na rota
+// sem sair do "Histórico" colapsado era exatamente o defeito.
+const telaLocacoes = require('fs').readFileSync(BASE + '/public/locacao/locacoes.html', 'utf8');
+assert(/d\.vistorias/.test(telaLocacoes), 'a tela do contrato não lê as vistorias');
+assert(telaLocacoes.indexOf('blocoVistorias}') < telaLocacoes.indexOf('<summary class="muted">Histórico'),
+  'o resumo das vistorias precisa vir ANTES do Histórico colapsado, no corpo do contrato');
+
 r = chamar('/api/locacao/locacoes/:id/devolver', 'post', {
   params: { id: loc1 }, body: { abrirVistoria: true },
 });
@@ -253,6 +272,10 @@ eq(r.out.contrato.valorTotal, 2500, 'total continua o da locação (semana)');
 
 d = D.disponibilidade(db, prodMaquina, '2026-09-12 08:00', '2026-09-13 08:00');
 eq(d.disponivel, 2, 'devolver libera a agenda do período');
+
+r = chamar('/api/locacao/locacoes/:id', 'get', { params: { id: loc1 } });
+eq(r.out.vistorias.find(v => v.momento === 'devolucao').os.id, osDevId,
+  'depois da devolução, a capa aponta para a OS de retorno');
 
 r = chamar('/api/locacao/locacoes/:id/devolver', 'post', { params: { id: loc1 } });
 assert(r.st === 409, 'devolver duas vezes é recusado');
