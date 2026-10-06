@@ -2544,6 +2544,37 @@ table td, table th,
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;   /* rolar a tabela não arrasta a página */
 }
+
+/* ==========================================================================
+   TABELA DE MUITAS COLUNAS, EM 1440px
+   --------------------------------------------------------------------------
+   Com doze colunas, o espaçamento das células é o que estoura a largura, e não
+   o conteúdo: 14px de cada lado vezes doze são 336px, mais do que qualquer
+   coluna da tabela. Medido no Contas a Receber em 1440px (barra lateral
+   aberta, 1128px de quadro): a tabela pedia 1253px, e as duas últimas colunas,
+   com o botão Abrir, ficavam fora do print e fora da tela — sem barra de
+   rolagem visível para avisar.
+
+   Entra POR TELA, e não na regra global de `thead th`/`tbody td`: aquela vale
+   para as 175 telas com tabela, e aqui o pedido eram duas. Quem tiver o mesmo
+   aperto acrescenta a classe no `<table>` e mede.
+
+   Nada é escondido nem truncado: o que muda é o espaçamento, e a largura que
+   sobra volta para o conteúdo.
+   ========================================================================== */
+table.tabela-compacta thead th,
+table.tabela-compacta tbody td,
+table.tabela-compacta tfoot td { padding-left: 8px; padding-right: 8px; }
+
+/* Rótulo que é uma frase ("Aviso de suspensão do atendimento") dentro de um
+   `.badge`, que é `nowrap` por natureza: ele empurrava a coluna da régua a
+   261px e jogava a coluna dos botões para fora da tela. Com teto e quebra, a
+   frase aparece inteira em duas linhas. */
+table.tabela-compacta td .badge.badge-frase {
+  white-space: normal;
+  max-width: 190px;
+  text-align: left;
+}
 @media (max-width: 640px) {
   /* Dentro do quadro a tabela pode ter sua largura mínima sem afetar a página. */
   .tabela-rolagem > table { min-width: max-content; }

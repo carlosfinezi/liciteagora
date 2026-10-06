@@ -108,6 +108,15 @@ function pedidoMovimentaEstoque(db, pedidoId) {
  *
  * Quem pergunta por saldo (reserva ou falta de compra) precisa da MESMA explosão:
  * sem ela todo kit apareceria em falta pela quantidade inteira.
+ *
+ * SERVIÇO FICA DE FORA, e é aqui que ele sai de todos os caminhos de uma vez.
+ * Hora técnica não tem saldo para reservar, não falta, não se compra e não se
+ * baixa — e era por passar por aqui que um orçamento com "Hora técnica avulsa"
+ * pedia para comprar 7 unidades. Os três usos desta função (criar reserva,
+ * calcular falta, completar reserva por lote) e o das necessidades
+ * consolidadas são todos de estoque, então o corte vale para os quatro. Some
+ * junto a coluna "Disponível" do item: a tela escreve "—" para produto que não
+ * veio na resposta.
  */
 function explodirItensPedido(db, pedidoId) {
   const itensPedido = db.prepare('SELECT * FROM pedido_itens WHERE pedidoId = ?').all(pedidoId);
@@ -122,7 +131,10 @@ function explodirItensPedido(db, pedidoId) {
   const itens = [];
   for (const it of itensPedido) {
     if (!it.produtoId) { itens.push(it); continue; }
-    const prod = db.prepare('SELECT id, tipoProduto FROM produtos WHERE id = ?').get(it.produtoId);
+    // `SELECT *` de propósito, como o resto do arquivo: em banco anterior à
+    // coluna, `ehServico` vem undefined e o fluxo é o de sempre.
+    const prod = db.prepare('SELECT * FROM produtos WHERE id = ?').get(it.produtoId);
+    if (prod && prod.ehServico) continue;
     if (prod && prod.tipoProduto === 'kit') {
       const componentes = db.prepare('SELECT produtoFilhoId, quantidade FROM produto_kit_itens WHERE produtoPaiId = ?').all(prod.id);
       for (const c of componentes) {

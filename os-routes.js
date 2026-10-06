@@ -46,6 +46,28 @@ const osPdf = require('./os-pdf');
 // rascunho → orcamento → (aprovado) → em-andamento → (concluida → faturada) | cancelada
 const STATUS = ['rascunho', 'orcamento', 'aberta', 'em-andamento', 'aguardando-peca', 'concluida', 'faturada', 'cancelada'];
 
+// Como o módulo se chama na tela. "Ordens de Serviço — Assistência, manutenção
+// e instalação" é o nome da oficina; a empresa de TI que usa o mesmo módulo
+// atende CHAMADOS, e a de limpeza atende VISITAS. O default é o texto de
+// sempre, então tenant que não configura nada não vê diferença.
+const ROTULOS_OS_PADRAO = {
+  titulo: 'Ordens de Serviço',
+  subtitulo: 'Assistência, manutenção e instalação',
+};
+
+function rotulosDaOS(db) {
+  const lido = { ...ROTULOS_OS_PADRAO };
+  for (const campo of ['titulo', 'subtitulo']) {
+    try {
+      const row = db.prepare('SELECT valor FROM config WHERE chave = ?').get('os_rotulo_' + campo);
+      // Texto em branco é "não configurado", e não um título vazio: a tela
+      // ficaria sem cabeçalho nenhum, que não é o que ninguém quis dizer.
+      if (row && String(row.valor || '').trim()) lido[campo] = String(row.valor).trim();
+    } catch (_) { /* banco sem `config`: fica o padrão */ }
+  }
+  return lido;
+}
+
 const UPLOAD_DIR_OS = path.join(__dirname, 'public', 'uploads', 'os');
 try { fs.mkdirSync(UPLOAD_DIR_OS, { recursive: true }); } catch (_) { /* */ }
 
@@ -1463,6 +1485,7 @@ function registrarRotasOS(app, db) {
       }
       res.json({
         success: true, ordens, kpis: { ...kpis, ...slaKpis }, status: STATUS,
+        rotulos: rotulosDaOS(db),
         total, pagina, porPagina, paginas: Math.max(1, Math.ceil(total / porPagina)),
       });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }

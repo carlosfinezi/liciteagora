@@ -307,6 +307,12 @@ function soDigitosTel(v){
   if (d.length > 11 && d.startsWith('55')) d = d.slice(2);
   return d.slice(0,11);
 }
+// Data de só um dia ('2026-10-23') vai fatiada, nunca por `new Date`: a forma
+// curta é lida como UTC e em -03 o cartão mostraria o dia anterior.
+function fmtDataBR(v){
+  const m = String(v||'').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : String(v||'');
+}
 function fmtTel(v){
   const d = soDigitosTel(v);
   if (d.length === 11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
@@ -473,7 +479,7 @@ function cardHtml(o){
     ${Number(o.valor)>0 ? `<div class="valor">${fmtBRL(o.valor)}</div>` : ''}
     <div class="meta">
       ${o.vendedorNome ? `<span>${o.vendedorNome}</span>` : ''}
-      ${o.dataPrevisaoFechamento ? `<span>📅 ${o.dataPrevisaoFechamento}</span>` : ''}
+      ${o.dataPrevisaoFechamento ? `<span>📅 ${fmtDataBR(o.dataPrevisaoFechamento)}</span>` : ''}
       <span style="margin-left:auto;">${o.probabilidade}%</span>
     </div>
   </div>`;

@@ -175,7 +175,7 @@ function registrarRotasProdutos(app, db) {
     'estoqueMinimo','pontoReposicao','estoqueMaximo','leadTimeDias','localizacao',
     'rastreiaLote','rastreiaSerial',
     'pesoBruto','pesoLiquido','altura','largura','profundidade',
-    'validadeDias','escalaRelevante',
+    'validadeDias','escalaRelevante','ehServico',
     'ncm','cest','cfopPadrao','origem','icmsAliquota','codigoFCI',
     'csosn','cstPIS','cstCOFINS','tipoOrigemProduto',
     'cstIBS','cstCBS','cClassTrib',
@@ -262,6 +262,7 @@ function registrarRotasProdutos(app, db) {
         if (c === 'estoqueMinimo') return b.estoqueMinimo || 0;
         if (c === 'precoCusto' || c === 'precoVenda') return b[c] || 0;
         if (c === 'escalaRelevante') return b.escalaRelevante ? 1 : 0;
+        if (c === 'ehServico') return b.ehServico ? 1 : 0;
         if (c === 'licitacaoItemId') return b.licitacaoItemId || null;
         const v = b[c];
         return v === undefined || v === '' ? null : v;
@@ -296,6 +297,7 @@ function registrarRotasProdutos(app, db) {
         if (b[c] === undefined) continue;
         sets.push(`${c} = ?`);
         if (c === 'escalaRelevante') vals.push(b.escalaRelevante ? 1 : 0);
+        else if (c === 'ehServico') vals.push(b.ehServico ? 1 : 0);
         else vals.push(b[c] === '' ? null : b[c]);
       }
       if (sets.length) {

@@ -54,7 +54,11 @@
                 </div>
 
                 <div class="table-container">
-                    <table>
+                    <!-- `tabela-compacta`: a coluna da régua carrega uma frase
+                         ("Aviso de suspensão do atendimento"), e com o
+                         espaçamento padrão ela empurrava os botões de E-mail,
+                         WhatsApp e Histórico para fora da janela de 1440px. -->
+                    <table class="tabela-compacta">
                         <thead>
                             <tr>
                                 <th style="width:30px;"><input type="checkbox" id="selTodos" onchange="selecionarTodos(this)"></th>
@@ -193,7 +197,7 @@
                         <td class="cel-valor">${formatarValor(c.valor)}</td>
                         <td>${formatarData(c.dataVencimento)}</td>
                         <td><strong style="color:${c.diasAtraso >= 15 ? 'var(--danger)' : c.diasAtraso >= 7 ? 'var(--warn)' : 'var(--accent)'};">${c.diasAtraso}d</strong></td>
-                        <td><span class="badge badge-os ${etapaClass}" title="${c.ultimaEtapa ? 'Etapa ' + c.ultimaEtapa + ' da régua' : 'A régua ainda não disparou para este título'}">${escHtml(etapaLabel)}</span></td>
+                        <td><span class="badge badge-os badge-frase ${etapaClass}" title="${c.ultimaEtapa ? 'Etapa ' + c.ultimaEtapa + ' da régua' : 'A régua ainda não disparou para este título'}">${escHtml(etapaLabel)}</span></td>
                         <td class="cel-acoes">
                             <button class="btn btn-ghost btn-sm" onclick="cobrarUm(${c.id}, 'email')"
                                 title="Manda agora a cobrança desta fatura por e-mail">✉️ E-mail</button>

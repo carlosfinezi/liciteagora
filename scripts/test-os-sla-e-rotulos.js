@@ -570,6 +570,99 @@ t('H8 o pedido remede a altura da descrição depois de preencher a coluna Dispo
     'aplicarFalta não remede a altura: a descrição volta a sair cortada quando falta saldo');
 });
 
+// ========================= I. correções de 06/10/2026
+console.log('\nI. data do funil, rótulo do módulo, cartão fiscal e as duas tabelas que não cabiam');
+
+t('I1 o cartão do funil mostra a previsão em dd/mm/aaaa', () => {
+  const h = ler('public/comercial/crm-funil.html');
+  assert(/function fmtDataBR/.test(h), 'falta o formatador de data no funil');
+  assert(/📅 \$\{fmtDataBR\(o\.dataPrevisaoFechamento\)\}/.test(h),
+    'o cartão voltou a imprimir a data crua do banco (sai 2026-10-23)');
+  assert(!/📅 \$\{o\.dataPrevisaoFechamento\}/.test(h), 'ainda há a data em ISO no cartão');
+});
+
+t('I2 o formatador não passa por `new Date` (a forma curta é lida como UTC)', () => {
+  const h = ler('public/comercial/crm-funil.html');
+  const i = h.indexOf('function fmtDataBR');
+  const corpo = h.slice(i, h.indexOf('function fmtTel', i));
+  assert(!/new Date/.test(corpo),
+    'com `new Date("2026-10-23")` o cartão mostra 22/10 em -03');
+  // E o input type=date continua recebendo ISO: formatar ali quebraria o campo.
+  assert(/opPrev'\)\.value = o\.dataPrevisaoFechamento/.test(h),
+    'o campo de data do formulário precisa continuar em ISO');
+});
+
+t('I3 o servidor devolve o rótulo do módulo, com o texto de hoje como padrão', () => {
+  const { out } = chamar(hLista, { query: { limit: 1 } });
+  assert(out.rotulos, 'GET /api/os não devolve `rotulos`');
+  assert(out.rotulos.titulo === 'Ordens de Serviço', 'título padrão mudou: ' + out.rotulos.titulo);
+  assert(out.rotulos.subtitulo === 'Assistência, manutenção e instalação',
+    'subtítulo padrão mudou: ' + out.rotulos.subtitulo);
+});
+
+t('I4 o tenant troca o rótulo, e espaço em branco não apaga o cabeçalho', () => {
+  const grava = (c, v) => db.prepare('INSERT OR REPLACE INTO config (chave, valor) VALUES (?, ?)').run(c, v);
+  grava('os_rotulo_titulo', 'Chamados');
+  grava('os_rotulo_subtitulo', 'suporte e atendimento');
+  let out = chamar(hLista, { query: { limit: 1 } }).out;
+  assert(out.rotulos.titulo === 'Chamados', 'o título configurado não chegou: ' + out.rotulos.titulo);
+  assert(out.rotulos.subtitulo === 'suporte e atendimento', 'o subtítulo configurado não chegou');
+  grava('os_rotulo_titulo', '   ');
+  out = chamar(hLista, { query: { limit: 1 } }).out;
+  assert(out.rotulos.titulo === 'Ordens de Serviço',
+    'título em branco deixou a tela sem cabeçalho: ' + JSON.stringify(out.rotulos.titulo));
+  db.prepare("DELETE FROM config WHERE chave LIKE 'os_rotulo_%'").run();
+});
+
+t('I5 a tela aplica o rótulo que o servidor manda', () => {
+  const h = ler('public/os/ordens-servico.html');
+  assert(/id="pgTitulo"/.test(h) && /id="pgSubtitulo"/.test(h), 'o cabeçalho não tem id para trocar');
+  assert(/aplicarRotulos\(d\.rotulos\)/.test(h), 'a tela não aplica os rótulos da resposta');
+  // Servidor antigo (sem `rotulos`) não pode apagar o cabeçalho escrito no HTML.
+  const i = h.indexOf('function aplicarRotulos');
+  const corpo = h.slice(i, h.indexOf('async function carregar', i));
+  assert(/if \(!rotulos\) return;/.test(corpo), 'sem `rotulos` a tela ficaria sem título');
+});
+
+t('I6 "Faturadas sem nota" só aparece para quem já emitiu alguma nota', () => {
+  const h = ler('public/os/ordens-servico.html');
+  assert(/\(d\.kpis\.emiteNota && d\.kpis\.faturadasSemNota\)\s*\?/.test(h),
+    'o cartão voltou a aparecer para tenant que nunca emitiu nota');
+  // O par: o de rejeitadas já era condicionado, e os dois seguem a mesma regra.
+  assert(/d\.kpis\.emiteNota \? `<div class="kpi danger"/.test(h),
+    'o cartão de rejeitadas perdeu a condição');
+});
+
+// Medido em 1440px com a barra lateral aberta (1128px de quadro), no retrato de
+// tecnologia: Contas a Receber pedia 1253px e a coluna do botão Abrir ficava
+// fora da tela; Cobranças pedia 1114px num quadro de 1086 e os três botões de
+// ação saíam. Depois da classe: 1109px de mínimo no CR e 878px em Cobranças.
+// O que estourava era o espaçamento das células, não o conteúdo.
+t('I7 as duas tabelas que não cabiam usam a classe compacta', () => {
+  const css = ler('public/css/app-modern.css');
+  assert(/table\.tabela-compacta thead th[\s\S]{0,200}padding-left:\s*8px/.test(css),
+    'a classe `tabela-compacta` não está definida no CSS');
+  for (const [tela, marca] of [
+    ['public/financeiro/contas-a-receber.html', 'doze colunas'],
+    ['public/cobranca/cobrancas.html', 'régua'],
+  ]) {
+    const h = ler(tela);
+    assert(/<table class="tabela-compacta">/.test(h), `${tela}: a tabela perdeu a classe compacta`);
+    assert(h.includes(marca), `${tela}: o porquê da classe saiu do comentário`);
+  }
+});
+
+t('I8 o rótulo da régua é frase e pode quebrar, senão empurra os botões para fora', () => {
+  const css = ler('public/css/app-modern.css');
+  assert(/\.badge\.badge-frase[\s\S]{0,160}white-space:\s*normal/.test(css),
+    'sem `badge-frase` a etapa "Aviso de suspensão do atendimento" volta a medir 261px');
+  const h = ler('public/cobranca/cobrancas.html');
+  assert(/badge badge-os badge-frase/.test(h), 'a coluna da régua não usa badge-frase');
+  // A regra do CSS global de `.badge` continua nowrap: só esta variante quebra.
+  assert(/\.badge \{[\s\S]{0,320}white-space: nowrap/.test(css),
+    'o badge comum deixou de ser nowrap — isto afeta as outras 175 telas');
+});
+
 // ---------------------------------------------------------------- fim
 db.close();
 try { fs.unlinkSync(DB); } catch {}

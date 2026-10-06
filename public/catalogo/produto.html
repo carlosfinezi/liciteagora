@@ -194,6 +194,12 @@
     <div class="sec-body">
       <div class="form-row">
         <div class="form-group">
+          <label class="chk-label"><input type="checkbox" id="ehServico" onchange="alternarServico()"> É um serviço e não controla estoque</label>
+          <small class="muted">Hora técnica, criação de site, gestão de redes. O item não reserva saldo, não aparece como faltante e não entra em compra.</small>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
           <label for="unidade">Unidade</label>
           <div style="display:flex;gap:6px;">
             <input type="text" id="unidade" value="UN" list="unidadesList" autocomplete="off" style="flex:1;">
@@ -625,6 +631,22 @@ function recalcMinFromMarkup(){
 }
 function recalcFromCusto(){ recalcMinFromMarkup(); recalcVendaFromMarkup(); }
 
+// Marcado como serviço, os campos de estoque saem do caminho: preenchê-los
+// não teria efeito nenhum, e deixá-los editáveis convidava a configurar ponto
+// de reposição para hora técnica.
+function alternarServico(){
+  const servico = document.getElementById('ehServico').checked;
+  ['estoqueMinimo','pontoReposicao','estoqueMaximo','leadTimeDias','localizacao',
+   'rastreiaLote','rastreiaSerial','validadeDias'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.disabled = servico;
+    if (servico && el.type === 'checkbox') el.checked = false;
+    const grupo = el.closest('.form-group');
+    if (grupo) grupo.style.opacity = servico ? '0.45' : '';
+  });
+}
+
 function recalcVolume(){
   const a = num('altura'), l = num('largura'), p = num('profundidade');
   const out = document.getElementById('volumeCalc');
@@ -703,6 +725,8 @@ async function carregarProduto(){
     });
     recalcVolume();
     document.getElementById('escalaRelevante').checked = !!p.escalaRelevante;
+    document.getElementById('ehServico').checked = !!p.ehServico;
+    alternarServico();
     document.getElementById('rastreiaLote').checked = !!p.rastreiaLote;
     document.getElementById('rastreiaSerial').checked = !!p.rastreiaSerial;
     document.getElementById('sku').setAttribute('readonly', true);
@@ -760,6 +784,7 @@ async function salvar(){
     largura: num('largura'),
     profundidade: num('profundidade'),
     escalaRelevante: document.getElementById('escalaRelevante').checked,
+    ehServico: document.getElementById('ehServico').checked ? 1 : 0,
     precoCusto: num('precoCusto') || 0,
     markupMinimo: num('markupMinimo'),
     precoMinimoVenda: num('precoMinimoVenda'),

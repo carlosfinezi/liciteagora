@@ -871,6 +871,14 @@ const suites = [
   // aceitando card de funil fechado, a busca por nome exigindo o sufixo, a
   // contagem por nicho contando o segmento), reprovou nas quatro.
   ['177. nicho do funil ao lado do segmento (test-nicho-funil)', 'test-nicho-funil.js'],
+  // Produto que e servico (06/10): hora tecnica, criacao de site, gestao de
+  // redes. Um orcamento com "Hora tecnica avulsa" avisava "Sem saldo" e pedia
+  // para comprar 7 unidades dela. A causa era `explodirItensPedido`, por onde
+  // passam os QUATRO caminhos de estoque do pedido (reserva, falta, reserva por
+  // lote e necessidade consolidada), e o conserto e um filtro ali. O teste que
+  // vale e o par: o servico sai e o produto fisico sem saldo CONTINUA faltando
+  // — desmarcado o servico (B6), a cobranca de compra volta.
+  ['183. produto que e servico nao tem estoque (test-produto-servico)', 'test-produto-servico.js'],
 ];
 // ==================== modo rápido: quais suítes ====================
 /**

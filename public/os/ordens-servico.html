@@ -56,8 +56,8 @@
 <div class="layout"><main class="main-content">
   <div class="page-header">
     <div>
-      <h1>Ordens de Serviço</h1>
-      <small>Assistência, manutenção e instalação</small>
+      <h1 id="pgTitulo">Ordens de Serviço</h1>
+      <small id="pgSubtitulo">Assistência, manutenção e instalação</small>
     </div>
     <div class="actions">
       <a class="btn btn-primary" href="/os/nova-os.html">+ Nova OS</a>
@@ -181,6 +181,17 @@ function limparFiltros(){
   carregar();
 }
 
+// O nome do módulo vem do tenant: a oficina abre Ordens de Serviço, a empresa
+// de TI atende Chamados. Sem `rotulos` na resposta (servidor antigo), o texto
+// escrito no HTML continua valendo.
+function aplicarRotulos(rotulos){
+  if (!rotulos) return;
+  const h1 = document.getElementById('pgTitulo');
+  const sub = document.getElementById('pgSubtitulo');
+  if (h1 && rotulos.titulo) h1.textContent = rotulos.titulo;
+  if (sub && rotulos.subtitulo) sub.textContent = rotulos.subtitulo;
+}
+
 async function carregar(manterPagina){
   if (!manterPagina) paginaAtual = 1;
   const p = montarFiltros();
@@ -188,6 +199,7 @@ async function carregar(manterPagina){
   const r = await fetch('/api/os?'+p);
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
+  aplicarRotulos(d.rotulos);
   document.getElementById('kpis').innerHTML = `
     <div class="kpi"><div class="label">Total</div><div class="value">${d.kpis.total||0}</div></div>
     <div class="kpi warn"><div class="label">Abertas</div><div class="value">${d.kpis.abertas||0}</div></div>
@@ -196,7 +208,7 @@ async function carregar(manterPagina){
     <div class="kpi warn"><div class="label">Em risco (SLA)</div><div class="value">${d.kpis.risco||0}</div></div>
     <div class="kpi success"><div class="label">No prazo</div><div class="value">${d.kpis.noPrazo||0}</div></div>
     <div class="kpi success"><div class="label">Receita</div><div class="value">${fmtBRL(d.kpis.receita)}</div></div>
-    ${d.kpis.faturadasSemNota ? `<div class="kpi warn"><div class="label">Faturadas sem nota</div><div class="value">${d.kpis.faturadasSemNota}</div></div>` : ''}
+    ${(d.kpis.emiteNota && d.kpis.faturadasSemNota) ? `<div class="kpi warn"><div class="label">Faturadas sem nota</div><div class="value">${d.kpis.faturadasSemNota}</div></div>` : ''}
     ${d.kpis.emiteNota ? `<div class="kpi danger"><div class="label">Notas rejeitadas</div><div class="value">${d.kpis.rejeitadas||0}</div></div>` : ''}
   `;
   ordensCache = d.ordens;

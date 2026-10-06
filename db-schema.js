@@ -1395,6 +1395,13 @@ for (const col of [
   'fornecedorId INTEGER', 'markupMinimo REAL', 'precoMinimoVenda REAL', 'markupVenda REAL',
   'imagemPath TEXT', 'codigoFCI TEXT', 'validadeDias INTEGER', 'escalaRelevante INTEGER DEFAULT 0',
   'tipoProduto TEXT', 'pesoBruto REAL', 'pesoLiquido REAL',
+  /* Serviço (hora técnica, criação de site, gestão de redes): vende-se, mas
+   * não há o que ter em estoque. Coluna PRÓPRIA, e não um valor novo em
+   * `tipoProduto`, porque essa coluna já carrega dois vocabulários — 'kit',
+   * posto pela loja, e os códigos SEFAZ 00..07/99, que o produtos-import.js
+   * valida. "servico" ali seria recusado como inválido numa reimportação, e a
+   * marcação se perderia calada. */
+  'ehServico INTEGER DEFAULT 0',
   'codigoCatmat TEXT', 'codigoCatser TEXT', 'codigoPDM TEXT',
   'cstIBS TEXT', 'cstCBS TEXT', 'cClassTrib TEXT',
   'altura REAL', 'largura REAL', 'profundidade REAL',

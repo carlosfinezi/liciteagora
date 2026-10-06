@@ -4,6 +4,69 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-06, cinco correções de tela: data, serviço, rótulo do módulo e duas tabelas
+
+**A previsão de fechamento no cartão do funil sai em dd/mm/aaaa.** O cartão
+imprimia `2026-10-23`, cru do banco, no meio de uma tela que escreve data
+brasileira em todo o resto. O `fmtDataBR` fatia a string e não passa por
+`new Date`: a forma curta é lida como UTC e em -03 o cartão mostraria o dia
+anterior. O `input type=date` do formulário continua recebendo ISO, que é o que
+ele exige.
+
+**Produto pode ser um serviço, e serviço não tem estoque.** Hora técnica,
+criação de site e gestão de redes vendem-se sem haver o que guardar. Um
+orçamento com "Hora técnica avulsa" avisava *Sem saldo para 1 item*, oferecia
+*Comprar faltantes* e pedia a compra de 7 unidades de hora.
+
+A marcação é a coluna `produtos.ehServico`, e o conserto é um filtro em
+`explodirItensPedido` — o ponto único por onde passam os QUATRO caminhos de
+estoque de um pedido: criar reserva, calcular a falta, completar reserva por
+lote e as necessidades consolidadas de compra. Um filtro em cada chamador seria
+quatro guardas para o mesmo defeito, e a quinta entrada ficaria de fora. A
+coluna "Disponível" do item some junto, sem nenhuma mudança na tela: ela já
+escreve "—" para produto que não veio na resposta.
+
+**Coluna nova, e não um valor novo em `tipoProduto`.** Aquela coluna já carrega
+dois vocabulários — `'kit'`, posto pela loja, e os códigos SEFAZ `00..07/99`,
+que o `produtos-import.js` valida. `'servico'` ali seria recusado como inválido
+numa reimportação, e a marcação se perderia calada.
+
+**O módulo de OS se chama como o tenant quiser.** "Ordens de Serviço —
+Assistência, manutenção e instalação" é o nome da oficina; a empresa de TI que
+usa o mesmo módulo atende CHAMADOS. Agora o título e o subtítulo saem de
+`config` (`os_rotulo_titulo`, `os_rotulo_subtitulo`), vêm no `GET /api/os` que a
+tela já chamava, e o texto de hoje é o padrão: tenant que não configura nada não
+vê diferença. Texto em branco também cai no padrão, senão a tela ficaria sem
+cabeçalho. A edição é pelo `config` do tenant; não há tela para isso ainda.
+
+**"Faturadas sem nota" só aparece para quem emite nota.** O sinal `emiteNota`
+já existia no servidor e já condicionava o cartão de rejeitadas — faltava o
+outro cartão usá-lo. Para o tenant que nunca emitiu, "Faturadas sem nota" era
+uma pergunta que ninguém fez.
+
+**As tabelas de Contas a Receber e de Cobranças cabem em 1440px.** Medido no
+retrato de tecnologia, com a barra lateral aberta (1128px de quadro): o Contas a
+Receber pedia 1253px e a coluna do botão *Abrir* ficava fora da tela, sem barra
+de rolagem visível para avisar; Cobranças pedia 1114px num quadro de 1086 e os
+botões de E-mail, WhatsApp e Histórico saíam quando o nome da etapa da régua era
+uma frase.
+
+O que estourava era o espaçamento das células, e não o conteúdo: 14px de cada
+lado vezes doze colunas são 336px, mais do que qualquer coluna da tabela. A
+classe `tabela-compacta` reduz esse espaçamento e entra POR TELA — a regra
+global de `thead th`/`tbody td` vale para as 175 telas com tabela, e aqui o
+pedido eram duas. Em Cobranças, o rótulo da régua ganhou `badge-frase`, porque
+`.badge` é `nowrap` por natureza e "Aviso de suspensão do atendimento" empurrava
+aquela coluna a 261px. Depois: 1109px de largura mínima no Contas a Receber
+contra 1128 de quadro, e 878px em Cobranças. Nada é escondido nem truncado.
+
+**Testes.** Bloco I em `test-os-sla-e-rotulos.js` (data do funil, rótulo do
+módulo, cartão fiscal e as duas tabelas) e a suíte 183,
+`test-produto-servico.js`, que é funcional: o serviço sai dos quatro caminhos e
+o produto físico sem saldo CONTINUA faltando. O B6 desmarca o serviço e confere
+que a cobrança de compra volta — sem ele, um filtro largo demais passaria
+escondendo o estoque inteiro.
+
 ## 2026-10-05, o que a locação e a OS escondiam da tela
 
 Três defeitos achados pela rodada de prints do vídeo de locadora e oficina de

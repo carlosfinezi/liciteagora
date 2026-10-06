@@ -84,7 +84,10 @@
     </div>
 
     <div class="panel" style="padding: 0;">
-      <table>
+      <!-- `tabela-compacta`: são doze colunas, e o espaçamento padrão sozinho
+           somava 336px. Sem ela a tabela pede 1253px num quadro de 1128 em
+           1440px de janela, e a coluna do botão Abrir fica fora da tela. -->
+      <table class="tabela-compacta">
         <thead><tr>
           <th style="width:28px;"><input type="checkbox" id="chkAll" onchange="toggleAll(this)"></th>
           <th>Vencimento</th>
