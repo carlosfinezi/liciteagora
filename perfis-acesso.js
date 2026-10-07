@@ -110,7 +110,10 @@ function acessoDoUsuario(db, user) {
 // Caminhos que não pertencem a módulo nenhum e precisam abrir para qualquer um:
 // o shell (/app.html, /index.html), a tela de login, o portal do cliente e a
 // loja pública.
-const DIRS_ABERTOS = new Set(['auth', 'portal', 'landing', 'loja']);
+// 'suporte' entrou em 07/10/2026: a Central é alcançada pelo botão da TOPBAR,
+// presente em toda tela, e pedir ajuda não depende de perfil — o isolamento
+// real (empresa, dono do chamado) é feito pelas rotas, não por este gate.
+const DIRS_ABERTOS = new Set(['auth', 'portal', 'landing', 'loja', 'suporte']);
 
 /**
  * Páginas que nasceram do desmembramento de outra, e herdam a permissão dela.

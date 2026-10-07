@@ -4,6 +4,46 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-07, a Central de Suporte sai do menu e vira botão da topbar
+
+Pedir ajuda era uma seção do menu lateral, com duas páginas. Agora é um botão
+`Suporte` na topbar, presente em toda tela, que abre um modal com os caminhos
+de atendimento. As duas telas continuam existindo e é para elas que o modal
+leva. A peça nova é `public/js/ajuda-suporte.js`, carregada sob demanda no
+primeiro clique; se ela não carregar, o botão vai direto para os chamados.
+
+**A mudança de lugar quebrou o RBAC da Central, e é isso que este bloco
+conserta.** O `perfis-api-map.js` é fail-closed e casa prefixo de API com
+página do menu, e o `/api/suporte` estava mapeado para `suporte-chamados` e
+`suporte-novo`. Tirando as duas do `menu-config.js`, elas deixaram de existir
+como permissão: `lerPaginas` descarta página fora do catálogo do menu, então
+nenhum perfil poderia tê-las, nem se o administrador quisesse. O resultado
+seria 403 na Central para todo usuário com perfil cadastrado, sem ninguém ter
+tirado acesso de ninguém.
+
+- `/api/suporte` saiu do `MAPA` e entrou em `LIBERADOS`, ao lado de
+  `/api/user`: a porta de entrada está na topbar, e pedir ajuda não depende de
+  perfil.
+- `suporte` entrou em `DIRS_ABERTOS` (`perfis-acesso.js`), pelo mesmo motivo e
+  para as páginas.
+
+**`LIBERADOS` dispensa o gate de perfil e nada mais.** Ele é consultado dentro
+de `podeChamarApi`, que só roda depois do `requireAuth`, e o isolamento da
+Central continua inteiro nas rotas: o tenant vem do host, o chamado de outra
+empresa responde 404 igual ao de id inexistente, o usuário comum vê somente os
+próprios e só o administrador real vê os da empresa. Sem sessão, os cinco
+caminhos respondem 401 e nada é gravado. Com `X-Api-Key` válida, que atravessa
+a barreira de autenticação, as rotas recusam igual: suporte é de gente, e o
+`exigirContexto` exige usuário.
+
+A prova está em `test-suporte-modal` (20 casos) e `test-suporte-rotas` (41),
+mais uma bancada que empilha `requireAuth`, o gate de perfil e as rotas na
+ordem da produção. Rodando o mesmo cenário com o mapa anterior, as cinco
+recusas sem sessão saem idênticas e só o usuário de perfil restrito muda de
+resposta, de 403 para 200: é a medida exata do que foi liberado. Arrancando
+cada guarda uma por vez — a fronteira de empresa, o filtro da lista, o recorte
+de dono e o tenant pelo host — reprovam de uma a duas checagens cada.
+
 ## 2026-10-06, cinco correções de tela: data, serviço, rótulo do módulo e duas tabelas
 
 **A previsão de fechamento no cartão do funil sai em dd/mm/aaaa.** O cartão

@@ -184,6 +184,36 @@ function iconeTema(base) { return base === 'claro' ? '🌙' : '☀️'; }
  * caminho: o tema é acessório e o menu é essencial. Se o botão não puder ser
  * criado, o shell continua; o pior que acontece é a pessoa ficar sem o atalho.
  */
+/**
+ * Abre o modal de Ajuda e Suporte.
+ *
+ * A peça é carregada no PRIMEIRO clique, e não no boot: ela só interessa a
+ * quem pede ajuda, e todas as ~200 telas do ERP carregam este arquivo. Pagar
+ * o download em todas elas para servir a poucas seria desperdício.
+ *
+ * Carregado uma vez, `window.AjudaSuporte` fica disponível e os cliques
+ * seguintes abrem direto.
+ */
+function abrirAjudaESuporte() {
+    if (window.AjudaSuporte && typeof window.AjudaSuporte.abrir === 'function') {
+        window.AjudaSuporte.abrir();
+        return;
+    }
+    const s = document.createElement('script');
+    s.src = '/js/ajuda-suporte.js';
+    s.onload = () => {
+        if (window.AjudaSuporte) window.AjudaSuporte.abrir();
+    };
+    s.onerror = () => {
+        // Sem a peça, o botão ainda leva a algum lugar útil em vez de não
+        // fazer nada: a lista de chamados é a tela mais próxima do que a
+        // pessoa queria.
+        console.warn('[suporte] a peça não carregou; indo para os chamados');
+        window.location.href = '/suporte/chamados.html';
+    };
+    document.head.appendChild(s);
+}
+
 function montarTopbar() {
     try {
         if (typeof document === 'undefined' || IN_SHELL) return;
@@ -197,6 +227,16 @@ function montarTopbar() {
         bar.innerHTML =
             '<div class="tb-esq" id="tbEmpresa"></div>' +
             '<div class="tb-dir">' +
+              // Suporte vem ANTES do tema e da conta: é ação de produto, e as
+              // outras duas são de ambiente. Fica visível em toda tela porque
+              // a dúvida aparece na tela em que a pessoa está, não numa página
+              // de suporte que ela precisa ir procurar no menu.
+              '<button type="button" id="btnSuporte" class="tb-btn tb-suporte" ' +
+                      'title="Ajuda e Suporte" aria-label="Abrir ajuda e suporte" ' +
+                      'aria-haspopup="dialog" aria-expanded="false">' +
+                '<span class="tb-suporte-ic" aria-hidden="true">\uD83C\uDFA7</span>' +
+                '<span class="tb-suporte-tx">Suporte</span>' +
+              '</button>' +
               '<button type="button" id="btnTema" class="tb-btn" title="Alternar tema" aria-label="Alternar tema"></button>' +
               '<div class="tb-conta">' +
                 // O aria-label nasce genérico e vira "Conta de <nome>" quando
@@ -217,6 +257,7 @@ function montarTopbar() {
         // por que passar pelo parser de HTML.
         document.getElementById('btnTema').textContent = iconeTema(base);
         document.getElementById('btnTema').onclick = alternarTema;
+        document.getElementById('btnSuporte').onclick = abrirAjudaESuporte;
         document.getElementById('btnConta').onclick = alternarMenuConta;
         ligarFechamentoDoMenuConta();
         carregarIdentidade();

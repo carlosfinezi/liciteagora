@@ -998,3 +998,22 @@ html:not([data-sidebar="compacta"]) .sb-tooltip { display: none; }
     background: var(--accent-soft);
 }
 [data-sidebar="compacta"] .sidebar .menu-section-toggle[aria-expanded="true"] .menu-section-icon svg { color: var(--accent); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Botão Suporte na topbar
+   =========================================================================
+   Entrou em 07/10/2026 junto da Central de Suporte. Fica antes do tema e da
+   conta porque é ação de produto, e as outras duas são de ambiente.
+
+   No celular o RÓTULO some e sobra o ícone: a topbar já disputa espaço com a
+   empresa, o tema e a conta, e "Suporte" por extenso empurrava o nome da
+   empresa para fora. O `aria-label` do botão continua dizendo o que ele é,
+   então quem usa leitor de tela não perde nada.
+   ───────────────────────────────────────────────────────────────────────── */
+.tb-suporte { gap: var(--space-2); }
+.tb-suporte-ic { font-size: 15px; line-height: 1; }
+.tb-suporte-tx { font-weight: 600; }
+
+@media (max-width: 720px) {
+  .tb-suporte-tx { display: none; }
+}

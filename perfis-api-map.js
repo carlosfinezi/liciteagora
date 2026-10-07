@@ -33,6 +33,11 @@ const LIBERADOS = [
   '/api/electron', '/api/cotacao-publica', '/api/me', '/api/eu',
   '/api/orcamento-publico',   // link público do orçamento — auth é o token na URL
   '/api/carrinho', '/api/pedido', '/api/nfses', '/api/dashboard', '/api/loja',
+  // Central de Suporte: o botão vive na TOPBAR, em toda tela, e pedir ajuda
+  // não depende de perfil — é como `/api/user`, que também está aqui. Ficava
+  // no MAPA enquanto as telas estavam no menu lateral; com a porta de entrada
+  // no topo, não há página de menu para o mapa casar.
+  '/api/suporte',
 ];
 
 // prefixo -> páginas do menu que legitimamente o consomem
@@ -196,10 +201,6 @@ const MAPA = {
   '/api/sniper':                 ['blitz', 'health-comprasnet', 'lances', 'propostas-api', 'relatorio-participacoes', 'timing-analise', 'tokens'],
   '/api/ssl':                    ['aprovacoes', 'comercial-vendas-perdidas', 'contratos', 'crm-funil', 'devolucoes', 'equipamentos', 'estoque-reservas', 'ordens-servico', 'os-relatorios', 'pedidos', 'pedidos-compra', 'ssl-agenda', 'ssl-certificados', 'ssl-integracao'],
   '/api/status':                 ['status'],
-  // Central de Suporte: as duas telas do cliente. Sem `feature` em lugar
-  // nenhum — pedir ajuda não é módulo contratável, e quem está no trial é
-  // justamente quem mais abre chamado.
-  '/api/suporte':                ['suporte-chamados', 'suporte-novo'],
   '/api/sync':                   ['agenda', 'consulta', 'interesse', 'sem-interesse', 'status'],
   '/api/tabelas-preco':          ['aprovacoes', 'comercial-tabelas-preco', 'comercial-vendas-perdidas', 'contratos', 'crm-funil', 'devolucoes', 'equipamentos', 'estoque-reservas', 'ordens-servico', 'os-relatorios', 'pedidos', 'pedidos-compra', 'pessoas', 'ssl-certificados'],
   '/api/tarefas':                ['conexoes'],
