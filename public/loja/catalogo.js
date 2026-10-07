@@ -28,6 +28,12 @@
  */
 
 let LOJA = null;
+/* O que esta loja PODE oferecer, vindo de `/loja/api/config`. Quem responde é
+   o `loja-capacidades.js`, no servidor; aqui só se lê.
+   Nasce vazio, e vazio quer dizer "nenhum recurso condicional": é esse o
+   estado de toda loja hoje, e é o que a tela desenha quando a resposta vem de
+   uma versão do servidor que ainda não manda o campo. */
+let CAPACIDADES = {};
 let PRODUTOS = [];
 let CATEGORIAS = [];
 let SACOLA = { itens: [], total: 0, quantidadeItens: 0 };
@@ -2549,6 +2555,7 @@ async function carregar() {
     return;
   }
   LOJA = cfg.loja;
+  CAPACIDADES = LOJA.capacidades || {};
   aplicarTema(LOJA.tema);
   aplicarFavicon(LOJA.favicon);
   document.title = LOJA.nome;

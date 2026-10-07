@@ -30,6 +30,7 @@ const semDoc = require('./pessoa-sem-documento');
 const montagem = require('./loja-montagem');
 const pagamentoLoja = require('./loja-pagamento');
 const metodosLoja = require('./loja-metodos-pagamento');
+const lojaCapacidades = require('./loja-capacidades');
 
 const RAIZ_PUBLICA = path.join(__dirname, 'public');
 const SUBDIR_LOJA = 'uploads/loja';
@@ -1101,6 +1102,11 @@ function registrarRotasLojaPublica(app, db) {
         })(),
         favicon: c.faviconPath || null,
         rodape: c.rodapeTexto || null,
+        /* O que esta empresa PODE oferecer (ver `loja-capacidades.js`). Entra
+           como campo novo, ao lado dos de sempre: aba aberta com a versão
+           anterior continua lendo o que lia. Hoje todas respondem `false`,
+           porque a estrutura de cada uma ainda não existe — a tela não muda. */
+        capacidades: lojaCapacidades.capacidadesPublicas(lojaCapacidades.capacidadesDaLoja(db)),
       } });
     } catch (e) { return erroInterno(res, '/loja/api/config', e); }
   });
