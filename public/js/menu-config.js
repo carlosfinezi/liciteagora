@@ -567,6 +567,27 @@ const menuConfig = {
                 { page: 'status', icone: '📊', texto: 'Status', link: '/configuracoes/status.html' },
 
             ]
+        },
+        /*
+         * Central de Suporte — a empresa falando com a equipe do Licite Agora.
+         *
+         * Fica numa seção própria, e não dentro de Configurações, porque não é
+         * ajuste do sistema: é o canal de atendimento. Sem `feature`, porque
+         * suporte não é módulo contratável — todo cliente tem direito a pedir
+         * ajuda, inclusive (e principalmente) quem está no trial.
+         *
+         * A entrada aqui é o que torna as telas visíveis ao RBAC: o
+         * `perfis-acesso.js` monta o POR_PAGINA a partir deste arquivo, e um
+         * diretório que ele não conheça é negado a quem tem perfil restrito.
+         */
+        {
+            titulo: 'Suporte',
+            icone: '🛟',
+            colapsavel: true,
+            itens: [
+                { page: 'suporte-chamados', icone: '🛟', texto: 'Meus chamados', link: '/suporte/chamados.html' },
+                { page: 'suporte-novo', icone: '➕', texto: 'Abrir chamado', link: '/suporte/novo.html' }
+            ]
         }
     ]
 };

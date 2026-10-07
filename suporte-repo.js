@@ -111,7 +111,17 @@ function criarChamadoDoTenant(db, tenantId, dados = {}) {
     if (!categoria) throw new Error('suporte-repo: categoria inexistente ou inativa');
   }
 
-  const prioridade = dados.prioridade || categoria?.prioridade_padrao || 'normal';
+  /* A prioridade NÃO vem de quem abre o chamado.
+   *
+   * Ela sai da categoria, e só a equipe a ajusta depois. A razão é simples: se
+   * o cliente escolhesse, tudo seria urgente em duas semanas, e a fila
+   * deixaria de ordenar coisa alguma.
+   *
+   * O descarte acontece AQUI, e não na rota, pelo mesmo motivo do `tenantId`:
+   * uma rota que esqueça de filtrar o corpo da requisição não pode virar
+   * escalada de prioridade. `dados.prioridade` é ignorado de propósito —
+   * mandar `{prioridade: 'urgente'}` não tem efeito nenhum. */
+  const prioridade = categoria?.prioridade_padrao || 'normal';
   if (!PRIORIDADES.includes(prioridade)) throw new Error(`suporte-repo: prioridade inválida "${prioridade}"`);
 
   const agora = Date.now();
@@ -235,6 +245,77 @@ function responderChamadoDoTenant(db, tenantId, chamadoId, dados = {}) {
     return Number(r.lastInsertRowid);
   });
   return tx();
+}
+
+/**
+ * Prazo para reabrir um chamado já resolvido.
+ *
+ * Vira configuração na fase das categorias administráveis; por ora é uma
+ * constante com nome, e não um `30` solto no meio de um `if`.
+ */
+const DIAS_PARA_REABRIR = 7;
+
+/**
+ * Diz se o chamado pode ser reaberto, e por quê não quando não pode.
+ *
+ * Só `resolvido` reabre, e dentro do prazo. `encerrado` não reabre de
+ * propósito: encerrado é ponto final, e o caminho é abrir um chamado novo —
+ * senão uma conversa de três meses atrás volta à vida sem contexto.
+ */
+function podeReabrir(chamado) {
+  if (!chamado) return { pode: false, motivo: 'inexistente' };
+  if (chamado.status !== 'resolvido') {
+    return { pode: false, motivo: chamado.status === 'encerrado' ? 'encerrado' : 'ainda_aberto' };
+  }
+  const limite = (chamado.resolvido_at || 0) + DIAS_PARA_REABRIR * 86400 * 1000;
+  if (Date.now() > limite) return { pode: false, motivo: 'prazo_vencido' };
+  return { pode: true };
+}
+
+/**
+ * Reabre um chamado resolvido da própria empresa, com a justificativa virando
+ * a primeira mensagem — reabrir sem dizer o que continua errado só devolve o
+ * chamado para a fila sem informação nova.
+ */
+function reabrirChamadoDoTenant(db, tenantId, chamadoId, dados = {}) {
+  const chamado = buscarChamadoDoTenant(db, tenantId, chamadoId);
+  if (!chamado) return null;
+
+  const veredito = podeReabrir(chamado);
+  if (!veredito.pode) {
+    const porque = {
+      encerrado: 'Este chamado foi encerrado. Abra um chamado novo.',
+      ainda_aberto: 'Este chamado ainda está em andamento.',
+      prazo_vencido: `O prazo de ${DIAS_PARA_REABRIR} dias para reabrir já passou. Abra um chamado novo.`,
+    }[veredito.motivo] || 'Este chamado não pode ser reaberto.';
+    throw new Error(porque);
+  }
+
+  const corpo = texto(dados.corpo, 'motivo da reabertura', { max: 8000 });
+  const agora = Date.now();
+
+  const tx = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO suporte_mensagens (chamado_id, autor_tipo, autor_id, autor_nome, corpo, interna, created_at)
+      VALUES (?, 'cliente', ?, ?, ?, 0, ?)
+    `).run(chamado.id, dados.autorId ?? null,
+      texto(dados.autorNome, 'nome', { max: 120, obrigatorio: false }), corpo, agora);
+
+    db.prepare(`
+      UPDATE suporte_chamados
+         SET status = 'em_atendimento', updated_at = ?, resolvido_at = NULL,
+             reaberturas = reaberturas + 1
+       WHERE id = ?
+    `).run(agora, chamado.id);
+
+    registrarHistorico(db, chamado.id, {
+      action: 'reaberto', actorTipo: 'cliente',
+      actorId: dados.autorId ?? null, actorNome: dados.autorNome ?? null,
+      payload: { de: chamado.status, reaberturas: chamado.reaberturas + 1 },
+    });
+  });
+  tx();
+  return { status: 'em_atendimento', reaberturas: chamado.reaberturas + 1 };
 }
 
 /** As categorias que a tela de abertura oferece. Não depende de tenant. */
@@ -407,7 +488,10 @@ module.exports = {
   listarChamadosDoTenant,
   listarMensagensDoTenant,
   responderChamadoDoTenant,
+  reabrirChamadoDoTenant,
   listarCategoriasAtivas,
+  podeReabrir,
+  DIAS_PARA_REABRIR,
   // equipe
   admin,
   // apoio

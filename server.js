@@ -135,6 +135,11 @@ function installPipeline() {
   apiKey = pipelineResult.apiKey;
   registerProtectedRoutes(app, {
     db, dbPath, pncpSync, salvarItens, getConfigValue, setConfigValue, getIAKeys,
+    // A Central de Suporte guarda os chamados no control.db, e é a primeira
+    // rota de tenant que precisa dele. A instância é a que o manager já
+    // mantém aberta — abrir por request criaria dezenas de conexões ao
+    // mesmo WAL. Em single-tenant vem `null`, e as rotas não se registram.
+    controlDb,
   });
 }
 

@@ -196,6 +196,10 @@ const MAPA = {
   '/api/sniper':                 ['blitz', 'health-comprasnet', 'lances', 'propostas-api', 'relatorio-participacoes', 'timing-analise', 'tokens'],
   '/api/ssl':                    ['aprovacoes', 'comercial-vendas-perdidas', 'contratos', 'crm-funil', 'devolucoes', 'equipamentos', 'estoque-reservas', 'ordens-servico', 'os-relatorios', 'pedidos', 'pedidos-compra', 'ssl-agenda', 'ssl-certificados', 'ssl-integracao'],
   '/api/status':                 ['status'],
+  // Central de Suporte: as duas telas do cliente. Sem `feature` em lugar
+  // nenhum — pedir ajuda não é módulo contratável, e quem está no trial é
+  // justamente quem mais abre chamado.
+  '/api/suporte':                ['suporte-chamados', 'suporte-novo'],
   '/api/sync':                   ['agenda', 'consulta', 'interesse', 'sem-interesse', 'status'],
   '/api/tabelas-preco':          ['aprovacoes', 'comercial-tabelas-preco', 'comercial-vendas-perdidas', 'contratos', 'crm-funil', 'devolucoes', 'equipamentos', 'estoque-reservas', 'ordens-servico', 'os-relatorios', 'pedidos', 'pedidos-compra', 'pessoas', 'ssl-certificados'],
   '/api/tarefas':                ['conexoes'],

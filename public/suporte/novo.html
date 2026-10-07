@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Abrir chamado — Licite Agora</title>
+  <script src="/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/css/sidebar.css">
+  <link rel="stylesheet" href="/css/app-modern.css">
+  <style>
+    .nv-form { max-width: 720px; display: flex; flex-direction: column; gap: 18px; }
+    .nv-campo { display: flex; flex-direction: column; gap: 6px; }
+    .nv-campo label { font-weight: 600; font-size: var(--text-sm); color: var(--text-1); }
+    .nv-campo .dica { font-size: var(--text-xs); color: var(--text-3); }
+    .nv-form textarea { min-height: 170px; resize: vertical; line-height: 1.5; }
+    .nv-acoes { display: flex; gap: 10px; flex-wrap: wrap; }
+    .nv-erro { display: none; padding: 12px 14px; border-radius: var(--r-sm);
+      background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.35); color: #fca5a5; }
+    /* No celular os botões ocupam a linha: alvo de toque confortável e sem
+       dois controles disputando a mesma faixa de 390px. */
+    @media (max-width: 640px) {
+      .nv-acoes { flex-direction: column-reverse; }
+      .nv-acoes .btn { width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+<div class="app-container">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="main-content">
+    <div class="page-header">
+      <div>
+        <h1>Abrir chamado</h1>
+        <p class="muted">Conte o que está acontecendo. A nossa equipe responde por aqui mesmo.</p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="nv-erro" id="erro"></div>
+      <form class="nv-form" id="form" onsubmit="enviar(event)">
+        <div class="nv-campo">
+          <label for="categoria">Assunto do chamado</label>
+          <select id="categoria" required>
+            <option value="">Escolha o assunto…</option>
+          </select>
+          <span class="dica" id="dicaCat"></span>
+        </div>
+
+        <div class="nv-campo">
+          <label for="assunto">Título</label>
+          <input type="text" id="assunto" maxlength="160" required
+                 placeholder="Resuma em uma linha, como no assunto de um e-mail">
+        </div>
+
+        <div class="nv-campo">
+          <label for="descricao">O que está acontecendo</label>
+          <textarea id="descricao" maxlength="8000" required
+                    placeholder="Descreva o que você tentou fazer, o que esperava e o que aconteceu. Se houver mensagem de erro, copie o texto dela aqui."></textarea>
+          <span class="dica">Quanto mais detalhe, menos idas e vindas.</span>
+        </div>
+
+        <div class="nv-acoes">
+          <a class="btn btn-secondary" href="/suporte/chamados.html" style="text-decoration:none;">Cancelar</a>
+          <button type="submit" class="btn btn-primary" id="btEnviar">Abrir chamado</button>
+        </div>
+      </form>
+    </div>
+  </main>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+<script>
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function mostrarErro(msg) {
+  const el = document.getElementById('erro');
+  el.textContent = msg;              // textContent: nunca injeta HTML
+  el.style.display = 'block';
+  el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+/* A tela NÃO oferece prioridade, e isso é decisão de produto: se o cliente
+   escolhesse, tudo seria urgente. Ela sai da categoria, no servidor. */
+async function carregarCategorias() {
+  try {
+    const r = await fetch('/api/suporte/categorias');
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error || 'Não foi possível carregar os assuntos');
+    const sel = document.getElementById('categoria');
+    for (const c of j.categorias) {
+      const op = document.createElement('option');
+      op.value = c.id;
+      op.textContent = c.nome;       // textContent, não innerHTML
+      sel.appendChild(op);
+    }
+  } catch (e) { mostrarErro(e.message); }
+}
+
+async function enviar(ev) {
+  ev.preventDefault();
+  const bt = document.getElementById('btEnviar');
+  document.getElementById('erro').style.display = 'none';
+  bt.disabled = true;
+  bt.textContent = 'Abrindo…';
+  try {
+    const r = await fetch('/api/suporte/chamados', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        categoriaId: Number(document.getElementById('categoria').value) || null,
+        assunto: document.getElementById('assunto').value,
+        descricao: document.getElementById('descricao').value,
+      }),
+    });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error || 'Não foi possível abrir o chamado');
+    // Abre o chamado criado, como combinado: o usuário vê o que acabou de mandar.
+    location.href = '/suporte/chamado.html?id=' + encodeURIComponent(j.chamado.id) + '&novo=1';
+  } catch (e) {
+    mostrarErro(e.message);
+    bt.disabled = false;
+    bt.textContent = 'Abrir chamado';
+  }
+}
+carregarCategorias();
+</script>
+</body>
+</html>

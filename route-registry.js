@@ -65,6 +65,7 @@ const { registrarRotasNfse } = require('./nfse-routes');
 const { registrarRotasFinanceiro } = require('./financeiro-routes');
 const { registrarRotasRecorrencia } = require('./recorrencia-routes');
 const { registrarRotasProdutos } = require('./produtos-routes');
+const { registrarRotasSuporte } = require('./suporte-routes');
 const { registrarRotasProdutoLookup } = require('./produto-lookup-routes');
 const { registrarRotasProdutoMatch } = require('./produto-match-routes');
 const { registrarRotasFornecedores } = require('./fornecedores-routes');
@@ -171,6 +172,10 @@ function registerProtectedRoutes(app, deps) {
   const {
     db, dbPath, pncpSync, salvarItens,
     getConfigValue, setConfigValue, getIAKeys,
+    // Central de Suporte: os chamados moram no control.db, não no banco do
+    // tenant. Vem de server.js; é `undefined` no provisionamento e no
+    // single-tenant, e aí as rotas de suporte simplesmente não se registram.
+    controlDb,
   } = deps;
 
   /**
@@ -407,6 +412,11 @@ function registerProtectedRoutes(app, deps) {
   R('ChatMonitoramento', () => registrarRotasChatMonitoramento(app, db));
   R('ChatMensagens', () => registrarRotasChatMensagens(app, db));
   R('ParticipacaoMonitoramento', () => registrarRotasParticipacaoMonitoramento(app, db, { enviarTelegram }));
+
+  // ==================== CENTRAL DE SUPORTE ====================
+  // Única rota de tenant que lê o control.db. Sem ele (provisionamento,
+  // single-tenant) não registra nada, em vez de registrar e responder 500.
+  R('Suporte', () => registrarRotasSuporte(app, db, controlDb));
 
   // Devolve o que falhou, para o provisionamento decidir o que fazer.
   return { falhasDeMigracao };

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chamado — Licite Agora</title>
+  <script src="/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/css/sidebar.css">
+  <link rel="stylesheet" href="/css/app-modern.css">
+  <style>
+    .cv-topo { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 4px; }
+    .cv-num { font-size: var(--text-xs); color: var(--text-3); font-weight: 600; letter-spacing: .04em; }
+    .cv-badge { font-size: var(--text-xs); font-weight: 700; padding: 4px 10px; border-radius: 999px;
+      text-transform: uppercase; letter-spacing: .04em; }
+    .cv-badge.aberto             { background: rgba(59,130,246,.16); color: #60a5fa; }
+    .cv-badge.em_atendimento     { background: rgba(245,158,11,.16); color: #fbbf24; }
+    .cv-badge.aguardando_cliente { background: rgba(168,85,247,.16); color: #c084fc; }
+    .cv-badge.resolvido          { background: rgba(34,197,94,.16);  color: #4ade80; }
+    .cv-badge.encerrado          { background: rgba(148,163,184,.16); color: #94a3b8; }
+
+    /* A conversa. O lado define quem falou antes de qualquer rótulo: é como
+       se lê uma conversa, e é o que funciona de relance no celular. */
+    .cv-conversa { display: flex; flex-direction: column; gap: 14px; }
+    .cv-msg { max-width: 78%; display: flex; flex-direction: column; gap: 5px; }
+    .cv-msg.voce  { align-self: flex-end; align-items: flex-end; }
+    .cv-msg.equipe { align-self: flex-start; align-items: flex-start; }
+    .cv-balao { padding: 12px 15px; border-radius: 14px; line-height: 1.5;
+      white-space: pre-wrap; word-break: break-word; }
+    .cv-msg.voce .cv-balao { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+    .cv-msg.equipe .cv-balao { background: var(--bg-3); color: var(--text-0);
+      border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    .cv-quem { font-size: var(--text-xs); color: var(--text-3); padding: 0 4px; }
+
+    .cv-responder { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+    .cv-responder textarea { min-height: 110px; resize: vertical; line-height: 1.5; }
+    .cv-aviso { padding: 13px 15px; border-radius: var(--r-sm); background: var(--bg-3);
+      border: 1px solid var(--border); color: var(--text-2); font-size: var(--text-sm); }
+    .cv-erro { display: none; padding: 12px 14px; border-radius: var(--r-sm); margin-bottom: 12px;
+      background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.35); color: #fca5a5; }
+
+    @media (max-width: 640px) {
+      .cv-msg { max-width: 92%; }
+      .cv-responder .btn { width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+<div class="app-container">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="main-content">
+    <div class="page-header">
+      <div>
+        <div class="cv-topo">
+          <span class="cv-num" id="numero"></span>
+          <span id="statusBadge"></span>
+        </div>
+        <h1 id="assunto">Carregando…</h1>
+        <p class="muted" id="meta"></p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-secondary" href="/suporte/chamados.html" style="text-decoration:none;">Voltar</a>
+      </div>
+    </div>
+
+    <div class="cv-erro" id="erro"></div>
+
+    <div class="panel">
+      <div class="cv-conversa" id="conversa"></div>
+      <div id="rodape"></div>
+    </div>
+  </main>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+<script>
+const ID = new URLSearchParams(location.search).get('id');
+const EH_NOVO = new URLSearchParams(location.search).get('novo') === '1';
+const ROTULO = {
+  aberto: 'Aberto', em_atendimento: 'Em atendimento',
+  aguardando_cliente: 'Aguardando você', resolvido: 'Resolvido', encerrado: 'Encerrado',
+};
+let CHAMADO = null;
+
+function quando(ms) {
+  if (!ms) return '';
+  const d = new Date(Number(ms));
+  if (isNaN(d)) return '';
+  return d.toLocaleDateString('pt-BR') + ' às '
+    + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function mostrarErro(msg) {
+  const el = document.getElementById('erro');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+/* A conversa é montada por DOM, com `textContent` no corpo da mensagem.
+   O que vem do servidor é texto que alguém digitou, e aqui ele nunca vira
+   marcação: um `<script>` no corpo aparece como as letras que são. */
+function desenharConversa(mensagens) {
+  const alvo = document.getElementById('conversa');
+  alvo.textContent = '';
+  if (!mensagens.length) {
+    const p = document.createElement('p');
+    p.className = 'muted';
+    p.textContent = 'Ainda não há mensagens neste chamado.';
+    alvo.appendChild(p);
+    return;
+  }
+  for (const m of mensagens) {
+    const bloco = document.createElement('div');
+    bloco.className = 'cv-msg ' + (m.de === 'equipe' ? 'equipe' : 'voce');
+
+    const balao = document.createElement('div');
+    balao.className = 'cv-balao';
+    balao.textContent = m.corpo;
+
+    const quem = document.createElement('div');
+    quem.className = 'cv-quem';
+    quem.textContent = (m.de === 'equipe' ? (m.autor || 'Suporte Licite Agora') : (m.autor || 'Você'))
+      + ' · ' + quando(m.em);
+
+    bloco.appendChild(balao);
+    bloco.appendChild(quem);
+    alvo.appendChild(bloco);
+  }
+}
+
+function desenharRodape(c) {
+  const alvo = document.getElementById('rodape');
+  alvo.textContent = '';
+
+  if (c.podeResponder) {
+    const box = document.createElement('div');
+    box.className = 'cv-responder';
+    const ta = document.createElement('textarea');
+    ta.id = 'corpo';
+    ta.maxLength = 8000;
+    ta.placeholder = 'Escreva sua resposta…';
+    const bt = document.createElement('button');
+    bt.className = 'btn btn-primary';
+    bt.id = 'btResponder';
+    bt.textContent = 'Enviar resposta';
+    bt.onclick = responder;
+    box.appendChild(ta);
+    box.appendChild(bt);
+    alvo.appendChild(box);
+    return;
+  }
+
+  const aviso = document.createElement('div');
+  aviso.className = 'cv-aviso';
+  if (c.podeReabrir) {
+    aviso.textContent = 'Este chamado foi resolvido. Se o problema voltou, você pode reabrir.';
+    const box = document.createElement('div');
+    box.className = 'cv-responder';
+    const ta = document.createElement('textarea');
+    ta.id = 'corpo';
+    ta.maxLength = 8000;
+    ta.placeholder = 'Conte o que continua acontecendo…';
+    const bt = document.createElement('button');
+    bt.className = 'btn btn-primary';
+    bt.id = 'btReabrir';
+    bt.textContent = 'Reabrir chamado';
+    bt.onclick = reabrir;
+    box.appendChild(ta);
+    box.appendChild(bt);
+    alvo.appendChild(aviso);
+    alvo.appendChild(box);
+    return;
+  }
+  aviso.textContent = c.status === 'encerrado'
+    ? 'Este chamado foi encerrado. Se precisar, abra um chamado novo.'
+    : 'Este chamado não aceita mais respostas.';
+  alvo.appendChild(aviso);
+}
+
+async function carregar() {
+  try {
+    const r = await fetch('/api/suporte/chamados/' + encodeURIComponent(ID));
+    if (r.status === 404) throw new Error('Chamado não encontrado');
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error || 'Não foi possível carregar o chamado');
+
+    CHAMADO = j.chamado;
+    document.getElementById('numero').textContent = '#' + j.chamado.numero;
+    document.getElementById('assunto').textContent = j.chamado.assunto;
+    document.title = '#' + j.chamado.numero + ' — Licite Agora';
+
+    const badge = document.createElement('span');
+    badge.className = 'cv-badge ' + j.chamado.status;
+    badge.textContent = ROTULO[j.chamado.status] || j.chamado.status;
+    const alvoBadge = document.getElementById('statusBadge');
+    alvoBadge.textContent = '';
+    alvoBadge.appendChild(badge);
+
+    const partes = [];
+    if (j.chamado.categoria) partes.push(j.chamado.categoria);
+    partes.push('Aberto em ' + quando(j.chamado.criadoEm));
+    if (j.chamado.reaberturas > 0) {
+      partes.push(j.chamado.reaberturas === 1 ? 'Reaberto uma vez'
+        : 'Reaberto ' + j.chamado.reaberturas + ' vezes');
+    }
+    document.getElementById('meta').textContent = partes.join(' · ');
+
+    /* A descrição é a primeira fala do cliente: entra como mensagem para a
+       conversa começar no começo, e não num campo separado que ninguém lê. */
+    const fala = [{ de: 'voce', autor: j.chamado.abertoPor, corpo: j.chamado.descricao, em: j.chamado.criadoEm }]
+      .concat(j.mensagens);
+    desenharConversa(fala);
+    desenharRodape(j.chamado);
+
+    if (EH_NOVO) {
+      const ok = document.createElement('div');
+      ok.className = 'cv-aviso';
+      ok.style.marginBottom = '16px';
+      ok.textContent = 'Chamado aberto. Nossa equipe vai responder por aqui.';
+      document.getElementById('conversa').before(ok);
+    }
+  } catch (e) {
+    mostrarErro(e.message);
+    document.getElementById('assunto').textContent = 'Chamado não encontrado';
+    document.getElementById('meta').textContent = '';
+  }
+}
+
+async function responder() {
+  const ta = document.getElementById('corpo');
+  const bt = document.getElementById('btResponder');
+  if (!ta.value.trim()) { mostrarErro('Escreva a sua resposta antes de enviar.'); return; }
+  bt.disabled = true; bt.textContent = 'Enviando…';
+  try {
+    const r = await fetch('/api/suporte/chamados/' + encodeURIComponent(ID) + '/mensagens', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ corpo: ta.value }),
+    });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error || 'Não foi possível enviar');
+    document.getElementById('erro').style.display = 'none';
+    await carregar();
+  } catch (e) {
+    mostrarErro(e.message);
+    bt.disabled = false; bt.textContent = 'Enviar resposta';
+  }
+}
+
+async function reabrir() {
+  const ta = document.getElementById('corpo');
+  const bt = document.getElementById('btReabrir');
+  if (!ta.value.trim()) { mostrarErro('Conte o que continua acontecendo antes de reabrir.'); return; }
+  bt.disabled = true; bt.textContent = 'Reabrindo…';
+  try {
+    const r = await fetch('/api/suporte/chamados/' + encodeURIComponent(ID) + '/reabrir', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ corpo: ta.value }),
+    });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error || 'Não foi possível reabrir');
+    document.getElementById('erro').style.display = 'none';
+    await carregar();
+  } catch (e) {
+    mostrarErro(e.message);
+    bt.disabled = false; bt.textContent = 'Reabrir chamado';
+  }
+}
+
+if (!ID) { mostrarErro('Chamado não informado.'); } else { carregar(); }
+</script>
+</body>
+</html>

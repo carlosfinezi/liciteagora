@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meus chamados — Licite Agora</title>
+  <script src="/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/css/sidebar.css">
+  <link rel="stylesheet" href="/css/app-modern.css">
+  <style>
+    /* A lista é de cartão no celular e de tabela no desktop. Não é a mesma
+       tabela espremida: numa largura de 390px, oito colunas viram ilegíveis,
+       e o que o usuário precisa ver (assunto e status) ficaria em último. */
+    .ch-lista { display: flex; flex-direction: column; gap: 10px; }
+    .ch-item {
+      display: grid; gap: 4px 14px; padding: 16px;
+      background: var(--bg-2); border: 1px solid var(--border);
+      border-radius: var(--r-md); text-decoration: none; color: inherit;
+      grid-template-areas: "num status" "assunto assunto" "meta meta";
+      grid-template-columns: 1fr auto;
+      transition: border-color .15s, transform .15s;
+    }
+    .ch-item:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .ch-num { grid-area: num; font-size: var(--text-xs); color: var(--text-3); font-weight: 600; letter-spacing: .04em; }
+    .ch-status { grid-area: status; }
+    .ch-assunto { grid-area: assunto; font-size: 1.02rem; font-weight: 600; color: var(--text-0); }
+    .ch-meta { grid-area: meta; font-size: var(--text-xs); color: var(--text-3);
+      display: flex; flex-wrap: wrap; gap: 4px 12px; }
+    .ch-badge { font-size: var(--text-xs); font-weight: 700; padding: 4px 10px; border-radius: 999px;
+      text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+    .ch-badge.aberto             { background: rgba(59,130,246,.16); color: #60a5fa; }
+    .ch-badge.em_atendimento     { background: rgba(245,158,11,.16); color: #fbbf24; }
+    .ch-badge.aguardando_cliente { background: rgba(168,85,247,.16); color: #c084fc; }
+    .ch-badge.resolvido          { background: rgba(34,197,94,.16);  color: #4ade80; }
+    .ch-badge.encerrado          { background: rgba(148,163,184,.16); color: #94a3b8; }
+    .ch-vazio { text-align: center; padding: 52px 20px; color: var(--text-3); }
+    .ch-vazio h3 { color: var(--text-1); margin-bottom: 8px; font-size: 1.1rem; }
+    @media (min-width: 860px) {
+      .ch-item { grid-template-areas: "num assunto meta status";
+        grid-template-columns: 110px 1fr auto auto; align-items: center; }
+      .ch-meta { justify-content: flex-end; }
+    }
+  </style>
+</head>
+<body>
+<div class="app-container">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="main-content">
+    <div class="page-header">
+      <div>
+        <h1>Meus chamados</h1>
+        <p class="muted" id="sub">Suas conversas com o suporte do Licite Agora</p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-primary" href="/suporte/novo.html" style="text-decoration:none;">Novo chamado</a>
+      </div>
+    </div>
+
+    <div class="panel" style="padding:14px;">
+      <select id="fStatus" onchange="carregar()" style="max-width:260px;">
+        <option value="">Todos os chamados</option>
+        <option value="aberto">Abertos</option>
+        <option value="em_atendimento">Em atendimento</option>
+        <option value="aguardando_cliente">Aguardando você</option>
+        <option value="resolvido">Resolvidos</option>
+        <option value="encerrado">Encerrados</option>
+      </select>
+    </div>
+
+    <div class="ch-lista" id="lista">
+      <div class="ch-vazio">Carregando…</div>
+    </div>
+  </main>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/aviso-sistema.js"></script>
+<script>
+const ROTULO = {
+  aberto: 'Aberto', em_atendimento: 'Em atendimento',
+  aguardando_cliente: 'Aguardando você', resolvido: 'Resolvido', encerrado: 'Encerrado',
+};
+
+/* Escapar é obrigatório: assunto e nome vêm do que alguém digitou. Esta tela
+   nunca injeta texto de usuário como HTML — `textContent` onde dá, e esta
+   função onde o template exige string. */
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function quando(ms) {
+  if (!ms) return '';
+  const d = new Date(Number(ms));
+  if (isNaN(d)) return '';
+  const dia = d.toLocaleDateString('pt-BR');
+  const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return dia + ' às ' + hora;
+}
+
+async function carregar() {
+  const lista = document.getElementById('lista');
+  lista.innerHTML = '<div class="ch-vazio">Carregando…</div>';
+  const status = document.getElementById('fStatus').value;
+  try {
+    const r = await fetch('/api/suporte/chamados' + (status ? '?status=' + encodeURIComponent(status) : ''));
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error || 'Não foi possível carregar');
+
+    if (j.escopo === 'empresa') {
+      document.getElementById('sub').textContent = 'Chamados da sua empresa com o suporte do Licite Agora';
+    }
+    if (!j.chamados.length) {
+      lista.innerHTML = '<div class="ch-vazio"><h3>Nenhum chamado por aqui</h3>'
+        + '<p>Quando precisar de ajuda, abra um chamado e a nossa equipe responde.</p></div>';
+      return;
+    }
+    lista.innerHTML = j.chamados.map((c) => `
+      <a class="ch-item" href="/suporte/chamado.html?id=${encodeURIComponent(c.id)}">
+        <span class="ch-num">#${esc(c.numero)}</span>
+        <span class="ch-status"><span class="ch-badge ${esc(c.status)}">${esc(ROTULO[c.status] || c.status)}</span></span>
+        <span class="ch-assunto">${esc(c.assunto)}</span>
+        <span class="ch-meta">
+          ${c.categoria ? '<span>' + esc(c.categoria) + '</span>' : ''}
+          <span>Atualizado em ${esc(quando(c.atualizadoEm))}</span>
+        </span>
+      </a>`).join('');
+  } catch (e) {
+    lista.innerHTML = '<div class="ch-vazio"><h3>Não deu para carregar</h3><p>' + esc(e.message) + '</p></div>';
+  }
+}
+carregar();
+</script>
+</body>
+</html>

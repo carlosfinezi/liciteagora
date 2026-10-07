@@ -152,9 +152,25 @@ console.log('\n== C. abrir chamado ==');
   t('C4 assunto vazio é recusado', () => {
     assert.throws(() => repo.criarChamadoDoTenant(db, A, { assunto: '  ', descricao: 'x' }), /assunto/i);
   });
-  t('C5 prioridade inventada é recusada', () => {
-    assert.throws(() => repo.criarChamadoDoTenant(db, A,
-      { assunto: 'a', descricao: 'b', prioridade: 'altissima' }), /prioridade/i);
+  /* A prioridade mandada por quem abre é IGNORADA, não recusada. Recusar
+     daria ao cliente a informação de que o campo existe e vale a pena tentar;
+     ignorar silenciosamente é o que queremos, e o chamado sai com a
+     prioridade da categoria como se nada tivesse sido enviado. */
+  t('C5 prioridade enviada por quem abre é ignorada', () => {
+    const cat = repo.listarCategoriasAtivas(db).find((c) => c.slug === 'sugestao');
+    const r = repo.criarChamadoDoTenant(db, A, {
+      assunto: 'a', descricao: 'b', categoriaId: cat.id, prioridade: 'urgente',
+    });
+    const ch = repo.buscarChamadoDoTenant(db, A, r.id);
+    assert.strictEqual(ch.prioridade, cat.prioridade_padrao,
+      'a prioridade enviada venceu a da categoria');
+    assert.notStrictEqual(ch.prioridade, 'urgente', 'o cliente conseguiu se marcar como urgente');
+  });
+  t('C5b nem com prioridade inventada, nem sem categoria', () => {
+    const r = repo.criarChamadoDoTenant(db, A,
+      { assunto: 'c', descricao: 'd', prioridade: 'altissima' });
+    assert.strictEqual(repo.buscarChamadoDoTenant(db, A, r.id).prioridade, 'normal',
+      'sem categoria a prioridade tem de cair no padrão, não no que veio de fora');
   });
   db.close();
 }
