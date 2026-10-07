@@ -25,6 +25,7 @@ const Database = require('better-sqlite3');
 const { attachCatalog, CATALOG_DB_PATH } = require('./catalog-manager');
 const { ensurePlanModulesSchema } = require('./plan-modules');
 const { ensureOverridesSchema } = require('./module-gate');
+const { ensureSuporteSchema } = require('./suporte-schema');
 
 const ROOT = path.join(__dirname, 'data');
 const CONTROL_DB_PATH = path.join(ROOT, 'control.db');
@@ -202,6 +203,10 @@ function initControlDb(dbPath = CONTROL_DB_PATH) {
   // Seed dos módulos por tier + tabela de overrides (idempotente).
   ensurePlanModulesSchema(db);
   ensureOverridesSchema(db);
+
+  // Central de Suporte: chamados de TODAS as empresas vivem aqui, e não no
+  // banco de cada tenant — o porquê está no cabeçalho de suporte-schema.js.
+  ensureSuporteSchema(db);
 
   return db;
 }
