@@ -22,10 +22,51 @@
  *   https://<dominio-tenant>/webhook/boleto/asaas
  */
 
+const crypto = require('crypto');
+
 const API_BASE = {
   homologacao: 'https://api-sandbox.asaas.com/v3',
   producao: 'https://api.asaas.com/v3',
 };
+
+/**
+ * Os dois segredos são iguais? Comparação de tempo constante.
+ *
+ * `===` em string sai no primeiro byte diferente, e a diferença de tempo entre
+ * "errou no 1º caractere" e "errou no 20º" é mensurável por quem tenta adivinhar
+ * caractere a caractere.
+ *
+ * Compara os DIGESTS, não os textos: SHA-256 dá sempre 32 bytes, então
+ * `timingSafeEqual` nunca recebe tamanhos diferentes (ele lança quando recebe) e
+ * o comprimento do segredo não vaza pelo caminho do erro.
+ */
+function segredoConfere(recebido, esperado) {
+  if (typeof recebido !== 'string' || typeof esperado !== 'string') return false;
+  if (!recebido || !esperado) return false;
+  const h = (s) => crypto.createHash('sha256').update(s, 'utf8').digest();
+  return crypto.timingSafeEqual(h(recebido), h(esperado));
+}
+
+/**
+ * Esta conta pode receber aviso de pagamento com segurança?
+ *
+ * É a pergunta que decide se o pagamento ONLINE pode ser oferecido ao
+ * consumidor, e a resposta é só uma: existe segredo de webhook configurado.
+ *
+ * O porquê, medido em 07/10/2026: a URL do boleto que vai ao cliente é a do
+ * provedor, e ela carrega o id da cobrança no caminho
+ * (`asaas.com/b/pdf/pay_xxx`). Sem segredo, quem recebe um boleto conhece o
+ * `pay_id` e um POST para `/webhook/boleto/asaas` daquele tenant baixa a conta
+ * a receber sem ter pagado nada. Conhecer o identificador nunca pode ser
+ * suficiente para dar uma venda por paga.
+ *
+ * Isto NÃO fala sobre emitir, consultar, conciliar ou importar extrato: nesses
+ * casos quem bate à porta somos nós, com a credencial da conta. A exigência é
+ * só sobre requisição que CHEGA.
+ */
+function webhookAutenticado(cfg) {
+  return !!(cfg && typeof cfg.webhookToken === 'string' && cfg.webhookToken.trim());
+}
 
 function _baseUrl(cfg) {
   return API_BASE[cfg.ambiente] || API_BASE.homologacao;
@@ -263,38 +304,50 @@ module.exports = {
     return { status: 'baixado', motivo: motivo || null, raw: resp };
   },
 
+  webhookAutenticado,
+
+  /**
+   * O aviso de pagamento do Asaas.
+   *
+   * ── Fail closed, e a ordem importa ────────────────────────────────────────
+   *
+   * A autenticação vem ANTES de qualquer consulta ao banco, e antes de olhar o
+   * corpo. Quem não se autentica não descobre nada: nem se o `pay_id` existe,
+   * nem se o tenant tem aquela cobrança, nem quanto tempo a resposta demora
+   * conforme o id. Até 07/10/2026 a validação era condicional — `if
+   * (cfg.webhookToken)` — e conta sem segredo aceitava qualquer POST.
+   *
+   * Três recusas, e as três são a MESMA para quem está do lado de fora:
+   *   - a conta não tem segredo configurado;
+   *   - o aviso chegou sem o header;
+   *   - o segredo não confere.
+   */
   async processarWebhook(req, db, cfg) {
+    const sent = (req.get && req.get('asaas-access-token'))
+      || (req.headers && req.headers['asaas-access-token']);
+
+    if (!webhookAutenticado(cfg)) {
+      /* Sem segredo na conta, nenhum aviso é aceito — nem o legítimo. É o
+         custo deliberado de não deixar a porta aberta, e a saída é configurar
+         o token em Financeiro › Contas financeiras e no painel do Asaas. O
+         polling continua baixando enquanto isso, com atraso de até 30 min. */
+      console.warn('[Asaas webhook] recusado: a conta não tem segredo de webhook configurado');
+      return null;
+    }
+    if (!segredoConfere(sent, cfg.webhookToken)) {
+      /* Sem o valor nem o tamanho de nenhum dos dois: o log fica no servidor,
+         mas um log é lido por gente, copiado para chamado e colado em
+         conversa. O que o operador precisa saber é que houve recusa. */
+      console.warn('[Asaas webhook] recusado: segredo ausente ou incorreto');
+      return null;
+    }
+
     const body = req.body || {};
     const event = String(body.event || '').toUpperCase();
     const payment = body.payment;
     console.log('[Asaas webhook]', event, payment?.id || '(sem payment)');
 
     if (!payment || !payment.id) return null;
-
-    if (cfg.webhookToken) {
-      const sent = (req.get && req.get('asaas-access-token'))
-        || (req.headers && req.headers['asaas-access-token']);
-      if (sent !== cfg.webhookToken) {
-        // TEMP diagnóstico (2026-08-20): todo evento com payment vinha sendo
-        // recusado aqui e a baixa dependia só do polling de 30 min. Mostra o
-        // suficiente pra comparar com o painel do Asaas sem imprimir segredo:
-        // se o header some, o token não está cadastrado lá; se chega com outro
-        // valor/tamanho, os dois lados divergem. REMOVER depois do diagnóstico.
-        const mascara = (v) => {
-          if (v == null) return 'AUSENTE';
-          const s = String(v);
-          if (!s) return 'VAZIO';
-          return `${s.length} chars, ${s.slice(0, 3)}…${s.slice(-3)}`;
-        };
-        const candidatos = Object.keys(req.headers || {})
-          .filter(h => /asaas|token|signature|auth/i.test(h));
-        console.warn('[Asaas webhook] token inválido — ignorando',
-          '| recebido:', mascara(sent),
-          '| esperado:', mascara(cfg.webhookToken),
-          '| headers candidatos:', candidatos.join(', ') || '(nenhum)');
-        return null;
-      }
-    }
 
     const boleto = db.prepare(
       'SELECT id, contaReceberId FROM boletos WHERE provedor = ? AND nossoNumero = ?'

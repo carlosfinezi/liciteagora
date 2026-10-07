@@ -181,12 +181,27 @@ function migrarDoLegado(db, cfg) {
 }
 
 /**
- * O provedor de cobrança sabe mesmo emitir este método?
+ * O provedor de cobrança sabe mesmo emitir este método, COM SEGURANÇA?
  *
  * Tabela dizendo "ativo" não basta: sem conta financeira com Asaas o pedido
  * nasceria esperando um Pix que ninguém emite, e o cliente ficaria olhando uma
  * tela de pagamento vazia. Quem responde é a mesma fiação do financeiro, e a
  * pergunta é por MÉTODO — um provedor pode gerar Pix e não gerar boleto.
+ *
+ * ── Saber emitir não é o bastante (07/10/2026) ────────────────────────────
+ *
+ * Desde 07/10 a pergunta tem uma segunda metade: o provedor consegue provar
+ * que o aviso de pagamento veio dele? Um meio que emite mas aceita qualquer
+ * POST como baixa não é um meio pronto — é uma venda que se dá por paga sem
+ * dinheiro. Quem responde é o próprio módulo do provedor
+ * (`webhookAutenticado`), porque o segredo e o formato dele são de quem fala
+ * aquele protocolo.
+ *
+ * Provedor que não implementa a pergunta continua passando. Isso é
+ * deliberado e vale para esta fase: o pedido foi o Asaas, e fechar a porta de
+ * um provedor sem antes medir quem o usa derrubaria cobrança em produção sem
+ * ninguém saber. O Sicredi aceita o corpo do webhook sem validar nada, e é a
+ * mesma falha — está relatado, e fica para quando for medido.
  */
 function provedorPronto(db, metodo) {
   const fn = MEIOS_ONLINE[metodo];
@@ -196,8 +211,56 @@ function provedorPronto(db, metodo) {
     const conta = orq.getContaFinanceiraPadraoBoleto(db);
     if (!conta) return false;
     const r = orq._internal.getProvedorConfig(db, conta);
-    return !!(r && typeof r.modulo[fn] === 'function');
+    if (!r || typeof r.modulo[fn] !== 'function') return false;
+    if (typeof r.modulo.webhookAutenticado === 'function'
+        && !r.modulo.webhookAutenticado(r.cfg)) return false;
+    return true;
   } catch { return false; }
+}
+
+/**
+ * Por que um meio online não pode ser oferecido.
+ *
+ * Dois textos para o mesmo fato, e não duas verdades: a `etiqueta` é o rótulo
+ * da pílula ao lado do método, no registro de "Em breve", e a `mensagem` é a
+ * frase inteira que a API devolve quando recusa a ativação. Uma pílula
+ * arredondada com uma frase de oitenta caracteres não é etiqueta.
+ *
+ * Nenhum dos dois carrega nome de campo, tamanho, token ou stack: quem lê é o
+ * lojista, e o que ele precisa saber é qual das duas coisas configurar.
+ */
+const FALTA = {
+  provedor: {
+    etiqueta: 'Configure o provedor de cobrança',
+    mensagem: 'Configure o provedor de cobrança antes de habilitar pagamentos online.',
+  },
+  webhook: {
+    etiqueta: 'Configure o webhook do provedor',
+    mensagem: 'Configure a autenticação do webhook do provedor antes de habilitar pagamentos online.',
+  },
+};
+
+/** `{ etiqueta, mensagem }` do que falta, ou null quando o meio está pronto. */
+function faltaDoMetodo(db, metodo) {
+  if (!MEIOS_ONLINE[metodo]) return null;
+  if (provedorPronto(db, metodo)) return null;
+  try {
+    const orq = require('./boleto-orchestrator');
+    const conta = orq.getContaFinanceiraPadraoBoleto(db);
+    const r = conta ? orq._internal.getProvedorConfig(db, conta) : null;
+    if (r && typeof r.modulo[MEIOS_ONLINE[metodo]] === 'function'
+        && typeof r.modulo.webhookAutenticado === 'function'
+        && !r.modulo.webhookAutenticado(r.cfg)) {
+      return FALTA.webhook;
+    }
+  } catch { /* cai no motivo geral */ }
+  return FALTA.provedor;
+}
+
+/** A frase de recusa da API, ou null quando o meio está pronto. */
+function motivoIndisponivel(db, metodo) {
+  const f = faltaDoMetodo(db, metodo);
+  return f ? f.mensagem : null;
 }
 
 /** As linhas da tabela, com o rótulo e a modalidade do catálogo junto. */
@@ -214,6 +277,12 @@ function listar(db) {
     retirada: eh(l.retirada),
     indisponivel: INDISPONIVEIS.has(l.metodo),
     provedorPronto: CATALOGO[l.metodo].modalidade === 'online' ? provedorPronto(db, l.metodo) : true,
+    /* O motivo vai à tela para o lojista saber O QUE fazer: "configure o
+       provedor" e "configure a autenticação do webhook" pedem ações
+       diferentes, e a tela mostrava a primeira nos dois casos. Texto de
+       negócio, sem nome de campo nem segredo. */
+    motivo: CATALOGO[l.metodo].modalidade === 'online' && !INDISPONIVEIS.has(l.metodo)
+      ? (faltaDoMetodo(db, l.metodo) || {}).etiqueta || null : null,
   }));
 }
 
@@ -271,12 +340,31 @@ function validar(db, metodo, atendimento, cfg) {
   return { metodo: m, meioFiscal: ok.meioFiscal, modalidade: ok.modalidade };
 }
 
-/** Grava a escolha do lojista. Só mexe no que veio, e nunca apaga linha. */
+/**
+ * Grava a escolha do lojista. Só mexe no que veio, e nunca apaga linha.
+ *
+ * Devolve `{ erro }` quando recusa, e nesse caso NADA é gravado — a transação
+ * não chega a abrir. Ativar um meio online inseguro é a única recusa que
+ * existe aqui, e ela é de segurança: o resto da tela continua salvando como
+ * sempre.
+ */
 function salvar(db, entradas) {
+  const lista = Array.isArray(entradas) ? entradas : [];
+
+  /* A recusa vem ANTES da transação, e não dentro do laço gravando o resto:
+     salvar metade da tela deixaria o lojista achando que configurou, e a outra
+     metade silenciosamente diferente do que ele vê. */
+  for (const e of lista) {
+    const m = String(e && e.metodo || '');
+    if (!CATALOGO[m] || !e.ativo || INDISPONIVEIS.has(m)) continue;
+    const motivo = motivoIndisponivel(db, m);
+    if (motivo) return { erro: motivo, metodo: m };
+  }
+
   const up = db.prepare(`UPDATE loja_metodos_pagamento
       SET ativo = ?, entrega = ?, retirada = ? WHERE metodo = ?`);
-  const tx = db.transaction((lista) => {
-    for (const e of lista) {
+  const tx = db.transaction((itens) => {
+    for (const e of itens) {
       const m = String(e && e.metodo || '');
       if (!CATALOGO[m]) continue;
       /* O que não pode ser ativado não é ativado nem por requisição direta: a
@@ -285,11 +373,12 @@ function salvar(db, entradas) {
       up.run(ativo, e.entrega ? 1 : 0, e.retirada ? 1 : 0, m);
     }
   });
-  tx(Array.isArray(entradas) ? entradas : []);
+  tx(lista);
+  return { ok: true };
 }
 
 module.exports = {
   CATALOGO, INDISPONIVEIS,
-  migrarMetodos, migrarDoLegado, provedorPronto,
+  migrarMetodos, migrarDoLegado, provedorPronto, motivoIndisponivel, faltaDoMetodo,
   listar, disponiveis, validar, salvar,
 };

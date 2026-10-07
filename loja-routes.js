@@ -1612,12 +1612,17 @@ function registrarRotasLojaPublica(app, db) {
     /* Quem responde é o PEDIDO, e não a configuração da loja: com métodos
        online e manuais ativos ao mesmo tempo, uma loja "que cobra por Pix"
        também tem pedidos em dinheiro, e mandar esse cliente para a tela de
-       pagamento o deixaria esperando um QR que nunca vai existir. */
-    const pixNoSite = p.metodoPagamento === 'pix_online';
+       pagamento o deixaria esperando um QR que nunca vai existir.
+       A pergunta é a mesma do checkout, e a resposta sai da mesma tabela. */
+    const online = !!pagamentoLoja.ONLINE[p.metodoPagamento];
     return res.json({
       success: true, repetido: true,
-      freteACombinar: !!(lp && lp.freteACombinar), pixNoSite, link: lp ? lp.token : null,
-      cobranca: pixNoSite ? pagamentoLoja.estadoDoPedido(db, pedido.id) : null,
+      freteACombinar: !!(lp && lp.freteACombinar),
+      pagarNoSite: online, pixNoSite: online, link: lp ? lp.token : null,
+      /* O estado é LIDO, nunca reemitido: a retentativa do checkout não pode
+         criar uma segunda cobrança, e a cobrança deste pedido já existe desde
+         a primeira. É isto que faz o duplo clique devolver o mesmo boleto. */
+      cobranca: online ? pagamentoLoja.estadoDoPedido(db, pedido.id) : null,
       numero: p.numero, total: r2c(p.valorTotal),
       subtotal: r2c(p.valorTotal - (p.valorFrete || 0)), frete: r2c(p.valorFrete || 0),
       atendimento: p.tipoAtendimento,
@@ -1939,18 +1944,31 @@ function registrarRotasLojaPublica(app, db) {
         throw e;
       }
 
-      /* O Pix nasce DEPOIS do commit: é chamada de rede ao provedor, e o
+      /* A cobrança nasce DEPOIS do commit: é chamada de rede ao provedor, e o
          pedido já existe e vale mesmo que ela falhe. Nesse caso o cliente fica
-         sabendo que a loja manda o Pix, e a tela do pedido gera de novo. */
+         sabendo que a loja vai mandar a cobrança, e a tela do pedido gera de
+         novo. */
       /* Quem manda emitir é o MÉTODO escolhido, e não mais a configuração da
          loja: com `pix_online` e `dinheiro` os dois ativos, o mesmo checkout
          serve os dois clientes, e só o primeiro gera cobrança. `pix_manual`
          não passa por aqui de propósito — nele a loja manda a chave e confere
-         o comprovante, e uma cobrança Asaas ficaria aberta para sempre. */
-      let pixErro = null;
-      if (met.metodo === 'pix_online' && !freteACombinar && total > 0) {
-        try { await pagamentoLoja.emitirPixDoPedido(db, criado.id, { vencimentoDias: c.pagamentoVencimentoDias ?? 1 }); }
-        catch (e) { pixErro = e.message; console.error(`[loja] Pix do pedido ${criado.numero}:`, e.message); }
+         o comprovante, e uma cobrança Asaas ficaria aberta para sempre.
+
+         A pergunta é "esta cobrança se paga no site?", e quem responde é
+         `pagamentoLoja.ONLINE` — não uma lista de métodos escrita aqui. Até
+         07/10/2026 estava escrito `met.metodo === 'pix_online'`, e com
+         `boleto_online` ativável o pedido de boleto nascia sem cobrança
+         nenhuma enquanto a tela afirmava que o boleto tinha sido gerado. */
+      const online = !!pagamentoLoja.ONLINE[met.metodo];
+      let cobrancaErro = null;
+      if (online && !freteACombinar && total > 0) {
+        try {
+          await pagamentoLoja.emitirCobrancaDoPedido(db, criado.id, met.metodo,
+            { vencimentoDias: c.pagamentoVencimentoDias ?? 1 });
+        } catch (e) {
+          cobrancaErro = e.message;
+          console.error(`[loja] cobrança ${met.metodo} do pedido ${criado.numero}:`, e.message);
+        }
       }
 
       const p = db.prepare('SELECT numero, valorTotal FROM pedidos WHERE id = ?').get(criado.id);
@@ -1970,11 +1988,23 @@ function registrarRotasLojaPublica(app, db) {
         /* Este PEDIDO gerou cobrança online, e não "esta LOJA cobra online":
            com métodos por pedido as duas deixaram de ser a mesma pergunta. É
            por este campo que a tela decide levar o cliente ao pagamento em
-           vez da confirmação comum. */
-        pixNoSite: met.metodo === 'pix_online',
+           vez da confirmação comum.
+
+           `pagarNoSite` é o nome honesto e o que vale. `pixNoSite` continua
+           sendo mandado com o MESMO valor porque `public/loja/catalogo.js` é
+           estático: no instante em que isto sobe existem abas com a versão
+           anterior, que só conhecem aquele nome. Mandá-lo verdadeiro no boleto
+           é deliberado — a aba antiga leva o cliente para `#/pagar/<token>`,
+           que é a URL persistente, e a primeira recarga já traz a tela certa.
+           Mandá-lo falso o deixaria sem caminho nenhum até o boleto. */
+        pagarNoSite: online,
+        pixNoSite: online,
         link: criado.token,
-        cobranca: met.metodo === 'pix_online' ? pagamentoLoja.estadoDoPedido(db, criado.id) : null,
-        pixFalhou: !!pixErro,
+        cobranca: online ? pagamentoLoja.estadoDoPedido(db, criado.id) : null,
+        /* O nome antigo fica: a tela o lê para avisar que a loja vai mandar a
+           cobrança, e trocá-lo sem necessidade quebraria a aba aberta. */
+        pixFalhou: !!cobrancaErro,
+        cobrancaFalhou: !!cobrancaErro,
       });
     } catch (e) {
       /* Nada do erro real vai para a rua: ele pode carregar SQL, nome de
@@ -2073,7 +2103,11 @@ function registrarRotasLojaAdmin(app, db) {
       if (!Array.isArray(lista)) {
         return res.status(422).json({ success: false, error: 'Envie a lista de métodos.' });
       }
-      metodosLoja.salvar(db, lista);
+      /* Ativar meio online sem a segurança configurada é recusado AQUI, e não
+         só escondido na tela: a tela desabilita a caixa, e esta linha é a
+         garantia de verdade contra requisição direta. Nada foi gravado. */
+      const r = metodosLoja.salvar(db, lista);
+      if (r && r.erro) return res.status(422).json({ success: false, error: r.erro, metodo: r.metodo });
       const c = lerConfig(db);
       res.json({
         success: true,

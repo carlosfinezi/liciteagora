@@ -1293,9 +1293,13 @@ async function finalizarPedido() {
     gravarCarrinho([]);                 // o pedido saiu: a sacola esvazia
     SACOLA = { itens: [], total: 0, quantidadeItens: 0 };
     CHECKOUT.chave = null;              // a próxima compra é outra tentativa
-    /* Com Pix no site, a confirmação é a página de pagamento: ela sobrevive
-       a recarregar, e é o mesmo link que a loja manda pelo WhatsApp. */
-    location.hash = d.pixNoSite && d.link
+    /* Com cobrança no site (Pix ou boleto), a confirmação é a página de
+       pagamento: ela sobrevive a recarregar, e é o mesmo link que a loja manda
+       pelo WhatsApp.
+       `pixNoSite` é o nome que o servidor anterior manda, e este arquivo é
+       estático: ele está no ar antes do restart que publica o servidor novo. */
+    const pagarNoSite = d.pagarNoSite ?? d.pixNoSite;
+    location.hash = pagarNoSite && d.link
       ? '#/pagar/' + encodeURIComponent(d.link)
       : '#/pedido/' + encodeURIComponent(d.numero);
   } catch {
@@ -1327,9 +1331,12 @@ function pintarSucesso(numero) {
         `Olá! Acabei de fazer o pedido nº ${num} pelo catálogo.`)}`
     : null;
   const onde = d.atendimento === 'entrega' ? 'entrega' : 'retirada';
+  /* `boleto_online` saiu daqui, e não ganhou texto novo: com a cobrança
+     emitida, o pedido de boleto vai para a tela de pagamento e nunca chega a
+     esta. A linha que estava aqui dizia "O boleto foi gerado e o link chega
+     pelo WhatsApp" num pedido em que nenhum boleto havia sido gerado. */
   const instrucao = {
     pix_manual: 'A loja vai enviar a chave PIX e conferir o comprovante.',
-    boleto_online: 'O boleto foi gerado e o link chega pelo WhatsApp.',
     dinheiro: `Separe o valor para pagar na ${onde}.`,
     credito_presencial: `A maquininha vai na ${onde}.`,
     debito_presencial: `A maquininha vai na ${onde}.`,
@@ -2023,6 +2030,17 @@ document.addEventListener('input', (e) => {
 
 let ESPERA_PIX = null;
 
+/**
+ * A cobrança deste pedido, num formato só.
+ *
+ * O servidor novo manda `cobranca: { tipo, … }`. O anterior mandava só `pix`,
+ * e este arquivo é estático: ele entra no ar ao ser salvo, e o servidor novo só
+ * no restart. Entre os dois momentos é o `pix` que chega, e quem está com o QR
+ * aberto não pode ver a tela esvaziar.
+ */
+const cobrancaDoEstado = (p) => p.cobranca
+  || (p.pix ? { tipo: 'pix', ...p.pix } : null);
+
 async function pintarPagamento(token) {
   clearTimeout(ESPERA_PIX);
   const alvo = $('conteudo');
@@ -2034,6 +2052,8 @@ async function pintarPagamento(token) {
     return;
   }
   const p = d.pagamento;
+  const cob = cobrancaDoEstado(p);
+  const venc = (iso) => String(iso).split('-').reverse().join('/');
   const zap = linkZap(`Olá! Sobre o meu pedido nº ${p.numero}.`);
   const botaoZap = zap ? `<a class="bt-principal" href="${esc(zap)}" target="_blank" rel="noopener noreferrer">Falar com a loja no WhatsApp</a>` : '';
   const totais = `<div class="chk-totais">
@@ -2050,25 +2070,44 @@ async function pintarPagamento(token) {
     corpo = `<div class="ok-selo" style="margin:0 auto">✓</div><h1>Pedido recebido!</h1>
       <p class="ok-num">Nº <strong>${esc(p.numero)}</strong></p>
       <p class="chk-aviso">A loja vai calcular a taxa de entrega e mandar o Pix do total pelo WhatsApp.</p>${botaoZap}`;
-  } else if (p.pix && (p.pix.copiaECola || p.pix.qr)) {
+  } else if (cob && cob.tipo === 'pix' && (cob.copiaECola || cob.qr)) {
     corpo = `<h1>Pedido nº ${esc(p.numero)}</h1>
       <p class="chk-aviso">Pague pelo Pix para confirmar.</p>
-      <p class="pg-valor">${brl(p.pix.valor)}</p>
-      ${p.pix.qr ? `<div class="pg-qr"><img src="data:image/png;base64,${esc(p.pix.qr)}" alt="QR code do Pix"></div>` : ''}
-      ${p.pix.copiaECola ? `<textarea class="pg-cc" id="pgCC" readonly rows="3">${esc(p.pix.copiaECola)}</textarea>
+      <p class="pg-valor">${brl(cob.valor)}</p>
+      ${cob.qr ? `<div class="pg-qr"><img src="data:image/png;base64,${esc(cob.qr)}" alt="QR code do Pix"></div>` : ''}
+      ${cob.copiaECola ? `<textarea class="pg-cc" id="pgCC" readonly rows="3">${esc(cob.copiaECola)}</textarea>
         <button type="button" class="bt-principal" id="pgCopiar">Copiar código Pix</button>` : ''}
       <span class="pg-espera">Aguardando o pagamento</span>
-      ${p.pix.vencimento ? `<p class="chk-aviso">Vale até ${esc(p.pix.vencimento.split('-').reverse().join('/'))}.</p>` : ''}
+      ${cob.vencimento ? `<p class="chk-aviso">Vale até ${esc(venc(cob.vencimento))}.</p>` : ''}
+      ${botaoZap.replace('bt-principal', 'btn-linha')}`;
+  } else if (cob && cob.tipo === 'boleto' && (cob.linhaDigitavel || cob.url)) {
+    /* O boleto se paga pelo banco, então não há o que esperar na tela: o que o
+       cliente precisa é a linha para colar no aplicativo, ou o documento para
+       abrir. O documento é o do provedor — ele já serve o PDF com o código de
+       barras e o logo do banco, e um PDF nosso seria uma segunda verdade sobre
+       o mesmo título. */
+    corpo = `<h1>Pedido nº ${esc(p.numero)}</h1>
+      <p class="chk-aviso">Boleto gerado. Pague no aplicativo do seu banco.</p>
+      <p class="pg-valor">${brl(cob.valor)}</p>
+      ${cob.vencimento ? `<p class="pg-venc">Vence em ${esc(venc(cob.vencimento))}</p>` : ''}
+      ${cob.linhaDigitavel ? `<textarea class="pg-cc" id="pgCC" readonly rows="2">${esc(cob.linhaDigitavel)}</textarea>
+        <button type="button" class="bt-principal" id="pgCopiar">Copiar linha digitável</button>` : ''}
+      ${cob.url ? `<a class="${cob.linhaDigitavel ? 'btn-linha' : 'bt-principal'}" href="${esc(cob.url)}"
+        target="_blank" rel="noopener noreferrer">Abrir boleto</a>` : ''}
+      <span class="pg-espera">Aguardando o pagamento</span>
       ${botaoZap.replace('bt-principal', 'btn-linha')}`;
   } else {
     corpo = `<div class="ok-selo" style="margin:0 auto">✓</div><h1>Pedido recebido!</h1>
       <p class="ok-num">Nº <strong>${esc(p.numero)}</strong></p>${totais}
-      <p class="chk-aviso">A loja vai mandar o Pix pelo WhatsApp.</p>${botaoZap}`;
+      <p class="chk-aviso">A loja vai entrar em contato para combinar o pagamento.</p>${botaoZap}`;
   }
   alvo.innerHTML = `<div class="pg">${corpo}<button class="btn-linha" data-voltar="1">Voltar ao catálogo</button></div>`;
-  // Enquanto espera o Pix, confere a cada 5 s. O aviso do Asaas baixa o pedido no servidor.
-  // Só redesenha quando muda: repintar a cada volta apagaria o "copiado".
-  if (!p.pago && !p.cancelado && p.pix) {
+  /* Enquanto espera, confere a cada 5 s. O aviso do provedor baixa o pedido no
+     servidor, e só então esta tela muda.
+     Vale para o boleto também: a liquidação bancária é D+1, mas quem deixa a
+     aba aberta e paga na hora pelo aplicativo vê a confirmação aqui.
+     Só redesenha quando muda: repintar a cada volta apagaria o "copiado". */
+  if (!p.pago && !p.cancelado && cob) {
     const conferir = async () => {
       if (location.hash !== '#/pagar/' + token) return;
       const n = await fetch('/loja/api/pagamento/' + encodeURIComponent(token)).then((r) => r.json()).catch(() => null);

@@ -776,6 +776,10 @@ footer.rodape { border-top: 1px solid var(--line); color: var(--ink-2); font-siz
 .pg-qr img { width: 100%; display: block; image-rendering: pixelated; }
 .pg-cc { width: 100%; font: inherit; font-size: 13px; padding: 10px; border: 1px solid var(--line); border-radius: var(--raio);
   background: var(--ground); color: var(--ink); resize: none; min-height: 84px; word-break: break-all; }
+.pg-venc { margin: -6px 0 0; font-size: 14px; color: var(--ink-2); }
+/* A linha digitável cabe em duas linhas, e o `min-height` do Pix deixaria um
+   vão embaixo dela. Por atributo para não mexer no campo do Pix, que usa 3. */
+.pg-cc[rows="2"] { min-height: 58px; }
 .pg-espera { display: inline-flex; align-items: center; justify-content: center; gap: 9px; font-size: 14px; color: var(--ink-2); }
 .pg-espera::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: #E0A10B;
   animation: pulsa 1.4s ease-in-out infinite; }

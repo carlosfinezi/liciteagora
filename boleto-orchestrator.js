@@ -486,16 +486,43 @@ function lancarTarifaBoleto(db, boletoId, dataPagamento, usuario) {
   }
 }
 
+/**
+ * O aviso do provedor, aplicado ao financeiro.
+ *
+ * ── A resposta é SEMPRE a mesma, e isso é a metade da proteção ─────────────
+ *
+ * Quem chama este endpoint não tem sessão: é a internet. Devolver `skipped`
+ * num caso e `aplicado` noutro transforma a URL num oráculo — dá para varrer
+ * `pay_id` até um deles responder diferente, e descobrir quais cobranças
+ * existem naquele tenant sem nunca acertar o segredo. A resposta antiga ainda
+ * devolvia o `evento` inteiro, com `contaReceberId` e `boletoId` dentro.
+ *
+ * Daqui sai `{}` em todos os caminhos, inclusive no erro: provedor
+ * desconhecido, tenant sem conta, segredo errado, cobrança inexistente e baixa
+ * aplicada são indistinguíveis de fora. O que aconteceu fica no log, que é
+ * nosso. Nada lança, para o `catch` do endpoint não virar o canal lateral que
+ * a resposta deixou de ser.
+ */
 async function processarWebhook(db, nomeProvedor, req) {
+  const NEUTRO = {};
+  try {
+    return await _processarWebhook(db, nomeProvedor, req) || NEUTRO;
+  } catch (e) {
+    console.error(`[Webhook ${nomeProvedor}] erro ao processar:`, e.message);
+    return NEUTRO;
+  }
+}
+
+async function _processarWebhook(db, nomeProvedor, req) {
   const modulo = provedores.get(nomeProvedor);
-  if (!modulo) throw new Error(`Provedor desconhecido: ${nomeProvedor}`);
+  if (!modulo) { console.warn(`[Webhook] provedor desconhecido: ${nomeProvedor}`); return null; }
   // Webhook precisa achar a config — em multi-tenant já estamos no contexto do tenant.
   // Sem configuração ativa, ignoramos (não é erro: webhook pode chegar depois da desativação).
   const cfgRow = db.prepare(`SELECT * FROM contas_financeiras_boleto WHERE provedor = ? AND ativo = 1`).get(nomeProvedor);
-  if (!cfgRow) return { skipped: true };
+  if (!cfgRow) return null;
   const cfg = parseConfigJson(cfgRow);
   const evento = await modulo.processarWebhook(req, db, cfg);
-  if (!evento || !evento.contaReceberId) return { skipped: true };
+  if (!evento || !evento.contaReceberId) return null;
   // Atualiza CR e boleto
   if (evento.status === 'pago') {
     // Baixa completa (registra pagamento + lança movimentação no caixa), igual ao
@@ -533,7 +560,11 @@ async function processarWebhook(db, nomeProvedor, req) {
       lancarTarifaBoleto(db, evento.boletoId, evento.dataPagamento, `webhook_${nomeProvedor}`);
     }
   }
-  return { aplicado: true, evento };
+  /* Nada volta ao chamador, nem no caminho feliz: `{ aplicado, evento }`
+     entregava `contaReceberId` e `boletoId` a quem fez o POST. O que o
+     provedor precisa saber é que recebemos, e o `200` já diz isso. */
+  console.log(`[Webhook ${nomeProvedor}] evento ${evento.event || evento.status} aplicado à CR #${evento.contaReceberId}`);
+  return null;
 }
 
 /**

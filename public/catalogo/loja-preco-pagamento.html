@@ -178,8 +178,13 @@ function pintarVencimento() {
  * provedor ou que ela ainda não existe.
  */
 function linhaDoMetodo(m) {
+  /* O motivo vem do SERVIDOR (`m.motivo`), que distingue "falta o provedor" de
+     "falta a autenticação do webhook" — duas ações diferentes para o lojista.
+     O texto fixo fica como reserva para o servidor anterior, que não manda o
+     campo: esta tela é estática e sobe antes do restart. */
   const motivo = m.indisponivel ? 'Em breve'
-    : (m.modalidade === 'online' && !m.provedorPronto) ? 'Configure o provedor de cobrança'
+    : (m.modalidade === 'online' && !m.provedorPronto)
+      ? (m.motivo || 'Configure o provedor de cobrança')
     : null;
   const travado = !!motivo;
   const caixa = (campo, rotulo, servico) => {

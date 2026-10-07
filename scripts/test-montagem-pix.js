@@ -336,7 +336,11 @@ t('P3. aviso do Asaas com o token certo deixa o pedido pago, e a baixa entra com
   const r = await app.chamar('POST', FINALIZAR, corpo());
   const id = [...ASAAS.pagamentos.keys()].pop();
   const w = await webhook(db, id, 'tok-webhook');
-  assert(w.aplicado, JSON.stringify(w));
+  /* Desde 07/10/2026 o webhook responde a MESMA coisa em todos os casos, para
+     a URL não virar oráculo de `pay_id` (ver `boleto-orchestrator`). O que
+     prova que o aviso foi aplicado é o EFEITO, medido logo abaixo, e não o
+     retorno — que antes trazia `contaReceberId` e `boletoId` a quem postou. */
+  assert(w && Object.keys(w).length === 0, 'a resposta do webhook devia ser neutra: ' + JSON.stringify(w));
   const ped = pedidoPorNumero(db, r.body.numero);
   assert(ped.statusPagamento === 'pago', `statusPagamento: ${ped.statusPagamento}`);
   const baixa = db.prepare(`SELECT crp.formaPagamento FROM contas_receber_pagamentos crp
@@ -352,7 +356,8 @@ t('P4. aviso com token errado não mexe em nada', async () => {
   const r = await app.chamar('POST', FINALIZAR, corpo());
   const id = [...ASAAS.pagamentos.keys()].pop();
   const w = await webhook(db, id, 'outro-token');
-  assert(w.skipped, 'devia ignorar');
+  // Mesma resposta do caso aceito: de fora, recusa e sucesso são indistinguíveis.
+  assert(w && Object.keys(w).length === 0, 'a resposta devia ser neutra: ' + JSON.stringify(w));
   assert(pedidoPorNumero(db, r.body.numero).statusPagamento !== 'pago', 'não pode virar pago');
 });
 t('P5. o mesmo checkout reenviado devolve o mesmo pedido, sem segundo Pix', async () => {
@@ -423,7 +428,11 @@ t('P10. cliente sem CPF: a tela do pedido recusa com o motivo', async () => {
   assert(r.body.success, JSON.stringify(r.body));
   const conta = db.prepare("INSERT INTO contas_financeiras (nome, tipo) VALUES ('Asaas', 'banco')").run().lastInsertRowid;
   db.prepare(`INSERT INTO contas_financeiras_boleto (contaFinanceiraId, provedor, ambiente, ativo, ehPadrao, configJson)
-    VALUES (?, 'asaas', 'homologacao', 1, 1, '{"accessToken":"$aact_hmlg_x"}')`).run(conta);
+    VALUES (?, 'asaas', 'homologacao', 1, 1, '{"accessToken":"$aact_hmlg_x","webhookToken":"tok-webhook"}')`).run(conta);
+  /* O `webhookToken` entrou em 07/10: sem ele a conta deixou de ser provedor
+     pronto para cobrança online, e a recusa que sai é a da segurança, não a do
+     CPF. O que este caso mede é a falta do CPF, então o cenário precisa ser
+     seguro em tudo o mais. */
   const ped = pedidoPorNumero(db, r.body.numero);
   const g = await app.chamar('POST', '/api/pedidos/:id/pix', {}, { id: ped.id });
   assert(g.status === 422 && /CPF/.test(g.body.error), JSON.stringify(g.body));

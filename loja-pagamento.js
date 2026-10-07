@@ -1,7 +1,7 @@
 /**
- * loja-pagamento.js — Pix do pedido da loja, pelo provedor de cobrança do ERP.
+ * loja-pagamento.js — a cobrança online do pedido da loja, pelo provedor do ERP.
  *
- * Não existe um caminho de pagamento paralelo: o Pix é uma conta a receber
+ * Não existe um caminho de pagamento paralelo: a cobrança é uma conta a receber
  * amarrada ao pedido (`contas_a_receber.pedidoId`, origem 'loja'), emitida pelo
  * boleto-orchestrator (Asaas), e a baixa vem pelo webhook e pelo polling que já
  * existem. Quando a conta a receber é baixada, `sincronizarPagamentoPedido`
@@ -10,17 +10,50 @@
  *
  * Duas situações:
  *   - o total é conhecido no checkout (retirada, ou entrega com taxa fixa, por
- *     bairro ou grátis): o Pix nasce logo depois do pedido e o cliente paga na
- *     tela de confirmação;
- *   - entrega com taxa a combinar: o pedido entra sem cobrança, e o Pix nasce
+ *     bairro ou grátis): a cobrança nasce logo depois do pedido e o cliente paga
+ *     na tela de confirmação;
+ *   - entrega com taxa a combinar: o pedido entra sem cobrança, e ela nasce
  *     quando a loja lança a taxa na tela do pedido.
  *
  * O link que o cliente recebe é `/loja/#/pagar/<token>`. O token é daqui, e não
  * o `pedidos.tokenPublico`: aquele abre o orçamento público, com os dados do
  * cliente, e um link de pagamento repassado não pode carregar isso.
+ *
+ * ── Por que o despacho é uma TABELA, e não um `if` por método ──────────────
+ *
+ * Até 07/10/2026 havia um `emitirPixDoPedido`, e o checkout emitia só quando o
+ * método era `pix_online` — com `boleto_online` ativável e aparecendo ao
+ * cliente, o pedido de boleto nascia sem conta a receber, sem cobrança e sem
+ * link, e a tela ainda afirmava que o boleto tinha sido gerado. O defeito não
+ * era a falta de um `||`: era o nome do meio estar escrito dentro da regra.
+ *
+ * Aqui o meio é DADO (`ONLINE`), e o que varia entre pix e boleto é só a função
+ * do orquestrador e o `tipoCobranca` gravado. Todo o resto — reaproveitar a
+ * cobrança aberta de mesmo valor, cancelar a de valor diferente, exigir
+ * documento, somar o que já entrou, registrar o token — é igual nos dois, e
+ * continua escrito uma vez só.
  */
 
 const crypto = require('crypto');
+
+/**
+ * Os meios que se pagam NO SITE, e o que cada um muda.
+ *
+ * `emitir` é o nome do método do `boleto-orchestrator`, e não uma
+ * reimplementação: quem fala com o provedor, grava em `boletos`, resolve a
+ * conta financeira e aplica o split continua sendo ele.
+ *
+ * `tipo` é o que vai para `boletos.tipoCobranca`, e é por ele que a baixa sabe
+ * se a forma de pagamento da CR é 'pix' ou 'boleto' (ver `processarWebhook` e
+ * o polling), e que a tela pública sabe o que desenhar.
+ *
+ * O código fiscal NÃO está aqui: ele é do `loja-metodos-pagamento.CATALOGO`,
+ * que é o vocabulário, e duplicá-lo criaria duas verdades sobre o tPag.
+ */
+const ONLINE = {
+  pix_online:    { tipo: 'pix',    emitir: 'emitirCobrancaPixParaCR', rotulo: 'Pix' },
+  boleto_online: { tipo: 'boleto', emitir: 'emitirBoletoParaCR',      rotulo: 'boleto' },
+};
 
 const r2c = (v) => Math.round((Number(v) || 0) * 100) / 100;
 
@@ -42,17 +75,18 @@ function migrarPagamento(db) {
    entrega ao mesmo tempo. */
 
 /**
- * Há provedor capaz de gerar Pix? Sem isto o pedido entra sem cobrança e a loja
- * combina com o cliente, em vez de nascer uma conta a receber que ninguém emite.
+ * Há provedor capaz de emitir este meio? Sem isto o pedido entra sem cobrança e
+ * a loja combina com o cliente, em vez de nascer uma conta a receber que ninguém
+ * emite.
+ *
+ * A pergunta é do `loja-metodos-pagamento`, que já a responde por MÉTODO e é o
+ * mesmo que monta o checkout — um provedor pode gerar Pix e não gerar boleto.
+ * Havia uma segunda implementação aqui, só para Pix, e duas leituras da mesma
+ * pergunta é uma a mais para divergir.
  */
-function provedorPixPronto(db) {
-  try {
-    const orq = require('./boleto-orchestrator');
-    const conta = orq.getContaFinanceiraPadraoBoleto(db);
-    if (!conta) return false;
-    const r = orq._internal.getProvedorConfig(db, conta);
-    return !!(r && typeof r.modulo.criarPix === 'function');
-  } catch { return false; }
+function provedorProntoPara(db, metodo) {
+  try { return require('./loja-metodos-pagamento').provedorPronto(db, metodo); }
+  catch { return false; }
 }
 
 /** Registra o pedido da loja e devolve o token do link de pagamento. Roda na transação do pedido. */
@@ -74,7 +108,10 @@ const crDoPedido = (db, pedidoId) => db.prepare(`SELECT id, status, valor, valor
 
 const cobrancaDaCR = (db, crId) => {
   try {
-    return db.prepare(`SELECT id, tipoCobranca, pixPayload, pixQrImage, externalUrl, status, nossoNumero
+    /* `linhaDigitavel` entrou com o boleto do checkout. A coluna existe desde o
+       `migrarSchema` do orquestrador, e é a mesma que o boleto do ERP grava. */
+    return db.prepare(`SELECT id, tipoCobranca, pixPayload, pixQrImage, linhaDigitavel,
+        externalUrl, status, nossoNumero
       FROM boletos WHERE contaReceberId = ? ORDER BY id DESC LIMIT 1`).get(crId) || null;
   } catch { return null; }
 };
@@ -82,6 +119,19 @@ const cobrancaDaCR = (db, crId) => {
 /**
  * O estado do pagamento, sem dado pessoal: é o que a página pública mostra a
  * quem tem o link. Nome, telefone e endereço ficam de fora.
+ *
+ * ── Dois campos para a mesma cobrança, de propósito ────────────────────────
+ *
+ * `cobranca` é o campo novo e o que vale: ele diz o TIPO e carrega só o que
+ * aquele tipo tem. `pix` continua sendo preenchido quando o tipo é pix, e isso
+ * não é esquecimento — `public/loja/catalogo.js` e `public/comercial/pedido.html`
+ * são arquivos estáticos, e no instante em que este código sobe existem abas
+ * abertas lendo `p.pix`. Tirá-lo deixaria o cliente que está com o QR na tela
+ * sem QR na próxima volta do polling, de 5 em 5 segundos.
+ *
+ * `pix` é derivado de `cobranca`, nunca montado em paralelo: uma fonte, duas
+ * leituras. Quando não houver mais aba antiga, apagar o `pix` é remover três
+ * linhas e nada mais.
  */
 function estadoDoPedido(db, pedidoId) {
   const p = db.prepare(`SELECT id, numero, status, valorTotal, valorFrete, valorPago, statusPagamento,
@@ -90,6 +140,24 @@ function estadoDoPedido(db, pedidoId) {
   const lp = linhaDoPedido(db, pedidoId);
   const cr = crDoPedido(db, pedidoId);
   const b = cr ? cobrancaDaCR(db, cr.id) : null;
+
+  /* Cobrança 'baixada' é a que foi substituída por outro valor, e cobrança de
+     tipo que este módulo não conhece não é desenhável. Nos dois casos a tela
+     cai no "a loja vai combinar", que é a verdade. */
+  const tipo = b && ['pix', 'boleto'].includes(b.tipoCobranca) ? b.tipoCobranca : null;
+  const cobranca = tipo && cr ? {
+    tipo,
+    valor: r2c(cr.valor),
+    vencimento: cr.dataVencimento,
+    /* A URL do provedor: `invoiceUrl` no Pix, `bankSlipUrl` no boleto. É ela
+       que abre o boleto, e não um PDF nosso — o provedor já serve o documento
+       com a linha, o código de barras e o logo do banco. */
+    url: b.externalUrl || null,
+    ...(tipo === 'pix'
+      ? { copiaECola: b.pixPayload || null, qr: b.pixQrImage || null }
+      : { linhaDigitavel: b.linhaDigitavel || null }),
+  } : null;
+
   return {
     numero: p.numero,
     total: r2c(p.valorTotal),
@@ -99,12 +167,14 @@ function estadoDoPedido(db, pedidoId) {
     cancelado: p.status === 'cancelado',
     pago: p.statusPagamento === 'pago',
     pagoEm: p.statusPagamento === 'pago' && cr ? (cr.dataPagamento || null) : null,
-    pix: b && b.tipoCobranca === 'pix' && cr ? {
-      copiaECola: b.pixPayload || null,
-      qr: b.pixQrImage || null,
-      url: b.externalUrl || null,
-      valor: r2c(cr.valor),
-      vencimento: cr.dataVencimento,
+    cobranca,
+    // Compatibilidade com a aba aberta e com a tela do pedido no ERP. Ver acima.
+    pix: cobranca && cobranca.tipo === 'pix' ? {
+      copiaECola: cobranca.copiaECola,
+      qr: cobranca.qr,
+      url: cobranca.url,
+      valor: cobranca.valor,
+      vencimento: cobranca.vencimento,
     } : null,
   };
 }
@@ -121,48 +191,71 @@ const somaDias = (n) => new Date(Date.now() - 3 * 3600 * 1000 + (Number(n) || 0)
   .toISOString().slice(0, 10);
 
 /**
- * Cancela o Pix aberto do pedido, para outro valor tomar o lugar.
+ * Cancela a cobrança aberta do pedido, para outro valor tomar o lugar.
  *
- * Antes de cancelar pergunta ao provedor se ele já foi pago: o cliente pode ter
- * pagado segundos antes de a loja mudar a taxa, e cancelar um Pix pago deixaria
- * o dinheiro entrado sem conta a receber para baixar.
+ * Antes de cancelar pergunta ao provedor se ela já foi paga: o cliente pode ter
+ * pagado segundos antes de a loja mudar a taxa, e cancelar uma cobrança paga
+ * deixaria o dinheiro entrado sem conta a receber para baixar.
  */
-async function cancelarPixAberto(db, cr) {
+async function cancelarCobrancaAberta(db, cr) {
   const orq = require('./boleto-orchestrator');
   const b = cobrancaDaCR(db, cr.id);
   if (b && b.status === 'registrado') {
     const r = await orq.consultarBoleto(db, b.id);
     const sit = String((r && (r.situacao || r.status)) || '').toUpperCase();
     if (['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH', 'PAGO'].includes(sit)) {
-      const e = new Error('O Pix anterior já foi pago. A baixa entra em instantes.');
+      const e = new Error('A cobrança anterior já foi paga. A baixa entra em instantes.');
       e.status = 409;
       throw e;
     }
     try { await orq.baixarBoleto(db, b.id, 'Substituído por novo valor'); }
-    catch (e) { console.warn(`[loja-pix] cancelar cobrança #${b.id} no provedor falhou:`, e.message); }
+    catch (e) { console.warn(`[loja-cobranca] cancelar cobrança #${b.id} no provedor falhou:`, e.message); }
     db.prepare("UPDATE boletos SET status = 'baixado', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?").run(b.id);
   }
   db.prepare("UPDATE contas_a_receber SET status = 'cancelada', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?").run(cr.id);
 }
 
 /**
- * Gera (ou devolve) o Pix do saldo do pedido.
+ * Gera (ou devolve) a cobrança online do saldo do pedido, no meio pedido.
  *
- * Idempotente: se já existe Pix aberto no valor certo, devolve o mesmo, e é
- * isso que deixa o cliente recarregar a página sem criar cobrança nova. Se o
- * valor mudou (a loja lançou ou corrigiu a taxa), o antigo é cancelado antes.
+ * `metodo` é a chave de `loja_metodos_pagamento` ('pix_online', 'boleto_online'),
+ * e é o ÚNICO lugar desta função que sabe de qual meio se trata — o resto vale
+ * para os dois.
+ *
+ * Idempotente: se já existe cobrança aberta do MESMO TIPO no valor certo,
+ * devolve a mesma, e é isso que deixa o cliente recarregar a página e o
+ * checkout ser reenviado sem criar cobrança nova. Se o valor mudou (a loja
+ * lançou ou corrigiu a taxa), ou se o meio pedido é outro, a anterior é
+ * cancelada antes — e nunca há duas cobranças vivas para o mesmo pedido, que é
+ * a condição que o faturamento recusa (`faturas-routes.js`, fail closed).
  */
-async function emitirPixDoPedido(db, pedidoId, { vencimentoDias = 1 } = {}) {
+async function emitirCobrancaDoPedido(db, pedidoId, metodo, { vencimentoDias = 1 } = {}) {
   const falha = (status, msg) => { const e = new Error(msg); e.status = status; return e; };
+  const meio = ONLINE[metodo];
+  /* Meio desconhecido é erro de programação, não de uso: nenhuma requisição
+     chega aqui sem passar por `metodosLoja.validar`. Recusar com 409 em vez de
+     emitir o meio errado é a diferença entre um pedido sem cobrança e um
+     cliente pagando a coisa errada. */
+  if (!meio) throw falha(409, 'Esta forma de pagamento não é cobrada pelo site.');
+
   const p = db.prepare('SELECT id, numero, status, clienteId, valorTotal, statusPagamento FROM pedidos WHERE id = ?').get(pedidoId);
   if (!p) throw falha(404, 'Pedido não encontrado.');
   if (p.status === 'cancelado') throw falha(409, 'O pedido está cancelado.');
   if (p.status === 'rascunho') throw falha(409, 'Confirme o pedido antes de cobrar.');
   if (p.statusPagamento === 'pago') throw falha(409, 'O pedido já está pago.');
   const lp = linhaDoPedido(db, pedidoId);
-  if (lp && lp.freteACombinar) throw falha(422, 'Lance a taxa de entrega antes de gerar o Pix.');
-  if (!provedorPixPronto(db)) throw falha(409, 'Nenhuma conta de cobrança com Pix está ativa. Configure o Asaas em Financeiro › Contas financeiras.');
-  if (!documentoDoCliente(db, pedidoId)) throw falha(422, 'O Pix exige o CPF ou CNPJ do cliente. Complete a ficha do cliente e tente de novo.');
+  if (lp && lp.freteACombinar) throw falha(422, `Lance a taxa de entrega antes de gerar o ${meio.rotulo}.`);
+  if (!provedorProntoPara(db, metodo)) {
+    throw falha(409, `Nenhuma conta de cobrança com ${meio.rotulo} está ativa. `
+      + 'Configure o Asaas em Financeiro › Contas financeiras.');
+  }
+  /* Os dois meios exigem documento: o `emitirBoletoParaCR` o exige pelo
+     `exigirDocumentoFiscal` e LANÇA, e o provedor recusa o Pix sem ele. Aqui a
+     recusa sai com a mensagem que o lojista entende, antes da chamada de rede. */
+  if (!documentoDoCliente(db, pedidoId)) {
+    throw falha(422, `O ${meio.rotulo} exige o CPF ou CNPJ do cliente. `
+      + 'Complete a ficha do cliente e tente de novo.');
+  }
 
   const recebido = Number(db.prepare(`SELECT COALESCE(SUM(valorPago), 0) t FROM contas_a_receber
     WHERE pedidoId = ? AND status != 'cancelada'`).get(pedidoId).t) || 0;
@@ -173,21 +266,40 @@ async function emitirPixDoPedido(db, pedidoId, { vencimentoDias = 1 } = {}) {
   if (cr && cr.status !== 'paga') {
     const b = cobrancaDaCR(db, cr.id);
     const mesmaConta = Math.abs(r2c(cr.valor) - valor) < 0.005 && Number(cr.valorPago || 0) === 0;
-    if (mesmaConta && b && b.tipoCobranca === 'pix' && b.status === 'registrado') return estadoDoPedido(db, pedidoId);
-    if (!mesmaConta || (b && b.status !== 'registrado')) { await cancelarPixAberto(db, cr); cr = null; }
+    /* O TIPO entra na comparação: a CR aberta com um boleto registrado não
+       serve a quem agora pede Pix, e devolvê-la mandaria o cliente para uma
+       tela de QR que não existe. Trocar de meio cancela e reemite, pelo mesmo
+       caminho de quem troca de valor. */
+    const servivel = !!b && b.tipoCobranca === meio.tipo && b.status === 'registrado';
+    if (mesmaConta && servivel) return estadoDoPedido(db, pedidoId);
+    /* CR aberta no valor certo e SEM cobrança nenhuma: emitir sobre ela é o que
+       recupera a falha de rede do provedor. Cancelá-la para criar outra deixaria
+       uma CR cancelada por tentativa, e a condição `!b` tem de ser testada à
+       parte justamente porque "sem cobrança" não é "cobrança de outro meio". */
+    if (!(mesmaConta && !b)) {
+      await cancelarCobrancaAberta(db, cr);
+      cr = null;
+    }
   } else cr = null;
 
   if (!cr) {
+    /* O tPag sai do catálogo de métodos, que é a fonte única: 17 no Pix, 15 no
+       boleto. Estava escrito '17' fixo aqui, e um boleto gravado como Pix
+       sairia errado na conciliação por forma de pagamento e na nota. */
+    const tPag = (require('./loja-metodos-pagamento').CATALOGO[metodo] || {}).meioFiscal || null;
     const id = db.prepare(`INSERT INTO contas_a_receber
         (pessoaId, descricao, valor, valorPago, dataEmissao, dataVencimento, status, origem,
          origemTipo, pedidoId, formaPagamento, dataAtualizacao)
-      VALUES (?, ?, ?, 0, ?, ?, 'aberta', 'loja', 'pedido', ?, '17', CURRENT_TIMESTAMP)`)
+      VALUES (?, ?, ?, 0, ?, ?, 'aberta', 'loja', 'pedido', ?, ?, CURRENT_TIMESTAMP)`)
       .run(p.clienteId, `Pedido ${p.numero} — loja virtual`, valor, somaDias(0),
-           somaDias(vencimentoDias), pedidoId).lastInsertRowid;
+           somaDias(vencimentoDias), pedidoId, tPag).lastInsertRowid;
     cr = { id };
   }
-  const r = await require('./boleto-orchestrator').emitirCobrancaPixParaCR(db, cr.id);
-  if (r && r.skipped) throw falha(409, r.motivo || 'O provedor de cobrança não gerou o Pix.');
+  /* Quem fala com o provedor é o orquestrador, pelo método que a tabela nomeia.
+     Nada de emissão é reimplementado aqui: conta financeira, split, nosso
+     número, gravação em `boletos` e bloqueio por meio da pessoa são dele. */
+  const r = await require('./boleto-orchestrator')[meio.emitir](db, cr.id);
+  if (r && r.skipped) throw falha(409, r.motivo || `O provedor de cobrança não gerou o ${meio.rotulo}.`);
   return estadoDoPedido(db, pedidoId);
 }
 
@@ -232,7 +344,10 @@ function registrarRotasPagamentoAdmin(app, db) {
       success: true,
       loja: !!lp,
       token: lp ? lp.token : null,
-      provedorPronto: provedorPixPronto(db),
+      /* Esta rota é o botão "Gerar Pix" da tela do pedido no ERP, e continua
+         sendo só do Pix nesta fase: o boleto do ERP se emite pela tela de
+         contas a receber, que é onde ele sempre esteve. */
+      provedorPronto: provedorProntoPara(db, 'pix_online'),
       lojaNome: (() => { try { return (db.prepare('SELECT nome FROM loja_config WHERE id = 1').get() || {}).nome || null; } catch { return null; } })(),
       cliente: p ? { nome: p.cliente || null, telefone: p.telefoneEntrega || p.celular || p.telefone || null } : null,
       estado: estadoDoPedido(db, id),
@@ -265,7 +380,7 @@ function registrarRotasPagamentoAdmin(app, db) {
       }
       if (!linhaDoPedido(db, id)) registrarPedido(db, id);
       const cfg = db.prepare('SELECT pagamentoVencimentoDias FROM loja_config WHERE id = 1').get() || {};
-      await emitirPixDoPedido(db, id, { vencimentoDias: cfg.pagamentoVencimentoDias ?? 1 });
+      await emitirCobrancaDoPedido(db, id, 'pix_online', { vencimentoDias: cfg.pagamentoVencimentoDias ?? 1 });
       res.json(resposta(id));
     } catch (e) {
       if (!e.status) console.error('[loja-pix] gerar Pix:', e.message);
@@ -275,7 +390,8 @@ function registrarRotasPagamentoAdmin(app, db) {
 }
 
 module.exports = {
-  migrarPagamento, provedorPixPronto, registrarPedido,
-  estadoDoPedido, emitirPixDoPedido, lancarTaxaDeEntrega, cancelarPixAberto,
+  ONLINE,
+  migrarPagamento, provedorProntoPara, registrarPedido,
+  estadoDoPedido, emitirCobrancaDoPedido, lancarTaxaDeEntrega, cancelarCobrancaAberta,
   registrarRotasPagamentoPublico, registrarRotasPagamentoAdmin,
 };
