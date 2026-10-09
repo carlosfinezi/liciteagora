@@ -11,6 +11,18 @@ const { migrarQueue, enviarWhatsApp, configDoAtendimento } = require('./whatsapp
 const canais = require('./whatsapp-canais');
 
 const OPT_OUT_RE = /^\s*(parar|sair|stop|cancelar|descadastrar|remover)\b/i;
+
+/**
+ * A plataforma do canal que recebeu, que é o `canal` da conversa.
+ *
+ * O atendimento inteiro desta tela (ligar e desligar a IA na conversa, a pausa
+ * de 4 h, o roteiro) acha a conversa por `jid + canal + canalId`. Com
+ * 'whatsapp' escrito fixo, o Messenger não achava a sua própria conversa: a IA
+ * não podia ser desligada ali, a pausa não valia e o roteiro nunca começava.
+ *
+ * Sem canal (tenant anterior à migração de números) é WhatsApp, como era.
+ */
+const plataformaDo = (canal) => (canal && canal.plataforma) || 'whatsapp';
 const AI_MAX_PER_HOUR = 15;
 const HIST_TURNS = 10;
 const PAUSE_MANUAL_S = 4 * 3600;
@@ -41,12 +53,20 @@ function extractText(msg) {
     || msg.documentWithCaptionMessage || msg.editedMessage || {}).message;
   if (embrulhada) return extractText(embrulhada);
   const tpl = msg.templateMessage && (msg.templateMessage.hydratedTemplate || msg.templateMessage.hydratedFourRowTemplate);
+  // O formato NOVO da mensagem de empresa, com botões nativos: o texto não está
+  // em `hydratedTemplate`, e sim em `interactiveMessageTemplate.body.text`, com
+  // o título em `header.title`. Medido na Evolution em 06/10/2026: das 50
+  // mensagens de empresa mais recentes do 1bit, 10 vinham assim, e as 10
+  // ficaram gravadas sem texto nenhum — entre elas o aviso de login da Meta.
+  const inter = msg.templateMessage && msg.templateMessage.interactiveMessageTemplate;
   const legenda = (m) => m && (m.caption || null);
   return msg.conversation
     || (msg.extendedTextMessage && msg.extendedTextMessage.text)
     || legenda(msg.imageMessage) || legenda(msg.videoMessage) || legenda(msg.documentMessage)
     || (tpl && (tpl.hydratedContentText || legenda(tpl.imageMessage) || legenda(tpl.videoMessage)
       || legenda(tpl.documentMessage)))
+    || (inter && ((inter.body && inter.body.text) || (inter.header && inter.header.title)
+      || legenda(inter.header && inter.header.imageMessage)))
     || (msg.buttonsResponseMessage && msg.buttonsResponseMessage.selectedDisplayText)
     || (msg.templateButtonReplyMessage && msg.templateButtonReplyMessage.selectedDisplayText)
     || (msg.listResponseMessage && (msg.listResponseMessage.title
@@ -158,8 +178,8 @@ async function autoResponder(tdb, canal, instance, jid, incomingText, { fechouAg
   // em 4h como a regra acima: quando ele desliga, é porque assumiu de vez.
   let conversa = null;
   try {
-    conversa = tdb.prepare("SELECT id, iaAtiva FROM conv_conversas WHERE jid = ? AND canal = 'whatsapp' AND canalId = ?")
-      .get(jid, canalId || 0);
+    conversa = tdb.prepare('SELECT id, iaAtiva FROM conv_conversas WHERE jid = ? AND canal = ? AND canalId = ?')
+      .get(jid, plataformaDo(canal), canalId || 0);
     if (conversa && !conversa.iaAtiva) return;
   } catch { /* tenant sem a central ainda */ }
 
@@ -197,7 +217,13 @@ async function autoResponder(tdb, canal, instance, jid, incomingText, { fechouAg
   // Escopo do atendente: 'campanha' faz a IA responder só a quem ela mesma
   // abordou. Quem chegou por fora (indicação, site, cliente antigo) fica para o
   // humano — sem resposta automática nenhuma.
-  if (getConfigValue('whatsapp_ai_escopo') === 'campanha' && !campanha) return;
+  //
+  // A porta vale só para o WhatsApp. No Messenger e no Instagram não existe
+  // disparo para lista, então `campanha` é SEMPRE null ali: o escopo
+  // 'campanha', herdado na criação do canal ou gravado à mão, deixaria o canal
+  // mudo para sempre, sem nada na tela dizendo por quê.
+  if (getConfigValue('whatsapp_ai_escopo') === 'campanha' && !campanha
+      && plataformaDo(canal) === 'whatsapp') return;
 
   // ---------- horário de atendimento ----------
   //
@@ -218,6 +244,9 @@ async function autoResponder(tdb, canal, instance, jid, incomingText, { fechouAg
       .get(jid, instance, instance, fora.mensagem, now - 8 * 3600);
     if (jaAvisou) return;
     const env = await enviarWhatsApp(tdb, { telefone: jid.split('@')[0], texto: fora.mensagem, ignorarRitmo: true, canalId });
+    // Mesma razão do `entregar`: aviso que não saiu não entra no histórico, ou
+    // o anti-repetição de 8 h acima o daria por dito e calaria da próxima vez.
+    if (env && env.foraDaJanela) return;
     try {
       tdb.prepare(`INSERT INTO whatsapp_messages (wa_message_id, instance, remote_jid, from_me, from_bot, texto, timestamp)
         VALUES (?, ?, ?, 1, 1, ?, ?)
@@ -238,6 +267,15 @@ async function autoResponder(tdb, canal, instance, jid, incomingText, { fechouAg
   // marca de `from_bot`, mesmo tratamento do eco da Evolution.
   const entregar = async (texto) => {
     const r = await enviarWhatsApp(tdb, { telefone: jid.split('@')[0], texto, ignorarRitmo: true, canalId });
+    // Canal da Meta com a janela de 24 h vencida: a mensagem NÃO saiu, e
+    // gravá-la aqui a mostraria na tela como se tivesse saído — o atendente
+    // leria uma resposta que o contato nunca recebeu e consideraria a conversa
+    // tratada. A conversa já está em não lidas desde a mensagem que chegou, e é
+    // dali que uma pessoa a pega.
+    if (r && r.foraDaJanela) {
+      console.log(`[autoResponder] ${jid}: fora da janela de 24h, nada enviado`);
+      return;
+    }
     try {
       // A Evolution devolve esta mesma mensagem pelo webhook como eco, e lá ela
       // entra com from_bot=0. Os dois caminhos disputam o mesmo wa_message_id:
@@ -412,8 +450,8 @@ function marcarRespondeu(tdb, jid) {
  */
 async function qualificarPeloRoteiro(tdb, canal, jid) {
   try {
-    const conversa = tdb.prepare("SELECT * FROM conv_conversas WHERE jid = ? AND canal = 'whatsapp' AND canalId = ?")
-      .get(jid, (canal && canal.id) || 0);
+    const conversa = tdb.prepare('SELECT * FROM conv_conversas WHERE jid = ? AND canal = ? AND canalId = ?')
+      .get(jid, plataformaDo(canal), (canal && canal.id) || 0);
     if (!conversa) return null;
     const r = await require('./roteiro-conversa').qualificarPelaIA(tdb, conversa);
     // Só ESTA passagem sabe que o roteiro acabou de fechar: gravado o
@@ -423,9 +461,102 @@ async function qualificarPeloRoteiro(tdb, canal, jid) {
   } catch (e) { console.error('[whatsapp-webhook] roteiro:', e.message); return null; }
 }
 
+/**
+ * A mensagem é o atendimento AUTOMÁTICO do contato, e não ele falando?
+ * (09/10/2026)
+ *
+ * O WhatsApp Business responde a saudação, ou o aviso de ausência, sozinho e em
+ * segundos, e para o webhook isso é mensagem como qualquer outra. Em 06/10 a IA
+ * respondeu "Dr. Cell agradece seu contato. Como podemos ajudar?" quatro
+ * segundos depois do disparo da campanha, e emendou a primeira pergunta do
+ * roteiro: a etapa foi gasta falando com uma máquina, e o dono do número abriu o
+ * WhatsApp com uma pergunta já respondida por ela. No 1bit isso alcançou 9
+ * contatos. Pior que a etapa perdida é o ping-pong: o aviso de ausência sai a
+ * cada mensagem nossa, e as duas máquinas se respondem até o limite por hora.
+ *
+ * São dois sinais, e o primeiro é técnico: o WhatsApp Business prefixa a
+ * saudação automática com o LTR mark (U+200E), que não aparece no que uma pessoa
+ * digita — as 21 mensagens recebidas com ele no 1bit são todas saudação de
+ * empresa, e nenhuma é alguém falando. Ele não cobre tudo (a do Dr. Cell veio
+ * sem), e aí vale o segundo: a frase de atendimento automático SOMADA à janela
+ * curta depois de uma mensagem nossa. Os dois juntos, porque nenhum basta
+ * sozinho: a frase sem a janela recusaria quem escreve "como posso te ajudar" de
+ * verdade, e a janela sem a frase recusaria o "👍" que chega em 17 segundos.
+ */
+const AUTO_RESP_JANELA_S = 60;
+const semAcento = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+// Terceira pessoa e primeira do plural, que é como uma empresa fala de si:
+// "agradeço o contato" é alguém digitando, e fica de fora.
+const RE_AUTO_RESPOSTA = new RegExp([
+  '(agradece|agradecemos)( muito)? (o |a |seu |sua |pelo |pela )?(contato|mensagem|preferencia)',
+  'horario de (funcionamento|atendimento|expediente)',
+  '(mensagem|resposta) automatica',
+  'um (de nossos |dos nossos )?(atendentes|representante|consultor)',
+  '(retornaremos|retornarei|retornara|responderemos) ',
+  'assim que (possivel|estiver|retornarmos|um atendente)',
+  'seja bem.?vindo',
+  'como (podemos|posso) (te |lhe )?(ajudar|atender)',
+  'fora do (nosso )?horario',
+  'nosso numero .{0,24}mudou',
+].join('|'), 'i');
+
+function ehAutoResposta(tdb, instance, jid, texto) {
+  const t = String(texto || '');
+  if (/^\s*‎/.test(t)) return true;
+  if (!RE_AUTO_RESPOSTA.test(semAcento(t))) return false;
+  // A janela se mede pelos timestamps gravados, e não pelo relógio: webhook
+  // reentregue horas depois nasceria dentro de qualquer janela contada de agora.
+  const q = tdb.prepare(`SELECT MAX(CASE WHEN from_me = 1 THEN timestamp END) AS nossa,
+      MAX(CASE WHEN from_me = 0 THEN timestamp END) AS dele
+    FROM whatsapp_messages WHERE remote_jid = ? AND COALESCE(instance, ?) = ?`)
+    .get(jid, instance, instance);
+  if (!q || q.nossa == null || q.dele == null) return false;
+  return q.dele - q.nossa >= 0 && q.dele - q.nossa <= AUTO_RESP_JANELA_S;
+}
+
+/**
+ * Esta mensagem ainda é a ÚLTIMA fala do contato? (09/10/2026)
+ *
+ * Quem manda "Claro" e, dois segundos depois, "Boa Noite", recebia DUAS
+ * respostas: o webhook chama o atendimento por mensagem, sem `await` e sem fila,
+ * e as duas passagens correm juntas — nenhuma vê a resposta da outra, nem no
+ * histórico do prompt nem no limite por hora. Foi o que saiu para o 559491839708
+ * em 05/10, a mesma pergunta do roteiro duas vezes, em duas redações do modelo.
+ *
+ * Serializar não resolveria: com a etapa ainda pendente, a segunda passagem
+ * perguntaria de novo, só mais tarde. O que resolve é a ÚLTIMA fala responder por
+ * todas — quem deixou de ser a última desiste, e quem responde já tem as duas
+ * mensagens no histórico. O desempate é por `id`, autoincremento, porque o
+ * `timestamp` tem resolução de segundo e as duas podem cair no mesmo.
+ *
+ * O preço é a espera em TODA resposta da IA, e é por isso que ela é curta.
+ */
+const ESPERA_AGRUPAR_MS = 7000;
+
+async function aindaEhAUltimaFala(tdb, instance, jid) {
+  const ultima = () => tdb.prepare(`SELECT id FROM whatsapp_messages
+      WHERE remote_jid = ? AND COALESCE(instance, ?) = ? AND from_me = 0
+      ORDER BY timestamp DESC, id DESC LIMIT 1`).get(jid, instance, instance);
+  const antes = ultima();
+  await new Promise((r) => setTimeout(r, ESPERA_AGRUPAR_MS));
+  const depois = ultima();
+  return !antes || !depois || antes.id === depois.id;
+}
+
 async function handleIncoming(tdb, canal, instance, jid, texto) {
+  // O atendimento automático do outro lado não é o contato falando: ninguém
+  // responde, e o roteiro não gasta etapa com uma máquina. A mensagem fica
+  // gravada e a conversa já subiu para as não lidas, que é onde uma pessoa a
+  // pega; quando o contato escrever, a etapa sai, porque continua pendente.
+  if (ehAutoResposta(tdb, instance, jid, texto)) {
+    console.log(`[autoResponder] ${jid}: atendimento automatico do contato, nada enviado`);
+    return;
+  }
   if (await handleOptOut(tdb, jid, texto, canal && canal.id)) return; // descadastro preservado
   marcarRespondeu(tdb, jid);                               // métrica, não roteia
+  // Duas mensagens seguidas recebem UMA resposta (ver `aindaEhAUltimaFala`). Vem
+  // depois do opt-out, que responde na hora: quem pede para sair não espera.
+  if (!(await aindaEhAUltimaFala(tdb, instance, jid))) return;
   const fechouAgora = await qualificarPeloRoteiro(tdb, canal, jid);  // marca as respostas antes de a IA responder
   await autoResponder(tdb, canal, instance, jid, texto, { fechouAgora });  // fluxo unificado: SEMPRE a IA (base da campanha)
 }
@@ -646,4 +777,6 @@ function registrarRotaWebhook(app, { tenantManager }) {
   console.log('[WhatsApp] Webhook público registrado em /api/whatsapp/webhook');
 }
 
-module.exports = { extractText, idCitado, daReacao, registrarRotaWebhook, idApagado, marcarStatus, buildLeadReply, handleOptOut, jidCanonico, slugFromInstance, autoResponder, prometeuAtendimentoHumano, qualificarPeloRoteiro };
+// `handleIncoming` é exportado para o meta-adapter.js: Messenger e Instagram
+// entram por outro webhook e caem no MESMO atendimento (opt-out, roteiro, IA).
+module.exports = { extractText, idCitado, daReacao, registrarRotaWebhook, idApagado, marcarStatus, buildLeadReply, handleOptOut, jidCanonico, slugFromInstance, autoResponder, prometeuAtendimentoHumano, qualificarPeloRoteiro, handleIncoming, ehAutoResposta };

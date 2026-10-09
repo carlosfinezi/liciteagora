@@ -4,6 +4,67 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-09, a IA de campanha não responde a robô, e duas mensagens recebem uma resposta
+
+Dois defeitos no atendimento automático, os dois vistos em conversa de verdade.
+
+**A IA conversava com o robô do outro lado.** Em 06/10, quatro segundos depois
+do disparo da campanha, o 559491800972 devolveu "Dr. Cell agradece seu contato.
+Como podemos ajudar?", que é a saudação automática do WhatsApp Business dele, e
+a IA respondeu emendando a primeira pergunta do roteiro. A etapa foi gasta
+falando com uma máquina, e o dono do número abriu o WhatsApp com uma pergunta
+que ele não provocou, já respondida. No 1bit isso alcançou nove contatos. Pior
+que a etapa perdida é o ping-pong: o aviso de ausência sai a cada mensagem
+nossa, e as duas máquinas se respondem até o limite por hora.
+
+O `ehAutoResposta` cala nesse caso, e o roteiro não consome etapa. A mensagem
+fica gravada e a conversa sobe para as não lidas, que é onde uma pessoa a pega;
+quando o contato escrever, a etapa sai, porque continua pendente. São dois
+sinais, e nenhum vale sozinho:
+
+- o **LTR mark (U+200E)**, que o WhatsApp Business põe na saudação automática e
+  que ninguém digita: as 22 mensagens recebidas com ele no 1bit são todas
+  saudação de empresa;
+- a **frase de atendimento automático somada à janela de 60 s** depois de uma
+  mensagem nossa, que é o que pega a do Dr. Cell, que veio sem o marcador. A
+  frase sem a janela recusaria quem escreve "como posso te ajudar" de verdade, e
+  a janela sem a frase recusaria o "👍" que chega em 17 segundos. A janela se
+  mede pelos timestamps gravados, e não pelo relógio: webhook reentregue horas
+  depois nasceria dentro de qualquer janela contada de agora.
+
+Medido contra as 20.291 mensagens recebidas do 1bit: 171 apontadas como
+automáticas, 22 pelo marcador e 149 pela frase. Nenhuma delas é lead de campanha
+respondendo, e são todas portais e empresas onde fomos nós que procuramos
+atendimento.
+
+**Duas mensagens seguidas recebiam duas respostas.** Quem mandou "Claro" e, dois
+segundos depois, "Boa Noite" recebeu a mesma pergunta do roteiro duas vezes, em
+duas redações do modelo (05/10, 559491839708). O webhook chama o atendimento por
+mensagem, sem `await` e sem fila: as duas passagens correm juntas e nenhuma vê a
+resposta da outra, nem no histórico do prompt nem no limite por hora.
+
+Serializar não resolveria, porque com a etapa ainda pendente a segunda passagem
+perguntaria de novo, só mais tarde. O `aindaEhAUltimaFala` faz a ÚLTIMA fala
+responder por todas: espera alguns segundos e desiste se o contato escreveu de
+novo, e quem responde já tem as duas mensagens no histórico. O desempate é por
+`id`, que é autoincremento, porque o `timestamp` tem resolução de segundo e as
+duas podem cair no mesmo. O preço é a espera em toda resposta da IA, e é por
+isso que ela é curta.
+
+As duas guardas moram no `handleIncoming`, que é por onde entram o webhook da
+Evolution e o da Meta. No Messenger e no Instagram, duas mensagens no mesmo
+payload ainda recebem duas respostas: aquele webhook trata os eventos em `for`
+com `await`, e a segunda só é gravada depois de a primeira terminar.
+
+Nos testes, a `test-roteiro-desvio-webhook` ganhou três etapas: a saudação
+automática não gasta etapa e a pergunta sai quando o contato escreve de verdade;
+a frase de bot fora da janela é respondida, e dentro dela não; e duas passagens
+concorrentes produzem uma resposta só. Desligando as duas guardas, as três
+reprovam, e a última reprova com o sintoma do relato, a mesma pergunta duas
+vezes. Na `test-whatsapp-canais`, nove esperas de 300 a 500 ms viraram 8 s, e
+isso não é cosmético: quatro etapas dela afirmam que a IA NÃO respondeu, e com a
+espera curta passariam a medir só o atraso e ficariam verdes sem provar nada.
+
 ## 2026-10-07, a Central de Suporte sai do menu e vira botão da topbar
 
 Pedir ajuda era uma seção do menu lateral, com duas páginas. Agora é um botão

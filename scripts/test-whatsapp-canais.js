@@ -104,6 +104,12 @@ function chamar(metodo, rota, { params = {}, body = {}, query = {} } = {}) {
   });
 }
 const esperar = (ms) => new Promise(r => setTimeout(r, ms));
+// O atendimento só responde depois de conferir que o contato não escreveu de
+// novo, para duas mensagens seguidas receberem UMA resposta
+// (`aindaEhAUltimaFala`, no whatsapp-webhook). Quem mede a resposta — ou a
+// AUSÊNCIA dela — espera mais que isso, senão mede só o atraso e fica verde
+// sem provar nada.
+const ATENDIMENTO_MS = 8000;
 const chegou = (instance, jid, texto, id) => chamar('post', '/api/whatsapp/webhook', { body: {
   event: 'messages.upsert', instance,
   data: { key: { id, remoteJid: jid, fromMe: false }, pushName: 'Maria', message: { conversation: texto }, messageTimestamp: Math.floor(Date.now() / 1000) },
@@ -190,7 +196,7 @@ const envios = (de) => EVO.slice(de).filter(e => /^message\//.test(e.rota));
   await t('B2. mensagem pelo suporte vira conversa do suporte, e a IA dele responde PELO suporte', async () => {
     const de = EVO.length, p0 = IA.prompts.length;
     await chegou('le_demo_2', JID, 'quero ajuda', 'IN1');
-    await esperar(300);
+    await esperar(ATENDIMENTO_MS);
     const conv = db.prepare('SELECT canalId FROM conv_conversas WHERE jid = ?').all(JID);
     assert(conv.length === 1 && conv[0].canalId === 2, 'conversa: ' + JSON.stringify(conv));
     const e = envios(de);
@@ -204,7 +210,7 @@ const envios = (de) => EVO.slice(de).filter(e => /^message\//.test(e.rota));
   await t('B3. o mesmo contato pelo comercial e outra conversa, e a IA do comercial (desligada) nao responde', async () => {
     const de = EVO.length;
     await chegou('le_demo', JID, 'quero comprar', 'IN2');
-    await esperar(300);
+    await esperar(ATENDIMENTO_MS);
     const conv = db.prepare('SELECT canalId FROM conv_conversas WHERE jid = ? ORDER BY canalId').all(JID).map(c => c.canalId).join(',');
     assert(conv === '1,2', 'conversas do contato: ' + conv);
     assert(envios(de).length === 0, 'o comercial respondeu com a IA desligada');
@@ -226,7 +232,7 @@ const envios = (de) => EVO.slice(de).filter(e => /^message\//.test(e.rota));
     await esperar(200);
     const de = EVO.length;
     await chegou('le_demo', jid2, 'Sim', 'DUP1');
-    await esperar(400);
+    await esperar(ATENDIMENTO_MS);
     const linhas = db.prepare("SELECT instance, from_me FROM whatsapp_messages WHERE wa_message_id = 'DUP1' ORDER BY instance").all();
     assert(linhas.length === 2, 'visões gravadas: ' + JSON.stringify(linhas));
     assert(linhas.some(l => l.instance === 'le_demo' && l.from_me === 0), 'a visão de quem recebeu não entrou');
@@ -236,7 +242,7 @@ const envios = (de) => EVO.slice(de).filter(e => /^message\//.test(e.rota));
   await t('E2. resposta humana pausa a IA, e a pausa e dita com hora', async () => {
     const jid3 = '5594966665555@s.whatsapp.net';
     await chegou('le_demo_2', jid3, 'oi', 'P1');              // cria a conversa no suporte (IA ligada)
-    await esperar(300);
+    await esperar(ATENDIMENTO_MS);
     const conv = db.prepare("SELECT id FROM conv_conversas WHERE jid = ? AND canalId = 2").get(jid3);
     // O atendente responde à mão pela tela: é o que arma a pausa de 4 horas.
     await chamar('post', '/api/conversas/:id/responder', { params: { id: conv.id }, body: { texto: 'eu assumo' } });
@@ -246,7 +252,7 @@ const envios = (de) => EVO.slice(de).filter(e => /^message\//.test(e.rota));
     // E a IA se cala mesmo: a próxima mensagem do contato não é respondida.
     const de = EVO.length;
     await chegou('le_demo_2', jid3, 'Sim', 'P2');
-    await esperar(400);
+    await esperar(ATENDIMENTO_MS);
     assert(envios(de).length === 0, 'a IA respondeu durante a pausa');
   });
 
@@ -257,7 +263,7 @@ const envios = (de) => EVO.slice(de).filter(e => /^message\//.test(e.rota));
     assert(r.body.success && !r.body.pausa.pausada, 'a pausa continuou: ' + JSON.stringify(r.body));
     const de = EVO.length;
     await chegou('le_demo_2', jid3, 'Sim de novo', 'P3');
-    await esperar(400);
+    await esperar(ATENDIMENTO_MS);
     assert(envios(de).length === 1, 'a IA continuou calada depois do retomar');
   });
 
@@ -279,7 +285,7 @@ const envios = (de) => EVO.slice(de).filter(e => /^message\//.test(e.rota));
     // Contato sem campanha nenhuma: o escopo o exclui, e isso continua valendo.
     const de0 = EVO.length;
     await chegou('le_demo_2', jid4, 'oi', 'ESC0');
-    await esperar(400);
+    await esperar(ATENDIMENTO_MS);
     assert(envios(de0).length === 0, 'o escopo campanha respondeu a quem não veio de campanha');
 
     // Agora o mesmo contato como destinatário JÁ ENVIADO de uma campanha nova.
@@ -294,7 +300,7 @@ const envios = (de) => EVO.slice(de).filter(e => /^message\//.test(e.rota));
       VALUES (?, 'whatsapp', ?, 'Oi', 'enviado', ?, 1, 2)`).run(camp, '5594955554444', new Date().toISOString()).lastInsertRowid);
     const de = EVO.length;
     await chegou('le_demo_2', jid4, 'Sim', 'ESC1');
-    await esperar(500);
+    await esperar(ATENDIMENTO_MS);
     assert(envios(de).length === 1, 'a IA não respondeu a quem veio da campanha nova');
 
     // E a campanha que saiu por OUTRO número não vale (05/10/2026): no 1bit a
@@ -303,7 +309,7 @@ const envios = (de) => EVO.slice(de).filter(e => /^message\//.test(e.rota));
     db.prepare('UPDATE comm_envios SET canalId = 1 WHERE id = ?').run(envio);
     const de2 = EVO.length;
     await chegou('le_demo_2', jid4, 'E agora', 'ESC2');
-    await esperar(500);
+    await esperar(ATENDIMENTO_MS);
     assert(envios(de2).length === 0, 'a campanha de outro número fez a IA responder, e o escopo vaza');
     // Limpa para não mexer na contagem das provas de conversa.
     const c = db.prepare('SELECT id FROM conv_conversas WHERE jid = ?').all(jid4).map(x => x.id);

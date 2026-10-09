@@ -65,7 +65,7 @@ require.cache[require.resolve('../notificacoes-dispatcher')] = { exports: {
 
 const RC = require('../roteiro-conversa');
 const CR = require('../conversas-routes');
-const { autoResponder, prometeuAtendimentoHumano, qualificarPeloRoteiro } = require('../whatsapp-webhook');
+const { autoResponder, prometeuAtendimentoHumano, qualificarPeloRoteiro, handleIncoming } = require('../whatsapp-webhook');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desvio-webhook-'));
 const db = new Database(path.join(dir, 'pncp.db'));
@@ -117,6 +117,20 @@ const receber = async (c, texto, opts = {}) => {
   enviadas.length = 0; chamadasLLM = 0; avisos.length = 0;
   await autoResponder(db, CANAL, 'inst1', c.jid, texto, opts);
 };
+// As guardas da W10 em diante moram no `handleIncoming`, e não no
+// `autoResponder`: é ele que o webhook chama, e é onde a mensagem automática do
+// contato e a fala repetida precisam morrer antes de gastar etapa do roteiro.
+// `from_bot` acompanha `from_me`, como na campanha e na resposta da IA: nossa
+// mensagem gravada sem a marca é "um humano respondeu à mão", e isso PAUSA a IA
+// por 4 h — o fixture calaria o atendimento e a etapa mediria outra coisa.
+const gravarMsg = (c, texto, { deMim = false, atrasoS = 0 } = {}) =>
+  db.prepare('INSERT INTO whatsapp_messages (instance, remote_jid, from_me, from_bot, texto, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+    .run('inst1', c.jid, deMim ? 1 : 0, deMim ? 1 : 0, texto, Math.floor(Date.now() / 1000) + atrasoS);
+const porWebhook = async (c, texto) => {
+  gravarMsg(c, texto);
+  await handleIncoming(db, CANAL, 'inst1', c.jid, texto);
+};
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 const ficha = (id) => db.prepare('SELECT * FROM conv_conversas WHERE id = ?').get(id);
 const pausada = (c) => CR.pausaDaIA(db, { jid: c.jid, canalId: 1, conversaId: c.id }).pausada;
 const eventos = (id) => db.prepare("SELECT detalhe FROM conv_eventos WHERE conversaId = ? AND tipo = 'ia' ORDER BY id DESC").all(id).map(r => r.detalhe);
@@ -167,12 +181,36 @@ const t = async (nome, fn) => {
 
   // O buraco que motivou tirar as mensagens do roteiro: quem vê um anúncio e
   // pergunta o link nunca passou por campanha.
-  await t('W2b fora de campanha, sem roteiro, o material TAMBEM sai', async () => {
+  await t('W2b fora de campanha, sem roteiro no tenant, o material sai SOZINHO', async () => {
     const c = conversa(10, '5594991114444', false);
-    assert(!RC.roteiroDaConversa(db, ficha(10)), 'o fixture tem roteiro e não devia');
+    // Desde 05/10/2026 "fora de campanha" não quer mais dizer "sem roteiro":
+    // quem nunca recebeu campanha cai no roteiro padrão do tenant, que é o que
+    // dá roteiro ao Messenger, ao Instagram e ao Click-to-WhatsApp. Para medir
+    // o material SOZINHO, que é o que esta etapa guarda, o tenant tem de estar
+    // sem roteiro ativo nenhum.
+    db.prepare('UPDATE roteiros SET ativo = 0').run();
+    try {
+      assert(!RC.roteiroDaConversa(db, ficha(10)), 'o fixture tem roteiro e não devia');
+      await receber(c, 'manda o link do site');
+      assert(chamadasLLM === 0, 'chamou o LLM fora de campanha');
+      assert(enviadas.length === 1 && enviadas[0] === RESP_MATERIAL, 'não saiu só o material: ' + enviadas[0]);
+    } finally {
+      // Restaura mesmo se a asserção falhar: sem isto, toda etapa daqui para
+      // baixo mediria um tenant sem roteiro e falharia em cascata, escondendo
+      // qual foi o defeito de verdade.
+      db.prepare('UPDATE roteiros SET ativo = 1 WHERE id = ?').run(rot);
+    }
+  });
+
+  await t('W2c fora de campanha COM roteiro no tenant, o roteiro entra', async () => {
+    const c = conversa(20, '5594991114445', false);
+    assert(RC.roteiroDaConversa(db, ficha(20))?.id === rot,
+      'quem nunca recebeu campanha devia cair no roteiro padrao do tenant');
     await receber(c, 'manda o link do site');
-    assert(chamadasLLM === 0, 'chamou o LLM fora de campanha');
-    assert(enviadas.length === 1 && enviadas[0] === RESP_MATERIAL, 'não saiu só o material: ' + enviadas[0]);
+    assert(enviadas.length === 1, 'nao respondeu: ' + JSON.stringify(enviadas));
+    assert(enviadas[0].startsWith(RESP_MATERIAL), 'nao saiu o material do canal: ' + enviadas[0]);
+    assert(/Sua empresa vende para órgão público\?/.test(enviadas[0]),
+      'o roteiro entrou mas a pergunta da etapa nao saiu: ' + enviadas[0]);
   });
 
   await t('W3 mensagem comum segue para a IA, como antes', async () => {
@@ -254,6 +292,52 @@ const t = async (nome, fn) => {
     assert(primeira === 'qualificado', 'a passagem que fecha não disse o desfecho: ' + primeira);
     const segunda = await qualificarPeloRoteiro(db, CANAL, c.jid);
     assert(segunda === null, 'disse de novo na passagem seguinte, e a mensagem de término sairia duas vezes: ' + segunda);
+  });
+
+  await t('W10 saudacao automatica do contato: nada sai, e a etapa NAO e gasta', async () => {
+    const c = conversa(21, '5594991110003', true);
+    enviadas.length = 0;
+    await porWebhook(c, '‎Dr. Cell agradece seu contato. Como podemos ajudar?');
+    assert(enviadas.length === 0, 'respondeu ao atendimento automatico do contato: ' + enviadas[0]);
+    assert(!RC.registroDa(db, 21), 'o roteiro gastou etapa falando com uma maquina');
+    // E a etapa continua esperando: quando o contato escreve, ela sai.
+    respostaDaIA = 'Claro! Sua empresa vende para órgão público?';
+    await porWebhook(c, 'oi, vi a mensagem de vocês, me conta mais');
+    assert(enviadas.length === 1 && enviadas[0].startsWith(respostaDaIA),
+      'calou tambem para o contato de verdade: ' + JSON.stringify(enviadas));
+  });
+
+  await t('W11 a frase de bot sozinha nao basta: fora da janela, responde', async () => {
+    const c = conversa(22, '5594991110004', true);
+    const FRASE = 'Agradecemos o contato. Um representante falará com você em breve.';
+    gravarMsg(c, 'Olá! Todo dia prefeituras abrem licitações…', { deMim: true, atrasoS: -600 });
+    enviadas.length = 0;
+    await porWebhook(c, FRASE);
+    assert(enviadas.length === 1, 'calou por causa da frase, com a nossa mensagem de 10 minutos atras: '
+      + JSON.stringify(enviadas));
+    // A mesma frase logo depois de falarmos é a autoresposta, e aí cala.
+    const d = conversa(23, '5594991110005', true);
+    gravarMsg(d, 'Olá! Todo dia prefeituras abrem licitações…', { deMim: true });
+    enviadas.length = 0;
+    await porWebhook(d, FRASE);
+    assert(enviadas.length === 0, 'respondeu a autoresposta que chegou na hora: ' + enviadas[0]);
+  });
+
+  await t('W12 duas mensagens seguidas recebem UMA resposta', async () => {
+    const c = conversa(24, '5594991110006', true);
+    respostaDaIA = 'Sua empresa vende para órgão público?';
+    enviadas.length = 0; chamadasLLM = 0;
+    // Como no webhook: duas passagens concorrentes, sem await entre elas.
+    const primeira = porWebhook(c, 'Claro');
+    await dormir(300);
+    const segunda = porWebhook(c, 'Boa noite');
+    await Promise.all([primeira, segunda]);
+    assert(enviadas.length === 1, 'enviou ' + enviadas.length + ' resposta(s) para duas mensagens seguidas: '
+      + JSON.stringify(enviadas));
+    assert(enviadas[0].startsWith(respostaDaIA), 'saiu outra coisa no lugar da resposta: ' + enviadas[0]);
+    // Quem respondeu foi a ÚLTIMA passagem, e ela leu as duas falas: o extrator
+    // do roteiro só rodou uma vez, e não duas (uma chamada de LLM por passagem).
+    assert(chamadasLLM <= 2, 'as duas passagens chamaram o LLM: ' + chamadasLLM);
   });
 
   console.log(`\n${ok} ok, ${fail} falha(s)`);
