@@ -4,6 +4,68 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-10-10, a opção do roteiro não é promessa da IA, e a mesma mensagem não sai duas vezes
+
+Os dois defeitos que o atendimento mostrou no dia seguinte ao conserto da
+autoresposta. Nenhum é reincidência: toda repetição com intervalo de até dez
+segundos no histórico do 1bit é anterior ao boot de 09/10 às 10:10, e a última
+foi em 07/10 às 13:38, doze respostas iguais em um minuto contra o robô da
+Gagliardi Contabilidade, que é o caso que a guarda de autoresposta corta.
+
+**A IA se calava sozinha por causa de uma opção do próprio roteiro.** Em 09/10
+às 12:33 o atendimento mandou a pergunta sobre quem lê o edital, com a opção
+"3) Alguém da equipe, leva horas", e o `prometeuAtendimentoHumano` leu nela a
+promessa de atendimento humano: pausou a IA por 4 h e chamou a equipe. O contato
+respondeu "1" um minuto depois, o roteiro gravou a resposta e **nenhuma mensagem
+saiu**; o atendimento só voltou oito horas mais tarde, à mão, com o atendente
+escrevendo "a IA falhou" (JALLES, 559492410812). Não foi caso isolado: a mesma
+pergunta fez o mesmo em 08/10 com o 559491564047, e as duas conversas ficaram
+com a IA desligada.
+
+A lista de opções é formulário que o roteiro escreveu, e não fala da IA, então
+sai da medição (`semAsOpcoes`). Só a lista NUMERADA sai, que é a forma que o
+roteiro usa; bullet fica, porque ali a IA às vezes enumera o que ela própria vai
+fazer, e aí a promessa é dela. Medido contra todas as mensagens que a IA já
+mandou no 1bit: o detector acusa 19, nenhuma com lista numerada, e todas são
+promessa de verdade em prosa ("já estou acionando o Carlos", "posso deixar um
+recado").
+
+**A mesma mensagem saía duas vezes quando o contato não avançava a etapa.** O
+559492410812 respondeu "2" às 11:58 e, um minuto depois, escreveu "Não tenho
+experiência", que é a mesma coisa em palavras: a etapa continuou pendente, o
+prompt continuou mandando perguntá-la, e o modelo reemitiu o mesmo
+reconhecimento com a mesma lista.
+
+Agora, quando a resposta gerada repete a nossa última mensagem, o sistema pede
+uma SEGUNDA redação, e se ela também repetir, nada sai — o silêncio é melhor que
+a mesma mensagem duas vezes, e a conversa já está nas não lidas desde que a
+mensagem chegou. Dois detalhes que não se deduzem:
+
+- **a instrução de não repetir vai DENTRO do `system` original.** O adaptador do
+  Gemini faz `messages.find(m => m.role === 'system')` e lê só o primeiro
+  (`chat-ia.js`), então um segundo `system`, no fim, seria descartado justamente
+  no provider que atende hoje;
+- **a comparação é por LINHAS em comum, e não por igualdade.** As duas mensagens
+  daquele caso diferem só na última linha ("Você pode responder o número da
+  opção…" virou "Responda com o número da opção…"), e um `===` as daria por
+  diferentes — conferido na base: `===` diz que não, a medição por linhas diz
+  que sim. Proibir a repetição pelo prompt não substitui a guarda: vale na maior
+  parte das vezes e falha de vez em quando, e o que falha de vez em quando chega
+  ao contato.
+
+Calibrado contra os 155 pares consecutivos de mensagens da IA no 1bit: pega 25
+repetições e não marca nenhum dos 130 pares legítimos. Duas das 25 não seriam
+vistas por comparação de prefixo, e as duas são repetição de verdade — uma é a
+mesma pergunta reenviada 24 s depois, sem o reconhecimento na frente.
+
+Nos testes, a `test-roteiro-desvio-webhook` ganhou W13, W14 e W15: a opção do
+roteiro não pausa nem chama a equipe, e a promessa em prosa continua pausando,
+inclusive quando vem depois de uma lista; a resposta repetida gera a segunda
+redação e é ela que sai, com o dublê devolvendo a alternativa só se achar a
+instrução no primeiro `system`; e a segunda repetição não envia nada, sem perder
+a fala do contato. Sabotados os dois consertos, as três reprovam, e a W7, que
+mede a promessa real, continua passando.
+
 ## 2026-10-09, a IA de campanha não responde a robô, e duas mensagens recebem uma resposta
 
 Dois defeitos no atendimento automático, os dois vistos em conversa de verdade.

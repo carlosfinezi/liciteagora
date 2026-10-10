@@ -338,13 +338,36 @@ async function autoResponder(tdb, canal, instance, jid, incomingText, { fechouAg
   }
 
   const prompt = require('./whatsapp-adapter').buildSystemAtendimento(tdb, campanhaId, { conversaId, canalId });
-  const messages = [{ role: 'system', content: prompt }, ...hist.map(m => ({ role: m.from_me ? 'assistant' : 'user', content: m.texto }))];
+  const falas = hist.map(m => ({ role: m.from_me ? 'assistant' : 'user', content: m.texto }));
+  const messages = [{ role: 'system', content: prompt }, ...falas];
+  const modelos = require('./ia-modelos').resolverModelos(tdb);
 
   // Garantia 1 (nunca silêncio): se o LLM vier vazio ou falhar, cai no fallback genérico.
   let reply = '';
-  try { const out = await chamarChatLLM(messages, keys, require('./ia-modelos').resolverModelos(tdb)); reply = ((out && out.content) || '').trim(); }
+  try { const out = await chamarChatLLM(messages, keys, modelos); reply = ((out && out.content) || '').trim(); }
   catch (e) { console.error('[autoResponder] LLM falhou:', e.message); }
   if (!reply) reply = require('./whatsapp-adapter').FALLBACK_SEM_RESPOSTA;
+
+  // A MESMA mensagem outra vez não é resposta (ver `ehRepeticao`). Uma segunda
+  // redação, com a instrução de não repetir DENTRO do system: o adaptador do
+  // Gemini lê só o primeiro `system` (chat-ia.js), e um segundo, no fim, seria
+  // descartado justamente no provider que atende hoje.
+  const ultimaNossa = [...falas].reverse().find(m => m.role === 'assistant');
+  if (ultimaNossa && ehRepeticao(ultimaNossa.content, reply)) {
+    let outra = '';
+    try {
+      const out = await chamarChatLLM([{ role: 'system', content: prompt + '\n\n' + NAO_REPITA }, ...falas], keys, modelos);
+      outra = ((out && out.content) || '').trim();
+    } catch (e) { console.error('[autoResponder] segunda redacao falhou:', e.message); }
+    // Ainda igual: o silêncio é melhor que a mesma mensagem duas vezes. A
+    // conversa já está nas não lidas desde a mensagem que chegou, e é dali que
+    // uma pessoa a pega.
+    if (!outra || ehRepeticao(ultimaNossa.content, outra)) {
+      console.log(`[autoResponder] ${jid}: a resposta repetiria a anterior, nada enviado`);
+      return;
+    }
+    reply = outra;
+  }
   // Guarda de saída do roteiro: com uma etapa pendente, o link não sai, por mais
   // que as instruções do canal mandem oferecê-lo (ver semLinkNoRoteiro).
   try { reply = require('./roteiro-conversa').semLinkNoRoteiro(tdb, conversaId, reply); }
@@ -384,8 +407,27 @@ const RE_PROMETEU_GENTE = new RegExp(
   + '|vai (te )?(chamar|responder|retornar)|retorna (com|em breve)'
   + '|respond(er|e) pessoalmente)\\b', 'i');
 
+/**
+ * A LISTA DE OPÇÕES não é fala da IA, e por isso sai da medição (10/10/2026).
+ *
+ * A mensagem que sai carrega a pergunta da etapa e as opções dela, escritas no
+ * roteiro. Medir a promessa no texto inteiro faz o sistema cobrar da IA uma
+ * frase que o roteiro escreveu, e foi o que aconteceu duas vezes em dois dias
+ * no 1bit: a opção "3) Alguém da equipe, leva horas", da pergunta sobre quem lê
+ * o edital, casou "alguém da equipe" e pausou a IA por 4 h no meio de uma
+ * conversa que ia bem (JALLES, 09/10 às 12:33). O contato respondeu "1" no
+ * minuto seguinte, o roteiro gravou a resposta e nenhuma mensagem saiu; o
+ * atendimento só voltou oito horas depois, à mão.
+ *
+ * Só a lista NUMERADA sai, que é a forma que o roteiro usa. Bullet fica, porque
+ * ali a IA às vezes enumera o que ela própria vai fazer, e aí a promessa é dela.
+ */
+const RE_LINHA_DE_OPCAO = /^\s*[*_~]?\s*\d{1,2}\s*[)\].:*-]/;
+const semAsOpcoes = (texto) => String(texto || '').split('\n')
+  .filter((l) => !RE_LINHA_DE_OPCAO.test(l)).join('\n');
+
 function prometeuAtendimentoHumano(texto) {
-  const t = String(texto || '');
+  const t = semAsOpcoes(texto);
   return !!t.trim() && RE_PROMETEU_GENTE.test(t);
 }
 
@@ -532,6 +574,45 @@ function ehAutoResposta(tdb, instance, jid, texto) {
  * O preço é a espera em TODA resposta da IA, e é por isso que ela é curta.
  */
 const ESPERA_AGRUPAR_MS = 7000;
+
+/**
+ * A resposta gerada é a MESMA mensagem que já saiu? (10/10/2026)
+ *
+ * Quando o contato diz algo que não avança a etapa — o 559492410812 respondeu
+ * "2" e, um minuto depois, escreveu "Não tenho experiência", que é a mesma
+ * coisa em palavras —, a etapa continua pendente, o prompt continua mandando
+ * perguntá-la, e o modelo reemite o mesmo reconhecimento com a mesma lista. Foi
+ * o que saiu duas vezes às 11:58 e às 12:00 de 09/10.
+ *
+ * Igualdade de texto não serve para medir isso: as duas mensagens daquele caso
+ * diferem só na última linha ("Você pode responder o número da opção…" virou
+ * "Responda com o número da opção…"), e um `===` as daria por diferentes. O que
+ * se compara é a fração de LINHAS em comum, que separa bem as duas situações:
+ * naquele par é 5 de 6, e entre as perguntas de duas etapas diferentes só a
+ * linha final coincide (1 de 6).
+ *
+ * Proibir a repetição pelo prompt não substitui isto: vale na maior parte das
+ * vezes e falha de vez em quando, e o que falha de vez em quando chega ao
+ * contato.
+ */
+const LINHAS_EM_COMUM_MIN = 0.8;
+
+function ehRepeticao(anterior, nova) {
+  const linhas = (t) => new Set(String(t || '').split('\n')
+    .map((l) => semAcento(l).replace(/\s+/g, ' ').trim()).filter(Boolean));
+  const a = linhas(anterior), b = linhas(nova);
+  if (!a.size || !b.size) return false;
+  let comuns = 0;
+  for (const l of b) if (a.has(l)) comuns++;
+  return comuns / Math.max(a.size, b.size) >= LINHAS_EM_COMUM_MIN;
+}
+
+// Vai no fim do system da SEGUNDA redação, e só dela. O contato acabou de dizer
+// algo que não avança a etapa, e repetir a lista inteira é o que se quer evitar.
+const NAO_REPITA = 'ATENÇÃO: você acabou de enviar a mensagem anterior desta conversa e ela '
+  + 'está sem resposta. NÃO repita aquela mensagem, nem as mesmas opções. Responda ao que o '
+  + 'contato acabou de escrever, com outras palavras e mais curto, e reconduza para a mesma '
+  + 'pergunta de outra forma, sem listar as opções de novo.';
 
 async function aindaEhAUltimaFala(tdb, instance, jid) {
   const ultima = () => tdb.prepare(`SELECT id FROM whatsapp_messages
@@ -779,4 +860,4 @@ function registrarRotaWebhook(app, { tenantManager }) {
 
 // `handleIncoming` é exportado para o meta-adapter.js: Messenger e Instagram
 // entram por outro webhook e caem no MESMO atendimento (opt-out, roteiro, IA).
-module.exports = { extractText, idCitado, daReacao, registrarRotaWebhook, idApagado, marcarStatus, buildLeadReply, handleOptOut, jidCanonico, slugFromInstance, autoResponder, prometeuAtendimentoHumano, qualificarPeloRoteiro, handleIncoming, ehAutoResposta };
+module.exports = { extractText, idCitado, daReacao, registrarRotaWebhook, idApagado, marcarStatus, buildLeadReply, handleOptOut, jidCanonico, slugFromInstance, autoResponder, prometeuAtendimentoHumano, qualificarPeloRoteiro, handleIncoming, ehAutoResposta, ehRepeticao };

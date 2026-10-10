@@ -49,9 +49,17 @@ require.cache[require.resolve('../whatsapp-adapter')] = { exports: {
   FALLBACK_SEM_RESPOSTA: 'Vou encaminhar para um atendente.',
 } };
 require.cache[require.resolve('../atendimento-horario')] = { exports: { foraDoExpediente: () => null } };
+// `respostaDaIA` aceita FUNÇÃO, e não só texto: as etapas da segunda redação
+// (W14, W15) precisam responder conforme o que chegou no prompt, que é como se
+// prova que a instrução de não repetir foi para o `system` — um segundo
+// `system`, no fim, o adaptador do Gemini descartaria (chat-ia.js).
 let respostaDaIA = 'resposta da IA';
 require.cache[require.resolve('../chat-ia')] = { exports: {
-  chamarChatLLM: async () => { chamadasLLM++; return { content: respostaDaIA, provider: 'groq' }; },
+  chamarChatLLM: async (msgs) => {
+    chamadasLLM++;
+    const r = typeof respostaDaIA === 'function' ? respostaDaIA(msgs || []) : respostaDaIA;
+    return { content: r, provider: 'groq' };
+  },
 } };
 require.cache[require.resolve('../ia-modelos')] = { exports: { resolverModelos: () => ({}) } };
 require.cache[require.resolve('../audit-log')] = { exports: { logAction: () => {} } };
@@ -338,6 +346,66 @@ const t = async (nome, fn) => {
     // Quem respondeu foi a ÚLTIMA passagem, e ela leu as duas falas: o extrator
     // do roteiro só rodou uma vez, e não duas (uma chamada de LLM por passagem).
     assert(chamadasLLM <= 2, 'as duas passagens chamaram o LLM: ' + chamadasLLM);
+  });
+
+  // A opção do roteiro não é promessa da IA. Sem esta etapa, o detector cobra
+  // dela a frase que o roteiro escreveu, cala a IA por 4 h no meio de uma
+  // conversa que ia bem e chama a equipe à toa (JALLES, 09/10/2026).
+  const PERGUNTA_COM_EQUIPE = ['Quando aparece um edital, quem lê as 200 páginas? Quanto tempo leva?', '',
+    '1) Ninguém lê inteiro, ou desiste do edital', '2) O dono lê, leva dias',
+    '3) Alguém da equipe, leva horas', '4) Resolvem rápido', '',
+    'Você pode responder o número ou escrever com suas próprias palavras.'].join('\n');
+
+  await t('W13 a opcao do roteiro NAO conta como promessa de atendimento humano', async () => {
+    const c = conversa(25, '5594991110007', true);
+    respostaDaIA = PERGUNTA_COM_EQUIPE;
+    await receber(c, '4');
+    assert(enviadas.length === 1, 'não respondeu: ' + JSON.stringify(enviadas));
+    assert(!pausada(c), 'a opcao "3) Alguem da equipe" pausou a IA');
+    assert(avisos.length === 0, 'chamou a equipe por causa de uma opcao do roteiro: ' + JSON.stringify(avisos));
+    assert(!prometeuAtendimentoHumano(PERGUNTA_COM_EQUIPE), 'a deteccao ainda le a lista de opcoes');
+    // E a promessa de verdade continua valendo, inclusive junto de uma lista.
+    assert(prometeuAtendimentoHumano('Vou pedir para alguem da equipe falar com você.'),
+      'deixou de ver a promessa escrita em prosa');
+    assert(prometeuAtendimentoHumano(PERGUNTA_COM_EQUIPE + '\n\nJá vou chamar um atendente para você.'),
+      'a lista de opcoes passou a esconder a promessa que vem depois dela');
+  });
+
+  await t('W14 resposta igual a anterior: pede outra redacao e manda a nova', async () => {
+    const c = conversa(26, '5594991110008', true);
+    const JA_ENVIADA = ['Entendi, você ainda não tem experiência em vender para o setor público.', '',
+      'E como você fica sabendo dos editais que servem para o seu ramo?', '',
+      '1) Não fica sabendo, aparece por acaso', '2) Olha os portais na mão', '',
+      'Você pode responder o número da opção ou escrever com suas próprias palavras.'].join('\n');
+    gravarMsg(c, JA_ENVIADA, { deMim: true });
+    // A primeira redação repete, trocando só a última linha — foi exatamente
+    // assim no 559492410812, e um `===` daria as duas por diferentes.
+    const QUASE_IGUAL = JA_ENVIADA.replace('Você pode responder o número da opção ou escrever com suas próprias palavras.',
+      'Responda com o número da opção ou escreva com suas próprias palavras.');
+    respostaDaIA = (msgs) => (/NÃO repita aquela mensagem/.test((msgs[0] || {}).content || '')
+      ? 'Sem problema, começar do zero é o caso mais comum. Hoje você fica sabendo dos editais de algum jeito?'
+      : QUASE_IGUAL);
+    await receber(c, 'Não tenho experiência');
+    assert(chamadasLLM === 2, 'não houve segunda redação: ' + chamadasLLM + ' chamada(s)');
+    assert(enviadas.length === 1, 'enviou ' + enviadas.length + ' mensagem(ns): ' + JSON.stringify(enviadas));
+    assert(enviadas[0].startsWith('Sem problema'), 'saiu a repetição em vez da nova redação: ' + enviadas[0]);
+  });
+
+  await t('W15 se a segunda redacao tambem repete, nada sai', async () => {
+    const c = conversa(27, '5594991110009', true);
+    const JA_ENVIADA = ['Sua empresa já vende para órgão público?', '',
+      '1) Já vendeu e parou', '2) Quer começar, nunca vendeu', '',
+      'Responda o número ou escreva com suas palavras.'].join('\n');
+    gravarMsg(c, JA_ENVIADA, { deMim: true });
+    respostaDaIA = () => JA_ENVIADA;
+    await receber(c, 'ainda não vendi nada');
+    assert(chamadasLLM === 2, 'não tentou a segunda redação: ' + chamadasLLM);
+    assert(enviadas.length === 0, 'mandou a mesma mensagem de novo: ' + JSON.stringify(enviadas));
+    // Nada sai, e nada se perde: a fala do contato continua no histórico, que é
+    // o que a pessoa lê quando pega a conversa. (Quem a põe em não lidas é a
+    // rota do webhook, e disso responde a test-whatsapp-canais.)
+    const dele = db.prepare('SELECT texto FROM whatsapp_messages WHERE remote_jid = ? AND from_me = 0 ORDER BY id DESC LIMIT 1').get(c.jid);
+    assert(dele && dele.texto === 'ainda não vendi nada', 'a mensagem do contato nao ficou gravada: ' + JSON.stringify(dele));
   });
 
   console.log(`\n${ok} ok, ${fail} falha(s)`);
